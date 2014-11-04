@@ -262,7 +262,7 @@ STATIC mali_error kbase_instr_hwcnt_enable_internal(kbase_device *kbdev, kbase_c
 #if SLSI_INTEGRATION
 	if (setup->padding == HWC_MODE_UTILIZATION) {
 		if (!kbdev->hwcnt.kspace_addr) {
-			if (setup->dump_buffer < 0x100000000)
+			if (setup->dump_buffer < 0x100000000ULL)
 				kbdev->hwcnt.kspace_addr =
 					kbase_kmap_from_user_virtual_address(kbdev, (u32)setup->dump_buffer);
 			else
