@@ -15,27 +15,14 @@
 #ifndef _W1_DS28EL15_SHA256_H
 #define _W1_DS28EL15_SHA256_H
 
+#include <linux/types.h>
 
-
-#ifndef uchar
-   typedef unsigned char uchar;
-#endif
-
-#ifndef ushort
-   typedef unsigned short ushort;
-#endif
-
-#ifndef ulong
-   typedef unsigned long ulong;
-#endif
-
-
-int compute_sha256(uchar* message, short length, ushort skipconst, ushort reverse, uchar* digest);
-int verify_mac256(uchar* MT, short lenght, uchar* compare_MAC);
-int compute_mac256(uchar* message, short length, uchar* MAC);
-int calculate_nextsecret256(uchar* binding, uchar* partial, int page_num, uchar* man_id);
-void set_secret(uchar *secret_data);
-void set_romid(uchar *romid_data);
+int compute_sha256(unchar* message, short length, ushort skipconst, ushort reverse, unchar* digest);
+int verify_mac256(unchar* MT, short lenght, unchar* compare_MAC);
+int compute_mac256(unchar* message, short length, unchar* MAC);
+int calculate_nextsecret256(unchar* binding, unchar* partial, int page_num, unchar* man_id);
+void set_secret(unchar *secret_data);
+void set_romid(unchar *romid_data);
 
 
 #endif

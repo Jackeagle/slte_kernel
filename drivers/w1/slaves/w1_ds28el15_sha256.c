@@ -25,12 +25,12 @@
 
 
 // SHA-256 Functions
-int compute_sha256(uchar* message, short length, ushort skipconst, ushort reverse, uchar* digest);
-int compute_mac256(uchar* message, short length, uchar* MAC);
-int verify_mac256(uchar* message, short length, uchar* compare_MAC);
-int calculate_nextsecret256(uchar* binding, uchar* partial, int page_num, uchar* manid);
-void set_secret(uchar *secret_data);
-void set_romid(uchar *romid_data);
+int compute_sha256(unchar* message, short length, ushort skipconst, ushort reverse, unchar* digest);
+int compute_mac256(unchar* message, short length, unchar* MAC);
+int verify_mac256(unchar* message, short length, unchar* compare_MAC);
+int calculate_nextsecret256(unchar* binding, unchar* partial, int page_num, unchar* manid);
+void set_secret(unchar *secret_data);
+void set_romid(unchar *romid_data);
 
 
 // Utility Functions
@@ -42,16 +42,16 @@ ulong sha_bigsigma256_0(ulong x);
 ulong sha_littlesigma256_0(ulong x);
 ulong sha_littlesigma256_1(ulong x);
 void sha_copy32(ulong* p1, ulong* p2, ushort length);
-void sha_copyWordsToBytes32(ulong* input, uchar* output, ushort numwords);
-void sha_writeResult(ushort reverse, uchar* outpointer);
+void sha_copyWordsToBytes32(ulong* input, unchar* output, ushort numwords);
+void sha_writeResult(ushort reverse, unchar* outpointer);
 ulong sha_getW(int index);
-void sha_prepareSchedule(uchar* message);
-void sha256_hashblock(uchar* message, ushort lastblock);
+void sha_prepareSchedule(unchar* message);
+void sha256_hashblock(unchar* message, ushort lastblock);
 
 // hold secret for creating a 
-static uchar secret[32];
+static unchar secret[32];
 
-uchar rom_no[8];
+unchar rom_no[8];
 
 // SHA-256 globals values
 ulong SHA_256_Initial[] = 
@@ -80,7 +80,7 @@ ulong SHA_CONSTANTS[] =
   0x28db77f5, 0x32caab7b, 0x3c9ebe0a, 0x431d67c4, 0x4cc5d4be, 0x597f299c, 0x5fcb6fab, 0x6c44198c
 };
 
-uchar workbuffer[128];
+unchar workbuffer[128];
 
 ulong a32, b32, c32, d32, e32, f32, g32, h32; // SHA working variables
 ulong W32[16];                                // SHA message schedule
@@ -93,7 +93,7 @@ int sha_debug=0;
 // Set the Secret to be used for calculating MAC's in the ComputeMAC
 // function.
 //
-void set_secret(uchar *secret_data)
+void set_secret(unchar *secret_data)
 { 
    int i;
 
@@ -105,7 +105,7 @@ void set_secret(uchar *secret_data)
 // Set the Secret to be used for calculating MAC's in the ComputeMAC
 // function.
 //
-void set_romid(uchar *romid_data)
+void set_romid(unchar *romid_data)
 { 
    int i;
 
@@ -124,10 +124,10 @@ void set_romid(uchar *romid_data)
 // 'length'   - Length of block to digest
 // 'MAC'      - result MAC in byte order used by 1-Wire device
 //
-int compute_mac256(uchar* MT, short length, uchar* MAC)
+int compute_mac256(unchar* MT, short length, unchar* MAC)
 {
    int i,j;  
-   uchar tmp[4]; 
+   unchar tmp[4];
 
    // check for two block format
    if (length == 119)
@@ -186,9 +186,9 @@ int compute_mac256(uchar* MT, short length, uchar* MAC)
 // 'compare_MAC'  - MAC in byte order used by 1-Wire device to compare
 //                 with calculate MAC.
 //
-int verify_mac256(uchar* MT, short length, uchar* compare_MAC)
+int verify_mac256(unchar* MT, short length, unchar* compare_MAC)
 {
-	uchar calc_mac[32];
+	unchar calc_mac[32];
 	int i;
 
 	// calculate the MAC
@@ -218,10 +218,10 @@ int verify_mac256(uchar* MT, short length, uchar* compare_MAC)
 // Returns: TRUE if compute successful
 //          FALSE failed to do compute
 //
-int calculate_nextsecret256(uchar* binding, uchar* partial, int page_num, uchar* manid)
+int calculate_nextsecret256(unchar* binding, unchar* partial, int page_num, unchar* manid)
 {
-   uchar MT[128];
-   uchar MAC[64];
+   unchar MT[128];
+   unchar MAC[64];
 
    // clear 
    memset(MT,0,128);
@@ -331,7 +331,7 @@ void sha_copy32(ulong* p1, ulong* p2, ushort length)
 //----------------------------------------------------------------------
 // SHA-256 support function
 //
-void sha_copyWordsToBytes32(ulong* input, uchar* output, ushort numwords)
+void sha_copyWordsToBytes32(ulong* input, unchar* output, ushort numwords)
 {
     ulong temp;
     ushort i;
@@ -339,20 +339,20 @@ void sha_copyWordsToBytes32(ulong* input, uchar* output, ushort numwords)
     for (i=0;i<numwords;i++)
     {
         temp = *input++;
-        *output++ = (uchar)(temp >> 24);
-        *output++ = (uchar)(temp >> 16);
-        *output++ = (uchar)(temp >> 8);
-        *output++ = (uchar)(temp);
+        *output++ = (unchar)(temp >> 24);
+        *output++ = (unchar)(temp >> 16);
+        *output++ = (unchar)(temp >> 8);
+        *output++ = (unchar)(temp);
     }
 }
 
 //----------------------------------------------------------------------
 // SHA-256 support function
 //
-void sha_writeResult(ushort reverse, uchar* outpointer)
+void sha_writeResult(ushort reverse, unchar* outpointer)
 {
    int i;
-   uchar tmp;
+   unchar tmp;
 
    sha_copyWordsToBytes32(H32, outpointer, 8); 
 
@@ -391,7 +391,7 @@ ulong sha_getW(int index)
 //----------------------------------------------------------------------
 // Prepair the block for hashing
 //
-void sha_prepareSchedule(uchar* message)
+void sha_prepareSchedule(unchar* message)
 {
    // we need to copy the initial message into the 16 W registers
    ushort i,j;
@@ -413,7 +413,7 @@ void sha_prepareSchedule(uchar* message)
 //----------------------------------------------------------------------
 // Hash a single block of data. 
 //
-void sha256_hashblock(uchar* message, ushort lastblock)
+void sha256_hashblock(unchar* message, ushort lastblock)
 {
    ushort sha1counter = 0;
    ushort sha1functionselect = 0;
@@ -495,7 +495,7 @@ void sha256_hashblock(uchar* message, ushort lastblock)
 // 'reverse' - reverse order of digest (reverse=1, MSWord first, LSByte first)
 // 'digest'   - result hash digest in byte order used by 1-Wire device
 //
-int compute_sha256(uchar* message, short length, ushort skipconst, ushort reverse, uchar* digest)
+int compute_sha256(unchar* message, short length, ushort skipconst, ushort reverse, unchar* digest)
 {
    ushort bytes_per_block;
    ushort nonpaddedlength;
@@ -578,7 +578,7 @@ int compute_sha256(uchar* message, short length, ushort skipconst, ushort revers
          message = workbuffer + bytes_per_block - 1;
          for (j = 0; j < wordsize/4; j++)
          {
-            *message-- = (uchar)bitlength;
+            *message-- = (unchar)bitlength;
             bitlength = bitlength >> 8;
          }
       }
