@@ -2339,6 +2339,9 @@ static ssize_t inv_master_enable_store(struct device *dev,
 		goto end_enable;
 	}
 	if (!!data) {
+		if (st->reactive_enable) {
+			st->reactive_accel_on_time = jiffies;
+		}
 		result = st->set_power_state(st, true);
 		if (result)
 			goto end_enable;

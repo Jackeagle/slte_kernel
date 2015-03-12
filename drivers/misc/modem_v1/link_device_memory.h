@@ -40,7 +40,6 @@
 #include <linux/mm.h>
 #include <linux/debugfs.h>
 
-#include <linux/platform_data/modem_v1.h>
 #include "modem_prj.h"
 #include "include/link_device_memory_config.h"
 #include "include/circ_queue.h"
@@ -315,7 +314,17 @@ struct mem_link_device {
 	 * MEMORY type
 	 */
 	enum mem_iface_type type;
-	enum modem_attribute attr;
+
+	/**
+	 * Attributes
+	 */
+	unsigned long attrs;		/* Set of link_attr_bit flags	*/
+
+	/**
+	 * Flags
+	 */
+	bool dpram_magic;		/* DPRAM-style magic code	*/
+	bool iosm;			/* IOSM message			*/
 
 	/**
 	 * {physical address, size, virtual address} for BOOT region
@@ -332,10 +341,6 @@ struct mem_link_device {
 	size_t size;
 	struct page **pages;		/* pointer to the page table for vmap */
 	u8 __iomem *base;
-
-#ifdef CONFIG_LINK_DEVICE_WITH_SBD_ARCH
-	enum mem_ipc_mode ipc_mode;
-#endif
 
 	/**
 	 * Actual logical IPC devices (for IPC_FMT and IPC_RAW)
@@ -386,7 +391,6 @@ struct mem_link_device {
 	 */
 	struct delayed_work udl_rx_dwork;
 	struct std_dload_info img_info;	/* Information of each binary image */
-	spinlock_t pif_init_lock;
 	atomic_t cp_boot_done;
 
 	/**
@@ -437,6 +441,9 @@ struct mem_link_device {
 #endif
 	atomic_t ref_cnt;
 
+	unsigned int gpio_ipc_int2cp;		/* AP-to-CP send signal GPIO */
+	spinlock_t sig_lock;
+
 	void (*start_pm)(struct mem_link_device *mld);
 	void (*stop_pm)(struct mem_link_device *mld);
 	void (*forbid_cp_sleep)(struct mem_link_device *mld);
@@ -445,7 +452,9 @@ struct mem_link_device {
 #endif
 
 #ifdef DEBUG_MODEM_IF
+	struct dentry *dbgfs_dir;
 	struct debugfs_blob_wrapper mem_dump_blob;
+	struct dentry *dbgfs_frame;
 #endif
 };
 
@@ -460,13 +469,6 @@ struct mem_link_device {
 #define MEM_CRASH_MAGIC		0xDEADDEAD
 #define MEM_BOOT_MAGIC		0x424F4F54
 #define MEM_DUMP_MAGIC		0x44554D50
-
-#ifdef CONFIG_LINK_DEVICE_WITH_SBD_ARCH
-static inline bool sbd_ipc_mode(struct mem_link_device *mld)
-{
-	return (mld->ipc_mode == MEM_SBD_IPC);
-}
-#endif
 
 /**
 @}

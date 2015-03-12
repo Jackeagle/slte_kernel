@@ -74,9 +74,9 @@ static bool rild_ready(struct link_device *ld)
 #ifdef CONFIG_LINK_DEVICE_WITH_SBD_ARCH
 static void cmd_init_start_handler(struct mem_link_device *mld)
 {
-	int err;
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
+	int err;
 
 	mif_err("%s: INIT_START <- %s (%s.state:%s cp_boot_done:%d)\n",
 		ld->name, mc->name, mc->name, mc_state(mc),
@@ -93,8 +93,12 @@ static void cmd_init_start_handler(struct mem_link_device *mld)
 		return;
 	}
 
+	if (mld->attrs & LINK_ATTR(LINK_ATTR_IPC_ALIGNED))
+		ld->aligned = true;
+	else
+		ld->aligned = false;
+
 	sbd_activate(&mld->sbd_link_dev);
-	ld->aligned = false;
 
 	mif_err("%s: PIF_INIT_DONE -> %s\n", ld->name, mc->name);
 	send_ipc_irq(mld, cmd2int(CMD_PIF_INIT_DONE));
@@ -103,11 +107,10 @@ static void cmd_init_start_handler(struct mem_link_device *mld)
 
 static void cmd_phone_start_handler(struct mem_link_device *mld)
 {
-	int err;
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
-	struct io_device *iod;
 	unsigned long flags;
+	int err;
 
 	mif_err("%s: CP_START <- %s (%s.state:%s cp_boot_done:%d)\n",
 		ld->name, mc->name, mc->name, mc_state(mc),
@@ -118,9 +121,14 @@ static void cmd_phone_start_handler(struct mem_link_device *mld)
 		mld->start_pm(mld);
 #endif
 
-	spin_lock_irqsave(&mld->pif_init_lock, flags);
+	spin_lock_irqsave(&ld->lock, flags);
 
-	if (cp_online(mc)) {
+	if (ld->state == LINK_STATE_IPC) {
+		/*
+		If there is no INIT_END command from AP, CP sends a CP_START
+		command to AP periodically until it receives INIT_END from AP
+		even though it has already been in ONLINE state.
+		*/
 		if (rild_ready(ld)) {
 			mif_err("%s: INIT_END -> %s\n", ld->name, mc->name);
 			send_ipc_irq(mld, cmd2int(CMD_INIT_END));
@@ -128,22 +136,11 @@ static void cmd_phone_start_handler(struct mem_link_device *mld)
 		goto exit;
 	}
 
-	iod = link_get_iod_with_channel(ld, SIPC5_CH_ID_FMT_0);
-	if (!iod) {
-		mif_err("%s: ERR! no IPC_FMT iod\n", ld->name);
+	err = mem_reset_ipc_link(mld);
+	if (err) {
+		mif_err("%s: mem_reset_ipc_link fail(%d)\n", ld->name, err);
 		goto exit;
 	}
-
-#ifdef CONFIG_LINK_DEVICE_WITH_SBD_ARCH
-	if (sbd_active(&mld->sbd_link_dev))
-		mld->ipc_mode = MEM_SBD_IPC;
-	else
-		mld->ipc_mode = MEM_LEGACY_IPC;
-#endif
-
-	err = mem_reset_ipc_link(mld);
-	if (err)
-		goto exit;
 
 	if (rild_ready(ld)) {
 		mif_err("%s: INIT_END -> %s\n", ld->name, mc->name);
@@ -151,18 +148,23 @@ static void cmd_phone_start_handler(struct mem_link_device *mld)
 		atomic_set(&mld->cp_boot_done, 1);
 	}
 
-	iod->modem_state_changed(iod, STATE_ONLINE);
+	ld->state = LINK_STATE_IPC;
 
-	complete_all(&ld->init_cmpl);
+	complete_all(&mc->init_cmpl);
 
 exit:
-	spin_unlock_irqrestore(&mld->pif_init_lock, flags);
+	spin_unlock_irqrestore(&ld->lock, flags);
 }
 
 static void cmd_crash_reset_handler(struct mem_link_device *mld)
 {
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
+	unsigned long flags;
+
+	spin_lock_irqsave(&ld->lock, flags);
+	ld->state = LINK_STATE_OFFLINE;
+	spin_unlock_irqrestore(&ld->lock, flags);
 
 	evt_log(0, "%s<-%s: ERR! CP_CRASH_RESET\n", ld->name, mc->name);
 
@@ -173,6 +175,11 @@ static void cmd_crash_exit_handler(struct mem_link_device *mld)
 {
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
+	unsigned long flags;
+
+	spin_lock_irqsave(&ld->lock, flags);
+	ld->state = LINK_STATE_CP_CRASH;
+	spin_unlock_irqrestore(&ld->lock, flags);
 
 	if (timer_pending(&mc->crash_ack_timer))
 		del_timer(&mc->crash_ack_timer);

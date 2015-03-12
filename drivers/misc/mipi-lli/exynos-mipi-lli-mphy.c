@@ -67,14 +67,14 @@ int exynos_mphy_cmn_init(struct exynos_mphy *phy)
 	writel(0x02, phy->loc_regs + (0x14*4));
 	writel(0x00, phy->loc_regs + (0x16*4));
 	writel(0x01, phy->loc_regs + (0x17*4));
-	writel(0x96, phy->loc_regs + (0x19*4));
-	writel(0x07, phy->loc_regs + (0x44*4));
+	writel(0xD6, phy->loc_regs + (0x19*4));
+	writel(0x00, phy->loc_regs + (0x44*4));
 	writel(0x01, phy->loc_regs + (0x4D*4));
 	writel(0x03, phy->loc_regs + (0x4E*4));
 
 	/* afc on only booting time */
 	if (is_first) {
-		writel(0x07, phy->loc_regs + (0x44*4));
+		writel(0x00, phy->loc_regs + (0x44*4));
 		writel(0x00, phy->loc_regs + (0x31*4));
 		is_first = false;
 	}

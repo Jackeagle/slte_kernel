@@ -269,6 +269,12 @@ void mdm_ready_handler(struct mem_link_device *mld, struct iosm_msg *msg)
 		mif_err("%s: init_sbd_link fail(%d)\n", ld->name, err);
 		return;
 	}
+
+	if (mld->attrs & LINK_ATTR(LINK_ATTR_IPC_ALIGNED))
+		ld->aligned = true;
+	else
+		ld->aligned = false;
+
 	sbd_activate(&mld->sbd_link_dev);
 
 	tx_iosm_message(mld, IOSM_A2C_AP_READY, 0);

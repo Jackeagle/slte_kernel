@@ -1754,11 +1754,18 @@ static ssize_t show_usb_device_lock_state(struct device *pdev,
 		struct device_attribute *attr, char *buf)
 {
 	struct android_dev *dev = dev_get_drvdata(pdev);
+	const char *usb_lock_state;
+
+	mutex_lock(&dev->mutex);
 
 	if (!dev->usb_lock)
-		return snprintf(buf, PAGE_SIZE, "USB_UNLOCK\n");
+		usb_lock_state = "USB_UNLOCK";
 	else
-		return snprintf(buf, PAGE_SIZE, "USB_LOCK\n");
+		usb_lock_state = "USB_LOCK";
+
+	mutex_unlock(&dev->mutex);
+
+	return sprintf(buf, "%s\n", usb_lock_state);
 }
 
 static ssize_t store_usb_device_lock_state(struct device *pdev,
@@ -1767,24 +1774,33 @@ static ssize_t store_usb_device_lock_state(struct device *pdev,
 
 	struct android_dev *dev = dev_get_drvdata(pdev);
 	struct usb_composite_dev *cdev = dev->cdev;
+	int value;
 
-	if (!strncmp(buff, "0", 1)){
-		mutex_lock(&dev->mutex);
-		dev->usb_lock = 0;
-		android_enable(dev);
-		mutex_unlock(&dev->mutex);
-	} else if (!strncmp(buff, "1", 1)){
-		pr_info("[%s][%d] : usb disconnect for support MDM\n",
-			__func__,__LINE__);
-		mutex_lock(&dev->mutex);
-		dev->usb_lock = 1;
-		android_disconnect(cdev);
-		android_disable(dev);
-		mutex_unlock(&dev->mutex);
+	sscanf(buff, "%d", &value);
+
+	pr_info("%s : usb_lock %d Buff %d \n",__func__,dev->usb_lock,value);
+
+	if (value != dev->usb_lock) {
+		dev->usb_lock = value;
+		if (dev->usb_lock == 0){
+			pr_info("%s : usb connect for support MDM\n",__func__);
+			android_enable(dev);
+		} else if (dev->usb_lock == 1){
+			pr_info("%s : usb disconnect for support MDM\n",__func__);
+			android_disconnect(cdev);
+			android_disable(dev);
+		} else {
+			pr_warn("%s: Wrong command\n", __func__);
+			mutex_unlock(&dev->mutex);
+			return count;
+		}
 	} else {
-		pr_warn("%s: Wrong command\n", __func__);
-		return count;
+			pr_info("%s: Duplicated command\n", __func__);
+			mutex_unlock(&dev->mutex);
+			return count;
 	}
+
+	mutex_unlock(&dev->mutex);
 
 	return count;
 }

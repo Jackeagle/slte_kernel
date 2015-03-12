@@ -81,7 +81,7 @@ receives an REQ_ACK.
 void print_req_ack(struct mem_link_device *mld, struct mem_snapshot *mst,
 		   struct mem_ipc_device *dev, enum direction dir)
 {
-#ifdef DEBUG_MODEM_IF
+#ifdef DEBUG_MODEM_IF_FLOW_CTRL
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
 	enum dev_format id = dev->id;
@@ -116,7 +116,7 @@ receives an RES_ACK.
 void print_res_ack(struct mem_link_device *mld, struct mem_snapshot *mst,
 		   struct mem_ipc_device *dev, enum direction dir)
 {
-#ifdef DEBUG_MODEM_IF
+#ifdef DEBUG_MODEM_IF_FLOW_CTRL
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
 	enum dev_format id = dev->id;

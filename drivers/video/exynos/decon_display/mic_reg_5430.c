@@ -122,7 +122,7 @@ void mic_reg_set_output_timing(struct decon_lcd *lcd)
 	mic_write(MIC_2D_OUTPUT_TIMING_2, bs_2d);
 }
 
-void mic_reg_set_win_update_conf(u32 w, u32 h)
+void mic_reg_set_win_update_conf(u32 w, u32 h, struct decon_mic *mic)
 {
 	u32 data;
 	u32 bs_2d = ((w >> 2) << 1) + (w & 0x3);
@@ -135,6 +135,11 @@ void mic_reg_set_win_update_conf(u32 w, u32 h)
 	/* 2d_bit_stream_size */
 	mic_write(MIC_2D_OUTPUT_TIMING_2, bs_2d);
 	mic_reg_set_update(1);
+
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	mic->lcd_update->xres = w;
+	mic->lcd_update->yres = h;
+#endif
 
 	/* TODO: porch settings */
 }

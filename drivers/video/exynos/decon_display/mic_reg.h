@@ -86,5 +86,5 @@ void mic_reg_set_update(u32);
 void mic_reg_set_porch_timing(struct decon_lcd *lcd);
 void mic_reg_set_output_timing(struct decon_lcd *lcd);
 
-void mic_reg_set_win_update_conf(u32 w, u32 h);
+void mic_reg_set_win_update_conf(u32 w, u32 h, struct decon_mic *mic);
 #endif /* _MIC_REG_H */

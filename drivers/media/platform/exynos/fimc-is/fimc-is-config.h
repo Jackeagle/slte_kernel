@@ -207,6 +207,10 @@
 #define mrerr(fmt, object, frame, args...) \
 	pr_err("[@][%d:F%d][ERR]%s:%d: " fmt "\n", object->instance, frame->fcount, __func__, __LINE__, ##args)
 
+/* multi-stream & group error */
+#define mgerr(fmt, object, group, args...) \
+        pr_err("[@][%d][GP%d][ERR]%s:%d:" fmt "\n", object->instance, group->id, __func__, __LINE__, ##args)
+
 #ifdef warn
 #undef warn
 #endif
@@ -215,6 +219,9 @@
 
 #define mwarn(fmt, this, args...) \
 	pr_warning("[@][%d][WRN] " fmt "\n", this->instance, ##args)
+
+#define mgwarn(fmt, object, group, args...) \
+        pr_warning("[@][%d][GP%d][WRN]" fmt "\n", object->instance, group->id, ##args)
 
 #define info(fmt, args...) \
 	pr_info("[@]" fmt, ##args)

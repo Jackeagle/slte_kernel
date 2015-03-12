@@ -1313,6 +1313,7 @@ static void inv_process_motion(struct inv_mpu_state *st)
 	u8 data;
 #if defined(CONFIG_SENSORS_CORE)
 	unsigned long timediff = 0;
+	unsigned long timediff2 = 0;
 #endif
 
 	/* motion interrupt */
@@ -1330,7 +1331,12 @@ static void inv_process_motion(struct inv_mpu_state *st)
 			pr_err("[SENSOR] %s: timediff = %ld msec\n", __func__, timediff);
 			return;
 		}
-
+		timediff2 = jiffies_to_msecs(jiffies - st->reactive_accel_on_time);
+		/* ignore motion interrupt happened in 100ms to skip intial erronous interrupt */
+		if (timediff2 < 100 && !(st->factory_mode)) {
+			pr_err("[SENSOR] %s: timediff2 = %ld msec\n", __func__, timediff2);
+			return;
+		}
 		st->reactive_state = 1;
 		pr_info("[SENSOR] Reactive alert happened ##############\n");
 

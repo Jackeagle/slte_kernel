@@ -869,6 +869,7 @@ struct inv_mpu_state {
 	u8 reactive_state;
 	u8 reactive_enable;
 	bool factory_mode;
+	unsigned long reactive_accel_on_time;
 	struct device *gyro_sensor_device;
 	struct device *accel_sensor_device;
 	struct wake_lock reactive_wake_lock;

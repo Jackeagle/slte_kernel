@@ -51,7 +51,7 @@ static u16 recv_cp2ap_irq(struct mem_link_device *mld)
 
 static void send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 {
-#if 0/*def DEBUG_MODEM_IF*/
+#if 0
 	struct link_device *ld = &mld->link_dev;
 	struct modem_ctl *mc = ld->mc;
 

@@ -1089,7 +1089,7 @@ static int exynos_enter_lowpower(struct cpuidle_device *dev,
 		return exynos_enter_core0_aftr(dev, drv, new_index);
 #ifdef CONFIG_SND_SAMSUNG_AUDSS
 	else if (exynos_check_aud_pwr() == AUD_PWR_ALPA)
-		return exynos_enter_core0_lpa(dev, drv, SYS_ALPA, new_index, enter_mode);
+		return exynos_enter_core0_aftr(dev, drv, new_index);
 	else
 #endif
 		return exynos_enter_core0_lpa(dev, drv, SYS_LPA, new_index, enter_mode);

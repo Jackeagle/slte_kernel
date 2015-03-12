@@ -36,20 +36,39 @@
 #include "include/sipc5.h"
 #include "modem_pm.h"
 
-#if 1 /*#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP*/
+#ifndef CONFIG_SAMSUNG_PRODUCT_SHIP
 #define DEBUG_MODEM_IF
+#include <trace/events/modem_if.h>
 #endif
 
 #ifdef DEBUG_MODEM_IF
+#if 1
 #define DEBUG_MODEM_IF_LINK_TX
-#define DEBUG_MODEM_IF_LINK_RX
 #endif
 #if 0
+#define DEBUG_MODEM_IF_LINK_RX
+#endif
+#if defined(DEBUG_MODEM_IF_LINK_TX) && defined(DEBUG_MODEM_IF_LINK_RX)
+#define DEBUG_MODEM_IF_LINK_HEADER
+#endif
+
+#if 0
 #define DEBUG_MODEM_IF_IODEV_TX
-#define DEBUG_MODEM_IF_IODEV_RX
 #endif
 #if 1
+#define DEBUG_MODEM_IF_IODEV_RX
+#endif
+
+#if 1
 #define DEBUG_MODEM_IF_FLOW_CTRL
+#endif
+
+#if 0
+#define DEBUG_MODEM_IF_PS_DATA
+#endif
+#if 0
+#define DEBUG_MODEM_IF_IP_DATA
+#endif
 #endif
 
 /*
@@ -131,6 +150,12 @@ enum modem_state {
 	STATE_SIM_DETACH,
 };
 
+enum link_state {
+	LINK_STATE_OFFLINE = 0,
+	LINK_STATE_IPC,
+	LINK_STATE_CP_CRASH
+};
+
 struct sim_state {
 	bool online;	/* SIM is online? */
 	bool changed;	/* online is changed? */
@@ -174,6 +199,18 @@ static inline bool sipc_ps_ch(u8 ch)
 {
 	return (ch >= SIPC_CH_ID_PDP_0 && ch <= SIPC_CH_ID_PDP_14) ?
 		true : false;
+}
+
+static inline bool sipc_major_ch(u8 ch)
+{
+	switch (ch) {
+	case SIPC_CH_ID_PDP_0:
+	case SIPC_CH_ID_PDP_1:
+	case SIPC5_CH_ID_FMT_0:
+	case SIPC5_CH_ID_RFS_0:
+		return true;
+	}
+	return false;
 }
 
 /**
@@ -382,19 +419,26 @@ struct io_device {
 struct link_device {
 	struct list_head  list;
 
-	enum modem_link link_type;
-
-	char *name;
-
 	spinlock_t lock;
 
-	struct modem_link_pm pm;
+	enum modem_link link_type;
 
-	/**
-	 * LINK attributes
-	 */
+	struct modem_ctl *mc;
+
+	struct modem_shared *msd;
+
+	enum link_state state;
+
+	/*
+	Above are mandatory attributes for all link devices which are set or
+	initialized AFTER each link device instance is created.
+	========================================================================
+	Below are private attributes for each link device which are set or
+	initialized WHILE each link device instance is created.
+	*/
+
+	char *name;
 	bool sbd_ipc;
-	bool mem_ipc;
 	bool aligned;
 
 	/* SIPC version */
@@ -403,19 +447,8 @@ struct link_device {
 	/* Modem data */
 	struct modem_data *mdm_data;
 
-	/* Modem control */
-	struct modem_ctl *mc;
-
-	/* Modem shared data */
-	struct modem_shared *msd;
-
-	/* completion for waiting for link initialization */
-	struct completion init_cmpl;
-
-	/* completion for waiting for PIF initialization in a CP */
-	struct completion pif_cmpl;
-
-	struct io_device *fmt_iods[4];
+	/* Power management */
+	struct modem_link_pm pm;
 
 	/* TX queue of socket buffers */
 	struct sk_buff_head sk_fmt_tx_q;
@@ -478,14 +511,10 @@ struct link_device {
 	int (*send)(struct link_device *ld, struct io_device *iod,
 		    struct sk_buff *skb);
 
-	/* method to add modem & link specific quirk */
-	void (*boot_on)(struct link_device *ld, struct io_device *iod);
-
 	/* method for CP booting */
+	void (*boot_on)(struct link_device *ld, struct io_device *iod);
 	int (*xmit_boot)(struct link_device *ld, struct io_device *iod,
 			 unsigned long arg);
-
-	/* methods for CP firmware upgrade */
 	int (*dload_start)(struct link_device *ld, struct io_device *iod);
 	int (*firm_update)(struct link_device *ld, struct io_device *iod,
 			   unsigned long arg);
@@ -520,6 +549,9 @@ struct link_device {
 
 	/* turn off physical link */
 	void (*off)(struct link_device *ld);
+
+	/* Whether the physical link is unmounted or not */
+	bool (*unmounted)(struct link_device *ld);
 
 	/* Whether the physical link is suspended or not */
 	bool (*suspended)(struct link_device *ld);
@@ -628,6 +660,15 @@ struct modem_ctl {
 	enum modem_state phone_state;
 	struct sim_state sim_state;
 
+	/* spin lock for each modem_ctl instance */
+	spinlock_t lock;
+
+	/* completion for waiting for CP initialization */
+	struct completion init_cmpl;
+
+	/* completion for waiting for CP power-off */
+	struct completion off_cmpl;
+
 	/*
 	wake_lock for CP booting (download) and/or crash dump (upload)
 	- The use of wake_lock for CP booting/crash is dependent on each modem
@@ -715,9 +756,6 @@ struct modem_ctl {
 
 	struct work_struct pm_qos_work;
 
-	/* completion for waiting for CP power-off */
-	struct completion off_cmpl;
-
 	/* Switch with 2 links in a modem */
 	unsigned int gpio_link_switch;
 
@@ -740,6 +778,9 @@ struct modem_ctl {
 	void (*modem_complete)(struct modem_ctl *mc);
 
 	struct notifier_block event_nfb;
+
+	/* Notifier for unmount event from a link device */
+	struct notifier_block unmount_nb;
 };
 
 static inline bool cp_offline(struct modem_ctl *mc)

@@ -80,6 +80,27 @@ static inline void print_pm_fsm(struct modem_link_pm *pm)
 
 static void pm_wdog_bark(unsigned long data);
 
+int pm_register_unmount_notifier(struct modem_link_pm *pm,
+				 struct notifier_block *nb)
+{
+	return raw_notifier_chain_register(&pm->unmount_notifier_list, nb);
+}
+
+int pm_unregister_unmount_notifier(struct modem_link_pm *pm,
+				   struct notifier_block *nb)
+{
+	return raw_notifier_chain_unregister(&pm->unmount_notifier_list, nb);
+}
+
+static int pm_call_unmount_notifier_chain(struct modem_link_pm *pm,
+					  unsigned long val)
+{
+	return raw_notifier_call_chain(&pm->unmount_notifier_list, val, pm);
+}
+
+#if 1
+#endif
+
 static inline void change_irq_level(unsigned int irq, unsigned int value)
 {
 	irq_set_irq_type(irq, value ? IRQ_TYPE_LEVEL_LOW : IRQ_TYPE_LEVEL_HIGH);
@@ -156,11 +177,9 @@ static inline void stop_pm_wdog(struct modem_link_pm *pm, enum pm_state state,
 			pm_state2str(state));
 #endif
 	} else {
-#ifdef DEBUG_MODEM_IF
 		evt_log(0, "%s: ERR! PM WDOG illegal state {%s@%s}\n",
 			pm->link_name, pm_event2str(event),
 			pm_state2str(state));
-#endif
 	}
 }
 
@@ -234,14 +253,14 @@ static inline void unmounted_to_resetting(struct modem_link_pm *pm)
 	reload_link(pm);
 	assert_ap2cp_wakeup(pm);
 	start_pm_wdog(pm, PM_STATE_RESETTING, PM_STATE_MOUNTING,
-		      PM_EVENT_LINK_RESET, 100);
+		      PM_EVENT_LINK_RESET, 500);
 }
 
 static inline void unmounted_to_holding(struct modem_link_pm *pm)
 {
 	assert_ap2cp_wakeup(pm);
 	start_pm_wdog(pm, PM_STATE_HOLDING, PM_STATE_RESETTING,
-		      PM_EVENT_CP2AP_WAKEUP_HIGH, 100);
+		      PM_EVENT_CP2AP_WAKEUP_HIGH, 500);
 }
 
 static inline void holding_to_resetting(struct modem_link_pm *pm)
@@ -249,7 +268,7 @@ static inline void holding_to_resetting(struct modem_link_pm *pm)
 	stop_pm_wdog(pm, PM_STATE_HOLDING, PM_EVENT_CP2AP_WAKEUP_HIGH);
 	reload_link(pm);
 	start_pm_wdog(pm, PM_STATE_RESETTING, PM_STATE_MOUNTING,
-		      PM_EVENT_LINK_RESET, 100);
+		      PM_EVENT_LINK_RESET, 500);
 }
 
 static inline enum pm_state next_state_from_resume(struct modem_link_pm *pm)
@@ -330,7 +349,11 @@ static inline void check_pm_fail(struct modem_link_pm *pm,
 
 	switch (n_state) {
 	case PM_STATE_WDOG_TIMEOUT:
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 		handle_wdog_timeout(pm);
+#else
+		panic("%s: PM_STATE_FAIL : irq handling delayed..\n", pm->link_name);
+#endif
 		break;
 
 	case PM_STATE_CP_FAIL:
@@ -348,6 +371,8 @@ static inline void check_pm_fail(struct modem_link_pm *pm,
 
 static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 {
+	struct link_device *ld = pm_to_link_device(pm);
+	struct modem_ctl *mc = ld->mc;
 	struct pm_fsm *fsm = &pm->fsm;
 	enum pm_state c_state;
 	enum pm_state n_state;
@@ -369,10 +394,13 @@ static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 		goto exit;
 
 	if (event == PM_EVENT_CP_HOLD_REQUEST) {
-		pm->hold_requested = true;
-		if (!hold_possible(c_state)) {
+		if (!cp_online(mc))
 			goto exit;
-		}
+
+		pm->hold_requested = true;
+
+		if (!hold_possible(c_state))
+			goto exit;
 	}
 
 #if 0
@@ -460,7 +488,7 @@ static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 		} else if (event == PM_EVENT_WDOG_TIMEOUT) {
 			n_state = PM_STATE_WDOG_TIMEOUT;
 		} else if (event == PM_EVENT_CP2AP_WAKEUP_LOW) {
-#if 0
+#ifdef CONFIG_SAMSUNG_PRODUCT_SHIP
 			n_state = PM_STATE_CP_FAIL;
 #else
 			n_state = PM_STATE_AP_FAIL;
@@ -511,7 +539,7 @@ static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 		if (event == PM_EVENT_CP2AP_STATUS_LOW) {
 			n_state = PM_STATE_UNMOUNTING;
 			start_pm_wdog(pm, n_state, PM_STATE_UNMOUNTED,
-				      PM_EVENT_LINK_UNMOUNTED, 100);
+				      PM_EVENT_LINK_UNMOUNTED, 500);
 		} else if (event == PM_EVENT_CP2AP_WAKEUP_HIGH) {
 			n_state = PM_STATE_ACTIVE;
 			assert_ap2cp_wakeup(pm);
@@ -519,7 +547,7 @@ static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 			n_state = PM_STATE_ACTIVATING;
 			assert_ap2cp_wakeup(pm);
 			start_pm_wdog(pm, n_state, PM_STATE_ACTIVE,
-				      PM_EVENT_CP2AP_WAKEUP_HIGH, 100);
+				      PM_EVENT_CP2AP_WAKEUP_HIGH, 500);
 		}
 		break;
 
@@ -552,7 +580,10 @@ static void run_pm_fsm(struct modem_link_pm *pm, enum pm_event event)
 	case PM_STATE_UNMOUNTING:
 		if (event == PM_EVENT_LINK_UNMOUNTED) {
 			if (pm->hold_requested) {
-				n_state = PM_STATE_HOLDING;
+				if (cp_online(mc))
+					n_state = PM_STATE_HOLDING;
+				else
+					n_state = PM_STATE_UNMOUNTED;
 				pm->hold_requested = false;
 			} else {
 				n_state = PM_STATE_UNMOUNTED;
@@ -659,10 +690,8 @@ static void pm_wdog_bark(unsigned long data)
 	spin_unlock_irqrestore(&pm->lock, flags);
 
 	if (wdog->w_state == c_state) {
-#ifdef DEBUG_MODEM_IF
 		evt_log(0, "%s: PM WDOG lost event {%s@%s}\n", pm->link_name,
 			pm_event2str(wdog->w_event), pm_state2str(wdog->state));
-#endif
 		return;
 	}
 
@@ -701,6 +730,7 @@ static inline void link_unmount_cb(void *owner)
 {
 	struct modem_link_pm *pm = (struct modem_link_pm *)owner;
 	run_pm_fsm(pm, PM_EVENT_LINK_UNMOUNTED);
+	pm_call_unmount_notifier_chain(pm, PM_EVENT_LINK_UNMOUNTED);
 }
 
 static inline void link_suspend_cb(void *owner)
@@ -756,7 +786,6 @@ static void start_link_pm(struct modem_link_pm *pm, enum pm_event event)
 	int cp2ap_status;
 	enum pm_state state;
 	unsigned long flags;
-	int err;
 
 	spin_lock_irqsave(&pm->lock, flags);
 
@@ -786,25 +815,11 @@ static void start_link_pm(struct modem_link_pm *pm, enum pm_event event)
 	*/
 	cp2ap_wakeup = gpio_get_value(pm->gpio_cp2ap_wakeup);
 	change_irq_level(pm->cp2ap_wakeup_irq.num, cp2ap_wakeup);
-
 	mif_enable_irq(&pm->cp2ap_wakeup_irq);
-	err = enable_irq_wake(pm->cp2ap_wakeup_irq.num);
-	if (err) {
-		evt_log(0, "%s: PM ERR! enable_irq_wake(%s#%d) fail (%d)\n",
-			pm->link_name, pm->cp2ap_wakeup_irq.name,
-			pm->cp2ap_wakeup_irq.num, err);
-	}
 
 	cp2ap_status = gpio_get_value(pm->gpio_cp2ap_status);
 	change_irq_level(pm->cp2ap_status_irq.num, cp2ap_status);
-
 	mif_enable_irq(&pm->cp2ap_status_irq);
-	err = enable_irq_wake(pm->cp2ap_status_irq.num);
-	if (err) {
-		evt_log(0, "%s: PM ERR! enable_irq_wake(%s#%d) fail (%d)\n",
-			pm->link_name, pm->cp2ap_status_irq.name,
-			pm->cp2ap_status_irq.num, err);
-	}
 
 	set_pm_fsm(pm, PM_STATE_UNMOUNTED, state, event);
 
@@ -833,12 +848,10 @@ static void stop_link_pm(struct modem_link_pm *pm)
 
 	pm->active = false;
 
-	disable_irq_wake(pm->cp2ap_wakeup_irq.num);
 	mif_disable_irq(&pm->cp2ap_wakeup_irq);
 	evt_log(0, "%s: PM %s_irq#%d handler disabled\n", pm->link_name,
 		pm->cp2ap_wakeup_irq.name, pm->cp2ap_wakeup_irq.num);
 
-	disable_irq_wake(pm->cp2ap_status_irq.num);
 	mif_disable_irq(&pm->cp2ap_status_irq);
 	evt_log(0, "%s: PM %s_irq#%d handler disabled\n", pm->link_name,
 		pm->cp2ap_status_irq.name, pm->cp2ap_status_irq.num);

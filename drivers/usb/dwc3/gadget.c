@@ -1770,7 +1770,7 @@ static int set_cpu_core_from_usb_irq(int enable)
 		return -EIO;
 
 	if (enable){
-		err = irq_set_affinity(irq, cpumask_of(3));
+		err = irq_set_affinity(irq, cpumask_of(1));
 	} else {
 
 		if (!alloc_cpumask_var(&new_value, GFP_KERNEL))

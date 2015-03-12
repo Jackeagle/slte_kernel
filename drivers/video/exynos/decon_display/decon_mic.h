@@ -15,6 +15,9 @@ struct decon_mic {
 	struct device *dev;
 	void __iomem *reg_base;
 	struct decon_lcd *lcd;
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	struct decon_lcd *lcd_update;
+#endif
 	struct mic_config *mic_config;
 	bool decon_mic_on;
 };

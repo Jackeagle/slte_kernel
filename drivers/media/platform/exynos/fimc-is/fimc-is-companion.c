@@ -446,6 +446,7 @@ static int fimc_is_comp_load_binary(struct fimc_is_core *core, char *name)
 #ifdef USE_ION_ALLOC
 	struct ion_handle *handle = NULL;
 #endif
+	int retry_count = 0;
 
 	BUG_ON(!core);
 	BUG_ON(!core->pdev);
@@ -508,7 +509,13 @@ request_fw:
 	if (fw_requested) {
 		snprintf(fw_name, sizeof(fw_name), "%s", name);
 		set_fs(old_fs);
+		retry_count = 3;
 		ret = request_firmware(&fw_blob, fw_name, &core->companion->pdev->dev);
+		while (--retry_count && ret == -EAGAIN) {
+			err("request_firmware retry(count:%d)", retry_count);
+			ret = request_firmware(&fw_blob, fw_name, &core->companion->pdev->dev);
+		}
+
 		if (ret) {
 			err("request_firmware is fail(ret:%d)", ret);
 			ret = -EINVAL;

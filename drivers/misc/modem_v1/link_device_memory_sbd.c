@@ -36,9 +36,9 @@
 @{
 */
 
-#ifdef DEBUG_MODEM_IF
 static void print_sbd_config(struct sbd_link_device *sl)
 {
+#ifdef DEBUG_MODEM_IF
 	int i;
 
 	pr_err("mif: SBD_IPC {shmem_base:0x%08X shmem_size:%d}\n",
@@ -70,8 +70,8 @@ static void print_sbd_config(struct sbd_link_device *sl)
 			udl_str(rbd->direction), rb_ch->dl_sbdv_offset,
 			rbd->length, rbd->buff_size, rbd->payload_offset);
 	}
-}
 #endif
+}
 
 static void init_desc_alloc(struct sbd_link_device *sl, unsigned int offset)
 {
@@ -168,7 +168,7 @@ static int setup_sbd_rb(struct sbd_link_device *sl, struct sbd_ring_buffer *rb,
 	for (i = 0; i < rb->len; i++)
 		rb->buff[i] = rb->buff_rgn + (i * rb->buff_size);
 
-#if 0/*def DEBUG_MODEM_IF*/
+#if 0
 	mif_err("RB[%d:%d][%s] buff_rgn {addr:0x%08X offset:%d size:%d}\n",
 		rb->id, rb->ch, udl_str(dir), (int)rb->buff_rgn,
 		calc_offset(rb->buff_rgn, sl->shmem), alloc_size);
@@ -208,7 +208,7 @@ static void setup_desc_rgn(struct sbd_link_device *sl)
 {
 	unsigned int size;
 
-#if 0/*def DEBUG_MODEM_IF*/
+#if 0
 	mif_err("SHMEM {base:0x%08X size:%d}\n",
 		(int)sl->shmem, sl->shmem_size);
 #endif
@@ -219,7 +219,7 @@ static void setup_desc_rgn(struct sbd_link_device *sl)
 	size = sizeof(struct sbd_global_desc);
 	sl->g_desc = (struct sbd_global_desc *)desc_alloc(sl, size);
 
-#if 0/*def DEBUG_MODEM_IF*/
+#if 0
 	mif_err("G_DESC_OFFSET = %d(0x%08X)\n",
 		calc_offset(sl->g_desc, sl->shmem),
 		(int)sl->g_desc);
@@ -235,7 +235,7 @@ static void setup_desc_rgn(struct sbd_link_device *sl)
 
 	size = sizeof(u16) * ULDL * RDWR * sl->num_channels;
 	sl->rbps = (u16 *)desc_alloc(sl, size);
-#if 0/*def DEBUG_MODEM_IF*/
+#if 0
 	mif_err("RBP_SET_OFFSET = %d (0x%08X)\n",
 		calc_offset(sl->rbps, sl->shmem), (int)sl->rbps);
 #endif
@@ -396,10 +396,8 @@ int init_sbd_link(struct sbd_link_device *sl)
 	init_buff_alloc(sl, BUFF_RGN_OFFSET);
 
 	err = init_sbd_ipc(sl, sl->ipc_dev, sl->link_attr);
-#ifdef DEBUG_MODEM_IF
 	if (!err)
 		print_sbd_config(sl);
-#endif
 
 	return err;
 }
@@ -467,10 +465,8 @@ static inline int check_rb_space(struct sbd_ring_buffer *rb, unsigned int qlen,
 
 	space = circ_get_space(qlen, in, out);
 	if (unlikely(space < 1)) {
-#ifdef DEBUG_MODEM_IF
 		mif_err_limited("TXQ[%d:%d] NOSPC (qlen:%d in:%d out:%d)\n",
 				rb->id, rb->ch, qlen, in, out);
-#endif
 		return -ENOSPC;
 	}
 
@@ -514,7 +510,7 @@ int sbd_pio_tx(struct sbd_ring_buffer *rb, struct sk_buff *skb)
 	/* Commit the item before incrementing the head */
 	smp_mb();
 
-	return 0;
+	return count;
 }
 
 /**

@@ -511,17 +511,13 @@ void mif_print_dump(const u8 *data, int len, int width);
 -------------------------------------------------------------------------*/
 #define UDP_HDR_SIZE	8
 
-void print_ip4_packet(const u8 *ip_pkt, bool tx);
+void print_ipv4_packet(const u8 *ip_pkt, enum direction dir);
 bool is_dns_packet(const u8 *ip_pkt);
 bool is_syn_packet(const u8 *ip_pkt);
 
-int mif_register_isr(unsigned int irq, irq_handler_t isr, unsigned long flags,
-		     const char *name, void *data);
 void mif_init_irq(struct modem_irq *irq, unsigned int num, const char *name,
 		  unsigned long flags);
 int mif_request_irq(struct modem_irq *irq, irq_handler_t isr, void *data);
-int mif_request_threaded_irq(struct modem_irq *irq,
-		irq_handler_t isr, irq_handler_t thread_fn, void *data);
 void mif_enable_irq(struct modem_irq *irq);
 void mif_disable_irq(struct modem_irq *irq);
 
@@ -531,6 +527,8 @@ void mif_close_file(struct file *fp);
 
 int board_gpio_export(struct device *dev,
 		unsigned gpio, bool dir, const char *name);
+
+void make_gpio_floating(unsigned int gpio, bool floating);
 
 #ifdef CONFIG_ARGOS
 /* kernel team needs to provide argos header file. !!!

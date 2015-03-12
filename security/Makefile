@@ -30,9 +30,7 @@ subdir-$(CONFIG_INTEGRITY)		+= integrity
 obj-$(CONFIG_INTEGRITY)			+= integrity/built-in.o
 
 # TIMA uevent 
-ifeq ($(TIMA_ENABLED),1)
-obj-y     += tima_uevent/
-endif
+obj-$(CONFIG_TIMA)     += tima_uevent/tima_uevent.o
 
 # Knox SDP
 obj-$(CONFIG_SDP) += sdp/

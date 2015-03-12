@@ -5014,6 +5014,14 @@ wl_cfg80211_remain_on_channel(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev,
 		struct timer_list *_timer;
 		WL_DBG(("scan is running. go to fake listen state\n"));
 
+#ifdef CUSTOMER_HW4
+#define LONG_LISTEN_TIME 2000
+		if (duration > LONG_LISTEN_TIME) {
+			wl_cfg80211_scan_abort(cfg);
+		} else {
+#undef LONG_LISTEN_TIME
+#endif /* CUSTOMER_HW4 */
+
 		wl_set_drv_status(cfg, FAKE_REMAINING_ON_CHANNEL, ndev);
 
 		if (timer_pending(&cfg->p2p->listen_timer)) {
@@ -5028,6 +5036,11 @@ wl_cfg80211_remain_on_channel(struct wiphy *wiphy, bcm_struct_cfgdev *cfgdev,
 
 		err = BCME_OK;
 		goto exit;
+#ifdef CUSTOMER_HW4
+		}
+#undef LONG_LISTEN_TIME
+#endif /* CUSTOMER_HW4 */
+
 	}
 #endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
 

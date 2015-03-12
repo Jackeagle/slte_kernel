@@ -85,18 +85,29 @@ static inline void lli_mark_last_busy(void) {}
 static inline bool lli_check_max_intr(void) { return false; }
 #endif
 
-static void send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
+static inline void send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 {
-#if 0/*def DEBUG_MODEM_IF*/
-	struct link_device *ld = &mld->link_dev;
-	struct modem_ctl *mc = ld->mc;
+#ifdef CONFIG_EXYNOS_MIPI_LLI_GPIO_SIDEBAND
+	int val;
+	unsigned long flags;
 
-	if (!cp_online(mc))
-		mif_err("%s: mask 0x%04X (%s.state == %s)\n", ld->name, mask,
-			mc->name, mc_state(mc));
-#endif
+	spin_lock_irqsave(&mld->sig_lock, flags);
 
 	mipi_lli_send_interrupt(mask);
+
+	/* invert previous signal level */
+	val = gpio_get_value(mld->gpio_ipc_int2cp);
+	val = 1 - val;
+
+	gpio_set_value(mld->gpio_ipc_int2cp, val);
+#ifdef DEBUG_MODEM_IF
+	trace_send_sig(mask, val);
+#endif
+
+	spin_unlock_irqrestore(&mld->sig_lock, flags);
+#else
+	mipi_lli_send_interrupt(mask);
+#endif
 }
 
 #ifdef CONFIG_LINK_POWER_MANAGEMENT
@@ -190,9 +201,6 @@ static void pm_cp_fail_cb(struct modem_link_pm *pm)
 	struct mem_link_device *mld = ld_to_mem_link_device(ld);
 	struct modem_ctl *mc = ld->mc;
 	struct io_device *iod = mc->iod;
-	unsigned long flags;
-
-	spin_lock_irqsave(&ld->lock, flags);
 
 	if (cp_online(mc)) {
 		mem_handle_cp_crash(mld, STATE_CRASH_EXIT);
@@ -200,8 +208,6 @@ static void pm_cp_fail_cb(struct modem_link_pm *pm)
 		iod->modem_state_changed(iod, STATE_OFFLINE);
 		ld->reload(ld);
 	}
-
-	spin_unlock_irqrestore(&ld->lock, flags);
 }
 
 static void start_pm(struct mem_link_device *mld)
@@ -213,7 +219,7 @@ static void start_pm(struct mem_link_device *mld)
 		return;
 
 	if (pm_enable) {
-		if (mld->attr & MODEM_ATTR(ATTR_IOSM_MESSAGE))
+		if (mld->iosm)
 			pm->start(pm, PM_EVENT_NO_EVENT);
 		else
 			pm->start(pm, PM_EVENT_CP_BOOTING);
@@ -319,9 +325,7 @@ static void release_cp_wakeup(struct work_struct *ws)
 
 	if (gpio_get_value(mld->gpio_ap_wakeup) == 0) {
 		gpio_set_value(mld->gpio_cp_wakeup, 0);
-#ifdef CONFIG_LTE_MODEM_XMM7260
 		gpio_set_value(mld->gpio_ap_status, 0);
-#endif
 	}
 
 #if 1
@@ -545,6 +549,7 @@ static int init_pm(struct mem_link_device *mld)
 	INIT_DELAYED_WORK(&mld->cp_sleep_dwork, release_cp_wakeup);
 
 	spin_lock_init(&mld->pm_lock);
+	spin_lock_init(&mld->sig_lock);
 	atomic_set(&mld->ref_cnt, 0);
 
 	/*
@@ -556,8 +561,7 @@ static int init_pm(struct mem_link_device *mld)
 
 	mif_init_irq(&mld->irq_ap_wakeup, irq_ap_wakeup,
 		     "lli_cp2ap_wakeup", flags);
-	err = mif_request_threaded_irq(&mld->irq_ap_wakeup,
-			ap_wakeup_interrupt, NULL, mld);
+	err = mif_request_irq(&mld->irq_ap_wakeup, ap_wakeup_interrupt, mld);
 	if (err)
 		return err;
 	mif_disable_irq(&mld->irq_ap_wakeup);
@@ -576,27 +580,32 @@ static int init_pm(struct mem_link_device *mld)
 
 static void lli_link_ready(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, CALLEE, CALLER);
+	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	stop_pm(ld_to_mem_link_device(ld));
 }
 
 static void lli_link_reset(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, CALLEE, CALLER);
+	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	mipi_lli_reset();
 }
 
 static void lli_link_reload(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, CALLEE, CALLER);
+	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	mipi_lli_reload();
 }
 
 static void lli_link_off(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, CALLEE, CALLER);
+	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	stop_pm(ld_to_mem_link_device(ld));
 	mipi_lli_reload();
+}
+
+static bool lli_link_unmounted(struct link_device *ld)
+{
+	return (mipi_lli_get_link_status() == LLI_UNMOUNTED);
 }
 
 static bool lli_link_suspended(struct link_device *ld)
@@ -682,6 +691,114 @@ static void lli_irq_handler(void *data, u32 intr)
 
 static struct mem_link_device *g_mld;
 
+#ifdef DEBUG_MODEM_IF
+
+#define DEBUGFS_BUF_SIZE        (SZ_32K - SZ_256)
+
+/*
+ * Due to the lack of the allocated memory size,
+ * some hard-coded values are used to limit the size of line and row.
+ * need to invent more neater and cleaner way.
+ */
+static ssize_t dump_rb_frame(char *buf, size_t size, struct sbd_ring_buffer *rb)
+{
+	int idx;
+	u32 i, j, nr, nc, len = 0;
+
+	nr = min_t(u32, rb->len, sipc_ps_ch(rb->ch) ? 48 : 32);
+
+	/* 52 Bytes = ip header(20) + TCP header(32) */
+	nc = sipc_ps_ch(rb->ch) ? 52 : 16;
+
+	/* dumps recent n frames */
+	for (i = 0; i < nr; i++) {
+		idx = *rb->wp - i - 1;
+		if (idx < 0)
+			idx = rb->len + idx;
+		/*
+		len += snprintf((buf + len), (size - len), "rb[%03d] ", idx);
+		*/
+		for (j = 0; j < nc; j++)
+			len += snprintf((buf + len), (size - len),
+					"%02x", rb->buff[idx][j]);
+
+		len += snprintf((buf + len), (size - len), "\n");
+	}
+
+	return len;
+}
+
+static ssize_t dbgfs_frame(struct file *file,
+		char __user *user_buf, size_t count, loff_t *ppos)
+{
+	char *buf;
+	ssize_t size;
+	u32 i, dir, len = 0;
+	struct mem_link_device *mld;
+	struct sbd_link_device *sl;
+
+	mld = file->private_data;
+	sl = &mld->sbd_link_dev;
+
+	if (!mld || !sl)
+		return 0;
+
+	buf = kzalloc(DEBUGFS_BUF_SIZE, GFP_KERNEL);
+	if (!buf) {
+		mif_err("not enough memory...\n");
+		return 0;
+	}
+
+	for (i = 0; i < sl->num_channels; i++)
+		for (dir = UL; dir <= DL; dir++) {
+			struct sbd_ring_buffer *rb = sbd_id2rb(sl, i, dir);
+			if (!rb || !sipc_major_ch(rb->ch))
+				break;
+
+			len += snprintf((buf + len), (DEBUGFS_BUF_SIZE - len),
+				">> ch:%d len:%d size:%d [%s w:%d r:%d]\n",
+				rb->ch, rb->len, rb->buff_size,
+				udl_str(rb->dir), *rb->wp, *rb->rp);
+
+			len += dump_rb_frame((buf + len),
+					(DEBUGFS_BUF_SIZE - len), rb);
+			len += snprintf((buf + len),
+					(DEBUGFS_BUF_SIZE - len), "\n");
+		}
+
+	len += snprintf((buf + len), (DEBUGFS_BUF_SIZE - len), "\n");
+
+	mif_info("Total output length = %d\n", len);
+
+	size = simple_read_from_buffer(user_buf, count, ppos, buf, len);
+	kfree(buf);
+
+	return size;
+}
+
+static const struct file_operations dbgfs_frame_fops = {
+	.open = simple_open,
+	.read = dbgfs_frame,
+	.owner = THIS_MODULE
+};
+
+static inline void dev_debugfs_add(struct mem_link_device *mld)
+{
+	mld->dbgfs_dir = debugfs_create_dir("svnet", NULL);
+
+	mld->mem_dump_blob.data = mld->base;
+	mld->mem_dump_blob.size = mld->size;
+
+	debugfs_create_blob("mem_dump", S_IRUGO, mld->dbgfs_dir,
+					&mld->mem_dump_blob);
+
+	mld->dbgfs_frame = debugfs_create_file("frame", S_IRUGO,
+			mld->dbgfs_dir, mld, &dbgfs_frame_fops);
+}
+#else
+static inline void dev_debugfs_add(struct mem_link_device *mld) {}
+#endif
+
 struct link_device *lli_create_link_device(struct platform_device *pdev)
 {
 	struct modem_data *modem;
@@ -690,10 +807,6 @@ struct link_device *lli_create_link_device(struct platform_device *pdev)
 	int err;
 	unsigned long start;
 	unsigned long size;
-#ifdef DEBUG_MODEM_IF
-	struct dentry *debug_dir = debugfs_create_dir("svnet", NULL);
-#endif
-	mif_err("+++\n");
 
 	/**
 	 * Get the modem (platform) data
@@ -734,6 +847,7 @@ struct link_device *lli_create_link_device(struct platform_device *pdev)
 	ld->reload = lli_link_reload;
 	ld->off = lli_link_off;
 
+	ld->unmounted = lli_link_unmounted;
 	ld->suspended = lli_link_suspended;
 
 	ld->enable_irq = lli_enable_irq;
@@ -807,33 +921,16 @@ struct link_device *lli_create_link_device(struct platform_device *pdev)
 	mld->gpio_cp_wakeup = modem->gpio_cp_wakeup;
 	mld->gpio_cp_status = modem->gpio_cp_status;
 	mld->gpio_ap_status = modem->gpio_ap_status;
-
-	/* Retrieve modem specific attribute value */
-	mld->attr = modem->attr;
-
-#ifdef CONFIG_LINK_DEVICE_WITH_SBD_ARCH
-	if (mld->attr & MODEM_ATTR(ATTR_IOSM_MESSAGE))
-		mld->cmd_handler = iosm_event_bh;
-	else
-		mld->cmd_handler = mem_cmd_handler;
-#else
-	mld->cmd_handler = mem_cmd_handler;
-#endif
+	mld->gpio_ipc_int2cp = modem->gpio_ipc_int2cp;
 
 #ifdef CONFIG_LINK_POWER_MANAGEMENT
 	err = init_pm(mld);
 	if (err)
 		goto error;
 #endif
-
 #ifdef DEBUG_MODEM_IF
-	mld->mem_dump_blob.data = mld->base;
-	mld->mem_dump_blob.size = mld->size;
-	debugfs_create_blob("mem_dump", S_IRUGO, debug_dir,
-						&mld->mem_dump_blob);
+	dev_debugfs_add(mld);
 #endif
-
-	mif_err("---\n");
 	return ld;
 
 error:

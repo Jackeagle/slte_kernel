@@ -195,7 +195,7 @@ static const struct max77804k_muic_vps_data muic_vps_table[] = {
 		.adcerr		= 0x00,
 		.adc		= ADC_JIG_UART_OFF,
 		.vbvolt		= VB_HIGH,
-		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
 		.chgtyp		= CHGTYP_NO_VOLTAGE,
 		.control1	= CTRL1_UART,
 		.vps_name	= "Jig UART Off + VB",
@@ -1318,7 +1318,7 @@ static int max77804k_muic_handle_detach(struct max77804k_muic_data *muic_data)
 	if (muic_data->attached_dev == ATTACHED_DEV_NONE_MUIC) {
 		pr_info("%s:%s Duplicated(%d), just ignore\n", MUIC_DEV_NAME,
 				__func__, muic_data->attached_dev);
-		return ret;
+		goto out_without_noti;
 	}
 
 	/* Enable Factory Accessory Detection State Machine */
@@ -1676,6 +1676,7 @@ static bool muic_check_vps_chgtyp
 		case CHGTYP_DEDICATED_CHARGER:
 		case CHGTYP_500MA:
 		case CHGTYP_1A:
+		case CHGTYP_SPECIAL_3_3V_CHARGER:
 			ret = true;
 			goto out;
 		default:

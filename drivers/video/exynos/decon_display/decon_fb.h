@@ -403,6 +403,9 @@ struct s3c_fb {
 	bool	need_update;
 	bool	full_update;
 #endif
+#if defined(CONFIG_FB_HIBERNATION_DISPLAY) || defined(CONFIG_FB_WINDOW_UPDATE)
+	struct decon_lcd	*lcd_update;
+#endif
 #if defined(CONFIG_FB_I80_COMMAND_MODE) && defined(CONFIG_LCD_PCD)
 	int			pcd;
 	unsigned int		pcd_irq;

@@ -1161,7 +1161,7 @@ static irqreturn_t decon_fb_isr_for_eint(int irq, void *dev_id)
 	save_decon_operation_time(OPS_RUN_FB_TEIRQ);
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 	/* triggering power event for PM */
-	if ((sfb->output_on && sfb->power_state == POWER_ON && sfb->blank_mode == FB_BLANK_UNBLANK))
+	if (sfb->output_on && sfb->power_state == POWER_ON && sfb->blank_mode == FB_BLANK_UNBLANK)
 		disp_pm_te_triggered(get_display_driver());
 #endif
 
@@ -1881,10 +1881,25 @@ static void s3c_set_win_update_config(struct s3c_fb *sfb,
 	struct s3c_fb_rect r1, r2;
 	int offset = 0;
 
+	if (sfb->full_update && (update_config->state == S3C_FB_WIN_STATE_UPDATE)) {
+#ifdef WINDOW_UPDATE_DEBUG
+		pr_info("[WIN_UPDATE]full_update: [%d %d %d %d]\n",
+			update_config->x, update_config->y, update_config->w, update_config->h);
+#endif
+		memset(update_config, 0, sizeof(struct s3c_fb_win_config));
+		sfb->full_update = false;
+	}
+
 	if (update_config->h > sfb->lcd_info->yres ||
 		update_config->w > sfb->lcd_info->xres) {
 		update_config->state = S3C_FB_WIN_STATE_DISABLED;
 		sfb->need_update = true;
+	}
+
+	if (update_config->h & 0x3) {
+		update_config->h = ((update_config->h + 3) >> 2) << 2;
+		if (update_config->y + update_config->h > sfb->lcd_info->yres)
+			update_config->y = sfb->lcd_info->yres - update_config->h;
 	}
 
 	update_config->w = ((update_config->w + 7) >> 3) << 3;
@@ -2039,12 +2054,6 @@ static int s3c_fb_set_win_config(struct s3c_fb *sfb,
 	}
 
 #ifdef CONFIG_FB_WINDOW_UPDATE
-	if (unlikely(sfb->full_update)) {
-		if (win_config[S3C_WIN_UPDATE_IDX].state == S3C_FB_WIN_STATE_UPDATE) {
-			memset(&win_config[S3C_WIN_UPDATE_IDX], 0, sizeof(struct s3c_fb_win_config));
-			sfb->full_update = false;
-		}
-	}
 	memcpy(&win_data_org, win_data, sizeof(struct s3c_fb_win_config_data));
 	s3c_set_win_update_config(sfb, win_config, regs);
 #endif
@@ -2339,8 +2348,9 @@ static void s3c_fb_vidout_start(struct decon_psr_info *psr)
 static void decon_reg_set_win_update_config(struct s3c_fb *sfb, struct s3c_reg_data *regs)
 {
 	int dsim_mpkt;
-	struct decon_lcd lcd_info;
+	struct decon_lcd *lcd_info = sfb->lcd_update;
 	struct decon_lcd *lcd_info_org = decon_get_lcd_info();
+	u32 x, y, w, h;
 
 	if (regs->need_update) {
 		/* TODO: Do we need to wait until the MIPI frame done */
@@ -2352,69 +2362,71 @@ static void decon_reg_set_win_update_config(struct s3c_fb *sfb, struct s3c_reg_d
 			dsim_reg_set_pkt_go_enable(false);
 #endif
 
+		x = regs->x[S3C_WIN_UPDATE_IDX];
+		y = regs->y[S3C_WIN_UPDATE_IDX];
+		w = regs->w[S3C_WIN_UPDATE_IDX];
+		h = regs->h[S3C_WIN_UPDATE_IDX];
+
 		/* Partial Command */
 		s5p_mipi_dsi_partial_area_command(dsim_for_decon,
-			regs->x[S3C_WIN_UPDATE_IDX], regs->y[S3C_WIN_UPDATE_IDX],
-			regs->w[S3C_WIN_UPDATE_IDX], regs->h[S3C_WIN_UPDATE_IDX]);
+			x, y, w, h);
 
 #ifdef CONFIG_DECON_MIPI_DSI_PKTGO
 		if (dsim_mpkt)
 			dsim_reg_set_pkt_go_enable(true);
 #endif
+		dsim_reg_set_win_update_conf(w, h, lcd_info);
 #ifdef CONFIG_DECON_MIC
-		dsim_reg_set_win_update_conf(regs->w[S3C_WIN_UPDATE_IDX], regs->h[S3C_WIN_UPDATE_IDX], true);
-		mic_reg_set_win_update_conf(regs->w[S3C_WIN_UPDATE_IDX], regs->h[S3C_WIN_UPDATE_IDX]);
-#else
-		dsim_reg_set_win_update_conf(regs->w[S3C_WIN_UPDATE_IDX], regs->h[S3C_WIN_UPDATE_IDX], false);
+		mic_reg_set_win_update_conf(w, h, mic_for_decon);
 #endif
-		lcd_info.xres = regs->w[S3C_WIN_UPDATE_IDX];
-		lcd_info.yres = regs->h[S3C_WIN_UPDATE_IDX];
-		lcd_info.vsa = lcd_info_org->vsa;
-		lcd_info.vbp = lcd_info_org->vbp;
-		if (regs->h[S3C_WIN_UPDATE_IDX] + lcd_info_org->vfp < (lcd_info_org->yres / 16))
-			lcd_info.vfp = (lcd_info_org->yres / 16) - regs->h[S3C_WIN_UPDATE_IDX];
-		else
-			lcd_info.vfp = lcd_info_org->vfp;
+		lcd_info->xres = w;
+		lcd_info->yres = h;
+		lcd_info->vsa = lcd_info_org->vsa;
+		lcd_info->vbp = lcd_info_org->vbp;
+		lcd_info->hbp = lcd_info_org->hbp;
+		lcd_info->hsa = lcd_info_org->hsa;
 
-		if (regs->w[S3C_WIN_UPDATE_IDX] !=lcd_info_org->xres)
-			lcd_info.hfp = (lcd_info_org->xres) - regs->w[S3C_WIN_UPDATE_IDX] + lcd_info_org->hfp;
+		if (h + lcd_info_org->vfp < (lcd_info_org->yres / 16))
+			lcd_info->vfp = (lcd_info_org->yres / 16) - h;
 		else
-			lcd_info.hfp = lcd_info_org->hfp;
+			lcd_info->vfp = lcd_info_org->vfp;
 
-		lcd_info.hbp = lcd_info_org->hbp;
-		lcd_info.hsa = lcd_info_org->hsa;
+		if (w != lcd_info_org->xres)
+			lcd_info->hfp = lcd_info_org->xres - w + lcd_info_org->hfp;
+		else
+			lcd_info->hfp = lcd_info_org->hfp;
+
 		if (soc_is_exynos5430()) {
 			/* 5430 supports only 8-bit porch */
-			if (lcd_info.hfp > 0xff) {
-				lcd_info.hbp += lcd_info.hfp - 0xff;
-				lcd_info.hfp = 0xff;
-				if (lcd_info.hbp > 0xff) {
-					lcd_info.hsa += lcd_info.hbp - 0xff;
-					lcd_info.hbp = 0xff;
-					if (lcd_info.hsa > 0xff)
-						lcd_info.hsa = 0xff;
+			if (lcd_info->hfp > 0xff) {
+				lcd_info->hbp += lcd_info->hfp - 0xff;
+				lcd_info->hfp = 0xff;
+				if (lcd_info->hbp > 0xff) {
+					lcd_info->hsa += lcd_info->hbp - 0xff;
+					lcd_info->hbp = 0xff;
+					if (lcd_info->hsa > 0xff)
+						lcd_info->hsa = 0xff;
 				}
 			}
-			if (lcd_info.vfp > 0xff) {
-				lcd_info.vbp += lcd_info.vfp - 0xff;
-				lcd_info.vfp = 0xff;
-				if (lcd_info.vbp > 0xff) {
-					lcd_info.vsa += lcd_info.vbp - 0xff;
-					lcd_info.vbp = 0xff;
-					if (lcd_info.vsa > 0xff)
-						lcd_info.vsa = 0xff;
+			if (lcd_info->vfp > 0xff) {
+				lcd_info->vbp += lcd_info->vfp - 0xff;
+				lcd_info->vfp = 0xff;
+				if (lcd_info->vbp > 0xff) {
+					lcd_info->vsa += lcd_info->vbp - 0xff;
+					lcd_info->vbp = 0xff;
+					if (lcd_info->vsa > 0xff)
+						lcd_info->vsa = 0xff;
 				}
 			}
 		}
-		decon_reg_set_porch(&lcd_info);
+		decon_reg_set_porch(lcd_info);
 #ifdef WINDOW_UPDATE_DEBUG
 		pr_info("[WIN_UPDATE]%s : vfp %d vbp %d vsa %d hfp %d hbp %d hsa %d w %d h %d\n", __func__,
-					lcd_info.vfp, lcd_info.vbp, lcd_info.vsa,
-					lcd_info.hfp, lcd_info.hbp, lcd_info.hsa,
+					lcd_info->vfp, lcd_info->vbp, lcd_info->vsa,
+					lcd_info->hfp, lcd_info->hbp, lcd_info->hsa,
 					regs->w[S3C_WIN_UPDATE_IDX], regs->h[S3C_WIN_UPDATE_IDX]);
 #endif
 	}
-
 }
 #endif
 static void __s3c_fb_update_regs(struct s3c_fb *sfb, struct s3c_reg_data *regs)
@@ -2555,12 +2567,10 @@ static void s3c_fb_update_regs(struct s3c_fb *sfb, struct s3c_reg_data *regs)
 		if (WIN_CONFIG_DMA(i)) {
 			if (regs->dma_buf_data[i].fence)
 				s3c_fd_fence_wait(sfb,
-					regs->dma_buf_data[i].fence);
-		} else {
+			regs->dma_buf_data[i].fence);
+		} else
 			local_cnt++;
-		}
 	}
-
 #if defined(CONFIG_DECON_DEVFREQ)
 	if (prev_overlap_cnt < regs->win_overlap_cnt)
 		exynos5_update_media_layers(TYPE_DECON, regs->win_overlap_cnt);
@@ -4336,6 +4346,10 @@ int create_decon_display_controller(struct platform_device *pdev)
 	dispdrv->decon_driver.ops->pwr_on = decon_hibernation_power_on;
 	dispdrv->decon_driver.ops->pwr_off = decon_hibernation_power_off;
 #endif
+#if defined(CONFIG_FB_HIBERNATION_DISPLAY) || defined(CONFIG_FB_WINDOW_UPDATE)
+	sfb->lcd_update = kzalloc(sizeof(struct decon_lcd), GFP_KERNEL);
+	memcpy(sfb->lcd_update, sfb->lcd_info, sizeof(struct decon_lcd));
+#endif
 
 	return 0;
 
@@ -4453,6 +4467,10 @@ static int s3c_fb_disable(struct s3c_fb *sfb)
 	pm_runtime_put_sync(sfb->dev);
 	sfb->output_on = false;
 
+#if defined(CONFIG_FB_HIBERNATION_DISPLAY) || defined(CONFIG_FB_WINDOW_UPDATE)
+	memcpy(sfb->lcd_update, sfb->lcd_info, sizeof(struct decon_lcd));
+#endif
+
 err:
 	mutex_unlock(&sfb->output_lock);
 	return ret;
@@ -4509,7 +4527,13 @@ static int s3c_fb_enable(struct s3c_fb *sfb)
 	sfb->full_update = true;
 #endif
 
-	ret = 0;
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	if ((sfb->irq_no != 0) &&
+		(atomic_read(&sfb->vsync_info.eint_refcount) == 0)) {
+		enable_irq(sfb->irq_no);
+		atomic_inc(&sfb->vsync_info.eint_refcount);
+	}
+#endif
 
 err:
 	mutex_unlock(&sfb->output_lock);
@@ -4660,13 +4684,6 @@ int s3c_fb_runtime_resume(struct device *dev)
 	}
 	pd = sfb->pdata;
 
-#ifdef CONFIG_FB_HIBERNATION_DISPLAY
-	if ((sfb->irq_no != 0) &&
-		(atomic_read(&sfb->vsync_info.eint_refcount) == 0)) {
-		enable_irq(sfb->irq_no);
-		atomic_inc(&sfb->vsync_info.eint_refcount);
-	}
-#endif
 	save_decon_operation_time(OPS_CALL_RUNTIME_RESUME);
 	GET_DISPCTL_OPS(dispdrv).init_display_decon_clocks(dev);
 
@@ -4716,12 +4733,21 @@ int decon_hibernation_power_on(struct display_driver *dispdrv)
 		decon_reg_set_trigger(sfb->trig_mode, DECON_TRIG_DISABLE);
 
 	/* use platform specified window as the basis for the lcd timings */
-	decon_reg_configure_lcd(sfb->lcd_info);
+	decon_reg_configure_lcd(sfb->lcd_update);
 
 #ifdef CONFIG_S5P_DP
 	writel(DPCLKCON_ENABLE, sfb->regs + DPCLKCON);
 #endif
 	sfb->output_on = true;
+
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	if ((sfb->irq_no != 0) &&
+		(atomic_read(&sfb->vsync_info.eint_refcount) == 0)) {
+		enable_irq(sfb->irq_no);
+		atomic_inc(&sfb->vsync_info.eint_refcount);
+	}
+#endif
+
 	mutex_unlock(&sfb->output_lock);
 
 	return ret;

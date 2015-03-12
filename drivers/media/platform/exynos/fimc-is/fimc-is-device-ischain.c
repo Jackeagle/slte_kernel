@@ -809,6 +809,7 @@ static int fimc_is_ischain_loadfirm(struct fimc_is_device_ischain *device)
 	long fsize, nread;
 	int fw_requested = 1;
 	char fw_path[100];
+	int retry_count = 0;
 
 	mdbgd_ischain("%s\n", device, __func__);
 #ifdef USE_ION_ALLOC
@@ -881,7 +882,13 @@ request_fw:
 	if (fw_requested) {
 		set_fs(old_fs);
 #endif
+		retry_count = 3;
 		ret = request_firmware(&fw_blob, fw_name, &device->pdev->dev);
+		while (--retry_count && ret == -EAGAIN) {
+			err("request_firmware retry(count:%d)", retry_count);
+			ret = request_firmware(&fw_blob, fw_name, &device->pdev->dev);
+		}
+
 		if (ret) {
 			err("request_firmware is fail(%d)", ret);
 			ret = -EINVAL;

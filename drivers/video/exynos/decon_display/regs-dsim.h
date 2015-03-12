@@ -15,6 +15,7 @@
 
 #define DSIM_STATUS				(0x4)
 #define DSIM_STATUS_PLL_STABLE			(1 << 31)
+#define DSIM_STATUS_SWRST_RLS			(1 << 20)
 #define DSIM_STATUS_STOP_STATE_DAT(x)		(((x) & 0xf) << 0)
 #define DSIM_STATUS_ULPS_DAT(x)			(((x) & 0xf) << 4)
 #define DSIM_STATUS_STOP_STATE_CLK		(1 << 8)
@@ -47,6 +48,7 @@
 
 /* Configuration register */
 #define DSIM_CONFIG				(0x18)
+#define DSIM_CONFIG_MDCLK			(1 << 31)
 #define DSIM_CONFIG_CLKLANE_STOP_START		(1 << 30)
 #define DSIM_CONFIG_MFLUSH_VS			(1 << 29)
 #define DSIM_CONFIG_EOT_R03_DISABLE		(1 << 28)	/* disable EoT packet generation for V1.01r03 */
@@ -139,6 +141,7 @@
 #define DSIM_FIFOCTRL_FULL_PH_SFR		(1 << 23)
 #define DSIM_FIFOCTRL_FULL_PL_SFR		(1 << 21)
 #define DSIM_FIFOCTRL_INIT_SFR			(1 << 3)
+#define DSIM_FIFOCTRL_INIT_RX			(1 << 4)
 
 #define DSIM_MULTI_PKT				(0x78)
 /* The send command packet(s) per frame enable */
@@ -156,6 +159,14 @@
 #define DSIM_PLLCTRL_DPDN_SWAP_DATA		(1 << 24)
 #define DSIM_PLLCTRL_DPDN_SWAP_CLK		(1 << 25)
 #define DSIM_PLLCTRL_PMS_MASK			(0x7ffff << 1)
+
+/* D-PHY Master PLL control register M_PLLCTL[31:0] */
+#define DSIM_M_PLLCTRL				(0x98)
+#define DSIM_M_PLLCTRL_SET1(_x)		((_x) << 15)
+#define DSIM_M_PLLCTRL_SET1_MASK		(0xf << 15)
+#define DSIM_M_PLLCTRL_SET2	(1 << 19)
+#define DSIM_M_PLLCTRL_SET3(_x)		((_x) << 2)
+#define DSIM_M_PLLCTRL_SET3_MASK		(0x3 << 2)
 
 /* PLL timer register */
 #define DSIM_PLLTMR				(0xa0)

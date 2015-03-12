@@ -17,12 +17,11 @@
 		mif,name = "xmm7260";	/* xmm7260 */
 		mif,modem_net = <0>;
 		mif,modem_type = <14>;
-		mif,modem_attr = <0x02>;	/* IOSM_MESSAGE */
-		mif,link_types = <0x420>;	/* LINKDEV_LLI | LINKDEV_HSIC */
-		mif,link_name = "lli";
-		mif,link_attrs = <0x1>;		/* LINK_ATTR_SBD_IPC */
 		mif,use_handover = <0>;
 		mif,ipc_version = <50>;
+		mif,link_types = <0x420>;	/* LINKDEV_LLI | LINKDEV_HSIC */
+		mif,link_name = "lli";
+		mif,link_attrs = <0x07>;	/* IOSM_MESSAGE (0x04) | IPC_ALIGNED (0x02) | SBD_IPC (0x01) */
 
 		mif,num_iodevs = <18>;
 		iodevs {

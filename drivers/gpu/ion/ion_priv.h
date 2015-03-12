@@ -494,7 +494,7 @@ struct ion_eventlog {
 	ktime_t done;
 };
 
-inline void ION_EVENT_SHRINK(struct ion_device *dev, size_t size);
+void ION_EVENT_SHRINK(struct ion_device *dev, size_t size);
 #else
 #define ION_EVENT_BEGIN()		do { } while (0)
 #define ION_EVENT_DONE()		do { } while (0)

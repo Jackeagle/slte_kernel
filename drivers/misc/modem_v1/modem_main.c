@@ -101,12 +101,17 @@ static struct modem_ctl *create_modemctl_device(struct platform_device *pdev,
 		return NULL;
 	}
 
-	modemctl->msd = msd;
 	modemctl->dev = dev;
+	modemctl->name = pdata->name;
+	modemctl->mdm_data = pdata;
+
+	modemctl->msd = msd;
+
 	modemctl->phone_state = STATE_OFFLINE;
 
-	modemctl->mdm_data = pdata;
-	modemctl->name = pdata->name;
+	spin_lock_init(&modemctl->lock);
+	init_completion(&modemctl->init_cmpl);
+	init_completion(&modemctl->off_cmpl);
 
 	/* init modemctl device for getting modemctl operations */
 	ret = call_modem_init_func(modemctl, pdata);
@@ -255,14 +260,13 @@ static int parse_dt_common_pdata(struct device_node *np,
 
 	mif_dt_read_enum(np, "mif,modem_net", pdata->modem_net);
 	mif_dt_read_enum(np, "mif,modem_type", pdata->modem_type);
-	mif_dt_read_enum(np, "mif,modem_attr", pdata->attr);
 	mif_dt_read_bool(np, "mif,use_handover", pdata->use_handover);
+	mif_dt_read_enum(np, "mif,ipc_version", pdata->ipc_version);
 
 	mif_dt_read_u32(np, "mif,link_types", pdata->link_types);
 	mif_dt_read_string(np, "mif,link_name", pdata->link_name);
 	mif_dt_read_u32(np, "mif,link_attrs", pdata->link_attrs);
 
-	mif_dt_read_enum(np, "mif,ipc_version", pdata->ipc_version);
 	mif_dt_read_u32(np, "mif,num_iodevs", pdata->num_iodevs);
 
 	return 0;
@@ -326,6 +330,19 @@ static int __parse_dt_mandatory_gpio_pdata(struct device_node *np,
 	if (ret)
 		mif_err("fail to request gpio %s:%d\n", "PHONE_ACTIVE", ret);
 	gpio_direction_input(pdata->gpio_phone_active);
+
+	/* GPIO_IPC_INT2CP */
+	pdata->gpio_ipc_int2cp = of_get_named_gpio(np,
+						"mif,gpio_ipc_int2cp", 0);
+	if (gpio_is_valid(pdata->gpio_ipc_int2cp)) {
+		mif_err("gpio_ipc_int2cp: %d\n", pdata->gpio_ipc_int2cp);
+		ret = gpio_request(pdata->gpio_ipc_int2cp, "IPC_INT2CP");
+		if (ret)
+			mif_err("fail to request gpio %s:%d\n",
+				"SEND_SIG", ret);
+		else
+			gpio_direction_output(pdata->gpio_ipc_int2cp, 0);
+	}
 
 	return ret;
 }
@@ -568,11 +585,11 @@ static int modem_probe(struct platform_device *pdev)
 
 			mif_err("%s: %s link created\n", pdata->name, ld->name);
 
+			spin_lock_init(&ld->lock);
 			ld->link_type = i;
 			ld->mc = modemctl;
 			ld->msd = msd;
-
-			spin_lock_init(&ld->lock);
+			ld->state = LINK_STATE_OFFLINE;
 
 			list_add(&ld->list, &msd->link_dev_list);
 		}
@@ -625,7 +642,7 @@ static void modem_shutdown(struct platform_device *pdev)
 	mc->ops.modem_off(mc);
 	mc->phone_state = STATE_OFFLINE;
 
-	evt_log(0, "%s(%s)\n", mc->name, CALLEE);
+	evt_log(0, "%s(%s)\n", mc->name, FUNC);
 }
 
 static int modem_suspend(struct device *pdev)
@@ -648,7 +665,7 @@ static int modem_suspend(struct device *pdev)
 	mbox_set_interrupt(mc->int_pda_active);
 #endif
 
-	evt_log(0, "%s: %s\n", CALLEE, mc->name);
+	evt_log(0, "%s: %s\n", FUNC, mc->name);
 
 	return 0;
 }
@@ -680,7 +697,7 @@ static int modem_resume(struct device *pdev)
 	mbox_set_interrupt(mc->int_pda_active);
 #endif
 
-	evt_log(0, "%s: %s\n", CALLEE, mc->name);
+	evt_log(0, "%s: %s\n", FUNC, mc->name);
 
 	return 0;
 }

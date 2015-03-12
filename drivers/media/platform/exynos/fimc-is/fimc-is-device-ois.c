@@ -528,6 +528,7 @@ int fimc_is_ois_open_fw(struct fimc_is_core *core, char *name, u8 **buf)
 	mm_segment_t old_fs;
 	long nread;
 	int fw_requested = 1;
+	int retry_count = 0;
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -564,7 +565,13 @@ request_fw:
 	if (fw_requested) {
 		snprintf(fw_name, sizeof(fw_name), "%s", name);
 		set_fs(old_fs);
+		retry_count = 3;
 		ret = request_firmware(&fw_blob, fw_name, &core->companion->pdev->dev);
+		while (--retry_count && ret == -EAGAIN) {
+			err("request_firmware retry(count:%d)", retry_count);
+			ret = request_firmware(&fw_blob, fw_name, &core->companion->pdev->dev);
+		}
+
 		if (ret) {
 			err("request_firmware is fail(ret:%d)", ret);
 			ret = -EINVAL;

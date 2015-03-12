@@ -26,17 +26,10 @@
 #include "decon_pm_exynos.h"
 #include "decon_pm.h"
 
-#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 #include "regs-decon.h"
 #include "decon_fb.h"
-#else
-#include "regs-fimd.h"
-#include "fimd_fb.h"
-#endif
 
 #include <mach/cpufreq.h>
-
-#include <../drivers/clk/samsung/clk.h>
 
 #define GATE_LOCK_CNT 2
 

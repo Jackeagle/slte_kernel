@@ -63,6 +63,8 @@
 #define gprintk(x...) do { } while (0)
 #endif
 
+#define RETRY_REBOOT	3
+
 #define VENDOR_NAME	"TAOS"
 #define CHIP_NAME       "TMD3782"
 #define CHIP_ID			0x69
@@ -109,7 +111,7 @@ enum {
 #define OFFSET_ARRAY_LENGTH		10
 #define OFFSET_FILE_PATH	"/efs/prox_cal"
 #define CAL_SKIP_ADC	325
-#define CAL_FAIL_ADC	400
+#define CAL_FAIL_ADC	440
 
 #ifdef CONFIG_PROX_WINDOW_TYPE
 #define WINDOW_TYPE_FILE_PATH "/sys/class/sec/sec_touch_ic/window_type"
@@ -1459,6 +1461,7 @@ static int taos_i2c_probe(struct i2c_client *client,
 {
 	int ret = -ENODEV;
 	int chipid = 0;
+	int retry = 0;
 	struct taos_data *taos;
 	struct taos_platform_data *pdata = NULL;
 
@@ -1475,14 +1478,21 @@ static int taos_i2c_probe(struct i2c_client *client,
 		ret = -ENOMEM;
 		goto done;
 	}
-
+sreboot:
 	tmd3782_regulator_onoff(taos,1);
-	usleep_range(5000, 6000);
+	usleep_range(9000, 10000);
 
 	/* ID Check */
 	chipid = i2c_smbus_read_byte_data(client, CMD_REG | CHIPID);
 	if (chipid != CHIP_ID) {
 		pr_err("%s: i2c read error [%X]\n", __func__, chipid);
+
+		tmd3782_regulator_onoff(taos,0);
+		usleep_range(9000, 10000);
+		if(retry < RETRY_REBOOT){
+			retry++;
+			goto sreboot;
+		}
 		goto err_chip_id_or_i2c_error;
 	}
 	/* parsing data */

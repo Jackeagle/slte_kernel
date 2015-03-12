@@ -99,6 +99,13 @@ static inline void dsim_write_mask(u32 reg_id, u32 val, u32 mask)
 		dev_dbg(get_dsim_drvdata()->dev, pr_fmt(fmt), ##__VA_ARGS__);	\
 	} while (0)
 
+#ifdef CONFIG_DECON_MIC
+#define GET_W(hsync_2h_cycle, w)	(hsync_2h_cycle ? w : (((w >> 2) << 1) + (w & 0x3)))
+#else
+#define GET_W(hsync_2h_cycle, w)	(w << hsync_2h_cycle)
+#endif
+#define GET_H(hsync_2h_cycle, h)	(h >> hsync_2h_cycle)
+
 /* CAL APIs list */
 void dsim_reg_init(struct decon_lcd *lcd_info, u32 data_lane_cnt);
 void dsim_reg_init_probe(struct decon_lcd *lcd_info, u32 data_lane_cnt);
@@ -149,6 +156,6 @@ void dsim_reg_set_clear_rx_fifo(void);
 void dsim_reg_set_pkt_go_enable(bool en);
 void dsim_reg_set_pkt_go_ready(void);
 void dsim_reg_set_pkt_go_cnt(unsigned int count);
-void dsim_reg_set_win_update_conf(int w, int h, bool mic_on);
+void dsim_reg_set_win_update_conf(int w, int h, struct decon_lcd *lcd);
 
 #endif /* _DSIM_REG_H */

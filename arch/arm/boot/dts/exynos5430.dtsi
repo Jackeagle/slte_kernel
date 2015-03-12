@@ -100,6 +100,11 @@
 		};
 	};
 
+	arm-pmu {
+			compatible = "arm,cortex-a15-pmu", "arm,cortex-a7-pmu";
+			interrupts = <0 17 4>, <0 18 4>;
+	};
+
 	clock: clock-controller@0x10030000 {
 		compatible = "samsung,exynos5430-clock";
 		reg = <0x10030000 0x1000>,

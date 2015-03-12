@@ -203,8 +203,19 @@ struct modem_link_pm {
 	void (*request_hold)(struct modem_link_pm *pm);
 	void (*release_hold)(struct modem_link_pm *pm);
 	bool (*link_active)(struct modem_link_pm *pm);
+
+	/*
+	Linux notifier lists
+	*/
+	struct raw_notifier_head unmount_notifier_list;
 };
 
 #define wdog_to_pm(wdog)	container_of(wdog, struct modem_link_pm, wdog)
+
+int pm_register_unmount_notifier(struct modem_link_pm *pm,
+				 struct notifier_block *nb);
+
+int pm_unregister_unmount_notifier(struct modem_link_pm *pm,
+				   struct notifier_block *nb);
 
 #endif

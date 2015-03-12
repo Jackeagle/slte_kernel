@@ -25,10 +25,9 @@
 #include <mach/pmu.h>
 #endif
 
-#define MAX_HEX_LEN		16
-#define MAX_NAME_LEN		64
-#define MAX_PREFIX_LEN		128
 #define MAX_STR_LEN		256
+#define MAX_NAME_LEN		64
+#define MAX_DUMP_LEN		20
 
 enum modem_t {
 	IMC_XMM6260,
@@ -49,15 +48,6 @@ enum modem_t {
 	DUMMY,
 	MAX_MODEM_TYPE
 };
-
-/* You can define modem specific attribute here.
- * It could be all the different behaviour between many modem vendor.
- */
-enum modem_attribute {
-	ATTR_LEGACY_COMMAND,
-	ATTR_IOSM_MESSAGE,
-};
-#define MODEM_ATTR(modem_attr) (1u << (modem_attr))
 
 enum dev_format {
 	IPC_FMT,
@@ -235,13 +225,24 @@ enum read_write {
 #define STR_CP_FAIL	"cp_fail"
 #define STR_CP_WDT	"cp_wdt"	/* CP watchdog timer */
 
+
+/* You can define modem specific attribute here.
+ * It could be all the different behaviour between many modem vendor.
+ */
 enum link_attr_bit {
 	LINK_ATTR_SBD_IPC,	/* IPC over SBD (from MIPI-LLI)		*/
+	LINK_ATTR_IPC_ALIGNED,	/* IPC with 4-bytes alignment		*/
+	LINK_ATTR_IOSM_MESSAGE,	/* IOSM message				*/
+	LINK_ATTR_DPRAM_MAGIC,	/* DPRAM-style magic code validation	*/
+	/*--------------------------------------------------------------*/
 	LINK_ATTR_SBD_BOOT,	/* BOOT over SBD			*/
 	LINK_ATTR_SBD_DUMP,	/* DUMP over SBD			*/
-	LINK_ATTR_MEM_IPC,	/* IPC over legacy memory-type I/F	*/
 	LINK_ATTR_MEM_BOOT,	/* BOOT over legacy memory-type I/F	*/
 	LINK_ATTR_MEM_DUMP,	/* DUMP over legacy memory-type I/F	*/
+	LINK_ATTR_BOOT_ALIGNED,	/* BOOT with 4-bytes alignment		*/
+	LINK_ATTR_DUMP_ALIGNED,	/* DUMP with 4-bytes alignment		*/
+	/*--------------------------------------------------------------*/
+	LINK_ATTR_XMIT_BTDLR,	/* Used to download CP bootloader	*/
 };
 #define LINK_ATTR(b)	(0x1 << b)
 
@@ -435,11 +436,10 @@ struct modem_data {
 	/* Modem component */
 	enum modem_network modem_net;
 	enum modem_t modem_type;
-	/* modem specific attribute value */
-	enum modem_attribute attr;
+
 	u32 link_types;
 	char *link_name;
-	u32 link_attrs;
+	unsigned long link_attrs;	/* Set of link_attr_bit flags	*/
 
 	/* SIPC version */
 	enum sipc_ver ipc_version;
@@ -522,7 +522,7 @@ struct modem_boot_spi {
 #endif
 
 #define LOG_TAG	"mif: "
-#define CALLEE	(__func__)
+#define FUNC	(__func__)
 #define CALLER	(__builtin_return_address(0))
 
 #define mif_err_limited(fmt, ...) \

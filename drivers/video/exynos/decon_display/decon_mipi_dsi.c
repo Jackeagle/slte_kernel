@@ -48,12 +48,7 @@
 #include "decon_pm.h"
 #include "dsim_reg.h"
 
-#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 #include "decon_fb.h"
-#else
-#include <mach/regs-pmu.h>
-#include "fimd_fb.h"
-#endif
 
 static DEFINE_MUTEX(dsim_rd_wr_mutex);
 static DECLARE_COMPLETION(dsim_ph_wr_comp);
@@ -83,20 +78,8 @@ int s5p_mipi_dsi_hibernation_power_off(struct display_driver *dispdrv);
 
 int s5p_dsim_init_d_phy(struct mipi_dsim_device *dsim, unsigned int enable)
 {
-
-#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	exynos5_dism_phy_enable(0, enable);
-#else
-	unsigned int reg;
 
-	reg = readl(S5P_MIPI_DPHY_CONTROL(1)) & ~(1 << 0);
-	reg |= (enable << 0);
-	writel(reg, S5P_MIPI_DPHY_CONTROL(1));
-
-	reg = readl(S5P_MIPI_DPHY_CONTROL(1)) & ~(1 << 2);
-	reg |= (enable << 2);
-	writel(reg, S5P_MIPI_DPHY_CONTROL(1));
-#endif
 	return 0;
 }
 
@@ -388,8 +371,9 @@ int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, u32 data_id,
 	case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_1BYTE:
 	case MIPI_DSI_RX_GENERIC_SHORT_READ_RESPONSE_2BYTE:
 		dev_dbg(dsim->dev, "Short Packet was received from LCD module.\n");
-		for (i = 0; i <= count; i++)
+		for (i = 0; i < count; i++)
 			buf[i] = (rx_fifo >> (8 + i * 8)) & 0xff;
+		rx_size = count;
 		break;
 	case MIPI_DSI_RX_DCS_LONG_READ_RESPONSE:
 	case MIPI_DSI_RX_GENERIC_LONG_READ_RESPONSE:
@@ -446,6 +430,7 @@ rx_error:
 	dsim_reg_force_dphy_stop_state(1);
 	usleep_range(3000, 4000);
 	dsim_reg_force_dphy_stop_state(0);
+	dsim_reg_set_fifo_ctrl(DSIM_FIFOCTRL_INIT_RX);
 	ret = -EPERM;
 	goto exit;
 
@@ -536,6 +521,11 @@ int s5p_mipi_dsi_partial_area_command(struct mipi_dsim_device *dsim,
 	dsim->lcd_win.y = y;
 	dsim->lcd_win.w = w;
 	dsim->lcd_win.h = h;
+
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	dsim->lcd_update->xres = w;
+	dsim->lcd_update->yres = h;
+#endif
 
 	return 0;
 }
@@ -719,32 +709,17 @@ int s5p_mipi_dsi_disable(struct mipi_dsim_device *dsim)
 
 	GET_DISPDRV_OPS(dispdrv).disable_display_driver_power(dsim->dev);
 
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	dsim->lcd_update->xres = dsim->lcd_info->xres;
+	dsim->lcd_update->yres = dsim->lcd_info->yres;
+#endif
+
 	mutex_unlock(&dsim->lock);
 
 	dev_info(dsim->dev, "-%s\n", __func__);
 
 	return 0;
 }
-
-#ifdef CONFIG_FB_HIBERNATION_DISPLAY
-int s5p_mipi_dsi_lcd_off(struct mipi_dsim_device *dsim)
-{
-	struct display_driver *dispdrv;
-	/* get a reference of the display driver */
-	dispdrv = get_display_driver();
-
-	/* disable interrupts */
-	dsim_reg_set_int(0);
-
-	dsim->enabled = false;
-	dsim->dsim_lcd_drv->suspend(dsim);
-	dsim->state = DSIM_STATE_SUSPEND;
-
-	GET_DISPDRV_OPS(dispdrv).disable_display_driver_power(dsim->dev);
-
-	return 0;
-}
-#endif
 
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 int s5p_mipi_dsi_ulps_handling(u32 en, u32 lanes)
@@ -786,13 +761,11 @@ int s5p_mipi_dsi_hibernation_power_on(struct display_driver *dispdrv)
 
 	/* PPI signal disable + D-PHY reset */
 	s5p_mipi_dsi_d_phy_onoff(dsim, 1);
-	/* Stable time */
-	dsim_reg_pll_stable_time();
 
 	dsim->state = DSIM_STATE_INIT;
 
 	/* DSIM init */
-	dsim_reg_init(dsim->lcd_info, dsim->dsim_config->e_no_data_lane + 1);
+	dsim_reg_init(dsim->lcd_update, dsim->dsim_config->e_no_data_lane + 1);
 
 	dsim_device_to_clks(dsim, &clks);
 	dsim_reg_set_clocks(&clks, DSIM_LANE_CLOCK | dsim->data_lane, 1);
@@ -910,8 +883,6 @@ int create_mipi_dsi_controller(struct platform_device *pdev)
 
 	dsim->dsim_lcd_drv = dsim->dsim_config->dsim_ddi_pd;
 
-	dsim->timing.bps = 0;
-
 	mutex_init(&dsim_rd_wr_mutex);
 	mutex_init(&dsim->lock);
 
@@ -1003,6 +974,9 @@ int create_mipi_dsi_controller(struct platform_device *pdev)
 		dispdrv->dsi_driver.ops->pwr_on = s5p_mipi_dsi_hibernation_power_on;
 		dispdrv->dsi_driver.ops->pwr_off = s5p_mipi_dsi_hibernation_power_off;
 	}
+
+	dsim->lcd_update = kzalloc(sizeof(struct decon_lcd), GFP_KERNEL);
+	memcpy(dsim->lcd_update, dsim->lcd_info, sizeof(struct decon_lcd));
 #endif
 
 #ifdef CONFIG_FB_WINDOW_UPDATE

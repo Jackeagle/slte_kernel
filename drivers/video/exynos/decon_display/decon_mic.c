@@ -104,6 +104,11 @@ int decon_mic_disable(struct decon_mic *mic)
 
 	mic->decon_mic_on = false;
 
+#ifdef CONFIG_FB_HIBERNATION_DISPLAY
+	mic->lcd_update->xres = mic->lcd->xres;
+	mic->lcd_update->yres = mic->lcd->yres;
+#endif
+
 	dev_dbg(mic->dev, "MIC driver is OFF;\n");
 
 	return 0;
@@ -154,6 +159,9 @@ int create_decon_mic(struct platform_device *pdev)
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 	dispdrv->mic_driver.ops->pwr_on = decon_mic_hibernation_power_on;
 	dispdrv->mic_driver.ops->pwr_off = decon_mic_hibernation_power_off;
+
+	mic->lcd_update = kzalloc(sizeof(struct decon_lcd), GFP_KERNEL);
+	memcpy(mic->lcd_update, mic->lcd, sizeof(struct decon_lcd));
 #endif
 
 	mic_info("MIC driver has been probed\n");
@@ -178,7 +186,19 @@ int decon_mic_hibernation_power_on(struct display_driver *dispdrv)
 {
 	struct decon_mic *mic = dispdrv->mic_driver.mic;
 
-	decon_mic_enable(mic);
+	/* from here, it must be same with decon_mic_enable function */
+
+	if (!mic->lcd->mic)
+		return 0;
+	if (mic->decon_mic_on == true)
+		return 0;
+
+	decon_mic_set_sys_reg(mic, DECON_MIC_ON);
+	mic_reg_start(mic->lcd_update);
+
+	mic->decon_mic_on = true;
+
+	dev_dbg(mic->dev, "MIC driver is ON;\n");
 
 	return 0;
 }

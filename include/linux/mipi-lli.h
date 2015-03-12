@@ -109,7 +109,6 @@ struct mipi_lli {
 	dma_addr_t		phy_addr;
 	atomic_t		state;
 	atomic_t		mnt_cnt;
-	bool			is_cpboot_err;
 	bool			is_master;
 	bool			is_suspended;
 	bool			is_runtime_suspended;

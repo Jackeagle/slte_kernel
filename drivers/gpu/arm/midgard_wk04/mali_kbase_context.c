@@ -180,7 +180,6 @@ void kbase_destroy_context(kbase_context *kctx)
 	int pages;
 	unsigned long pending_regions_to_clean;
 #ifdef SLSI_INTEGRATION
-	struct exynos_context *platform;
 	if (!kctx) {
 		printk("An uninitialized or destroyed context is tried to be destroyed. kctx is null\n");
 		return ;

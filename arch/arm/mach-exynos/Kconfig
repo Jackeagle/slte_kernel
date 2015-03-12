@@ -806,8 +806,14 @@ config MACH_KALTE_KOR_LGT
 endchoice
 
 config TIMA
-        bool "Enable TIMA(Trustzone based Integrity Measurement Archtecture feature"
-        default n
+	bool "Enable TIMA(Trustzone based Integrity Measurement Archtecture feature"
+	default n
+
+config TIMA_LKMAUTH
+	bool "Enable LKM authentication by TIMA"
+	help
+	   TIMA authenticates loaded kernel modules. Disable it if you don't
+	   want TIMA enabled.
 
 config TIMA_RKP
 	bool "Enable RKP (Realtime Kernel Protection) TIMA feature"

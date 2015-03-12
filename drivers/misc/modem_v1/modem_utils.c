@@ -53,16 +53,20 @@
 #define LINE_BUFF_SIZE	80
 
 enum bit_debug_flags {
-	DEBUG_MODEM_IF_FMT,
-	DEBUG_MODEM_IF_RFS,
-	DEBUG_MODEM_IF_PS,
-	DEBUG_MODEM_IF_BOOT,
-	DEBUG_MODEM_IF_DUMP,
-	DEBUG_MODEM_IF_CSVT,
-	DEBUG_MODEM_IF_LOG
+	DEBUG_FLAG_FMT,
+	DEBUG_FLAG_RFS,
+	DEBUG_FLAG_PS,
+	DEBUG_FLAG_BOOT,
+	DEBUG_FLAG_DUMP,
+	DEBUG_FLAG_CSVT,
+	DEBUG_FLAG_LOG
 };
 
-static unsigned long dflags = (1 << DEBUG_MODEM_IF_FMT);
+#ifdef DEBUG_MODEM_IF_PS_DATA
+static unsigned long dflags = (1 << DEBUG_FLAG_FMT | 1 << DEBUG_FLAG_PS);
+#else
+static unsigned long dflags = (1 << DEBUG_FLAG_FMT);
+#endif
 module_param(dflags, ulong, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(dflags, "modem_v1 debug flags");
 
@@ -246,14 +250,17 @@ static struct log_buff_circ_queue mif_log_queue = {
  * the length of @buff must be greater than "@len * 3"
  * it need 3 bytes per one data byte to print.
  */
-static inline int dump2hex(char *buff, size_t size, const char *data,
-			   size_t len)
+static inline void dump2hex(char *buff, size_t buff_size,
+			    const char *data, size_t data_len)
 {
 	char *dest = buff;
+	size_t len;
 	int i;
 
-	if (size < (len * 3))
-		goto exit;
+	if (buff_size < (data_len * 3))
+		len = buff_size / 3;
+	else
+		len = data_len;
 
 	for (i = 0; i < len; i++) {
 		*dest++ = hex[(data[i] >> 4) & 0xf];
@@ -261,12 +268,11 @@ static inline int dump2hex(char *buff, size_t size, const char *data,
 		*dest++ = ' ';
 	}
 
+	/* The last character must be overwritten with NULL */
 	if (likely(len > 0))
-		dest--; /* last space will be overwrited with null */
+		dest--;
 
-exit:
 	*dest = 0;
-	return dest - buff;
 }
 
 static struct log_buff *get_free_logb(void)
@@ -387,19 +393,19 @@ EXPORT_SYMBOL(evt_log);
 static inline bool log_enabled(u8 ch)
 {
 	if (sipc5_fmt_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_FMT, &dflags);
+		return test_bit(DEBUG_FLAG_FMT, &dflags);
 	else if (sipc5_boot_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_BOOT, &dflags);
+		return test_bit(DEBUG_FLAG_BOOT, &dflags);
 	else if (sipc5_dump_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_DUMP, &dflags);
+		return test_bit(DEBUG_FLAG_DUMP, &dflags);
 	else if (sipc5_rfs_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_RFS, &dflags);
+		return test_bit(DEBUG_FLAG_RFS, &dflags);
 	else if (sipc_csd_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_CSVT, &dflags);
+		return test_bit(DEBUG_FLAG_CSVT, &dflags);
 	else if (sipc_log_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_LOG, &dflags);
+		return test_bit(DEBUG_FLAG_LOG, &dflags);
 	else if (sipc_ps_ch(ch))
-		return test_bit(DEBUG_MODEM_IF_PS, &dflags);
+		return test_bit(DEBUG_FLAG_PS, &dflags);
 	else
 		return false;
 }
@@ -466,6 +472,7 @@ void log_ipc_pkt(u8 ch, enum ipc_layer layer, enum direction dir,
 		 layer_str(layer), dir_str(dir), ld->name, iod->name,
 		 arrow(dir), mc->name, t.hour, t.min, t.sec, t.us);
 
+#ifdef DEBUG_MODEM_IF_LINK_HEADER
 	/* Append a string of the link header */
 	if (hdr_len > 0) {
 		char *separation = " | ";
@@ -473,15 +480,20 @@ void log_ipc_pkt(u8 ch, enum ipc_layer layer, enum direction dir,
 		dump2hex((buff + offset), (MAX_LOG_LEN - offset), hdr, hdr_len);
 		strncat(buff, separation, (MAX_LOG_LEN - strlen(buff)));
 	}
+#endif
 
 	/* Append a string of the payload */
 	offset = strlen(buff);
 	dump2hex((buff + offset), (MAX_LOG_LEN - offset), msg,
-		 (msg_len > MAX_HEX_LEN ? MAX_HEX_LEN : msg_len));
+		 (msg_len > MAX_DUMP_LEN ? MAX_DUMP_LEN : msg_len));
 
 	/* Append a new-line character */
 	offset = strlen(buff);
 	*(buff + offset) = '\n';
+
+	/* Append a NULL (terminator) character */
+	offset = strlen(buff);
+	*(buff + offset) = 0;
 
 	print_evt_log(logb);
 }
@@ -1030,7 +1042,7 @@ static void strcat_udp_header(char *buff, u8 *pkt)
 	}
 }
 
-void print_ip4_packet(const u8 *ip_pkt, bool tx)
+void print_ipv4_packet(const u8 *ip_pkt, enum direction dir)
 {
 	char *buff;
 	struct iphdr *iph = (struct iphdr *)ip_pkt;
@@ -1076,10 +1088,10 @@ void print_ip4_packet(const u8 *ip_pkt, bool tx)
 	if (!buff)
 		return;
 
-	if (tx)
-		snprintf(line, LINE_BUFF_SIZE, "\n%s\n", TX_SEPARATOR);
+	if (dir == TX)
+		snprintf(line, LINE_BUFF_SIZE, "%s\n", TX_SEPARATOR);
 	else
-		snprintf(line, LINE_BUFF_SIZE, "\n%s\n", RX_SEPARATOR);
+		snprintf(line, LINE_BUFF_SIZE, "%s\n", RX_SEPARATOR);
 	strcat(buff, line);
 
 	snprintf(line, LINE_BUFF_SIZE, "%s\n", LINE_SEPARATOR);
@@ -1135,7 +1147,7 @@ void print_ip4_packet(const u8 *ip_pkt, bool tx)
 	snprintf(line, LINE_BUFF_SIZE, "%s\n", LINE_SEPARATOR);
 	strcat(buff, line);
 
-	pr_info("%s", buff);
+	pr_err("%s\n", buff);
 
 	kfree(buff);
 }
@@ -1171,37 +1183,13 @@ bool is_syn_packet(const u8 *ip_pkt)
 }
 
 /**
-@brief		register an ISR for an IRQ number
+@brief		initialize a modem_irq instance
 
-@param irq	the IRQ number for an interrupt
-@param isr	the function pointer to an interrupt service routine
-@param flags	the set of interrupt flags
+@param irq	the pointer to a modem_irq instance
+@param num	IRQ number
 @param name	the name of the interrupt
-@param data	the pointer to a data for @e @@isr
-
-@retval "= 0"	if NO error
-@retval "< 0"	an error code
+@param flags	the bitmask of interrupt flags
 */
-int mif_register_isr(unsigned int irq, irq_handler_t isr, unsigned long flags,
-		     const char *name, void *data)
-{
-	int ret;
-
-	ret = request_irq(irq, isr, flags, name, data);
-	if (ret) {
-		mif_err("%s: ERR! request_irq fail (err %d)\n", name, ret);
-		return ret;
-	}
-
-	ret = enable_irq_wake(irq);
-	if (ret)
-		mif_err("%s: ERR! enable_irq_wake fail (err %d)\n", name, ret);
-
-	mif_err("%s(#%d) handler registered\n", name, irq);
-
-	return 0;
-}
-
 void mif_init_irq(struct modem_irq *irq, unsigned int num, const char *name,
 		  unsigned long flags)
 {
@@ -1209,36 +1197,33 @@ void mif_init_irq(struct modem_irq *irq, unsigned int num, const char *name,
 	irq->num = num;
 	strncpy(irq->name, name, (MAX_NAME_LEN - 1));
 	irq->flags = flags;
-	mif_err("name:%s num:%d flags:0x%08lX\n", name, num, flags);
+	evt_log(1, "%s: name:%s num:%d flags:0x%08lX\n",
+		FUNC, name, num, flags);
 }
 
-int mif_request_threaded_irq(struct modem_irq *irq,
-		irq_handler_t isr, irq_handler_t thread_fn, void *data)
+int mif_request_irq(struct modem_irq *irq, irq_handler_t isr, void *data)
 {
 	int ret;
 
-	ret = request_threaded_irq(irq->num, isr, thread_fn,
-			irq->flags, irq->name, data);
+	ret = request_irq(irq->num, isr, irq->flags, irq->name, data);
 	if (ret) {
-		mif_err("%s: ERR! request_threaded_irq fail (%d)\n",
-				irq->name, ret);
+		evt_log(0, "%s: %s: ERR! request_irq fail (%d)\n",
+			FUNC, irq->name, ret);
 		return ret;
 	}
 
-	ret = enable_irq_wake(irq->num);
-	if (ret)
-		mif_err("%s: ERR! enable_irq_wake fail (%d)\n", irq->name, ret);
-
 	irq->active = true;
 
-	mif_err("%s(#%d) handler registered\n", irq->name, irq->num);
+	ret = enable_irq_wake(irq->num);
+	if (ret) {
+		evt_log(0, "%s: %s: ERR! enable_irq_wake fail (%d)\n",
+			FUNC, irq->name, ret);
+	}
+
+	evt_log(1, "%s: %s(#%d) handler registered (flags:0x%08lX)\n",
+		FUNC, irq->name, irq->num, irq->flags);
 
 	return 0;
-}
-
-inline int mif_request_irq(struct modem_irq *irq, irq_handler_t isr, void *data)
-{
-	return mif_request_threaded_irq(irq, isr, NULL, data);
 }
 
 void mif_enable_irq(struct modem_irq *irq)
@@ -1248,14 +1233,17 @@ void mif_enable_irq(struct modem_irq *irq)
 	spin_lock_irqsave(&irq->lock, flags);
 
 	if (irq->active) {
-		mif_err("%s(#%d) is already active\n", irq->name, irq->num);
+		evt_log(0, "%s: %s(#%d) is already active <%pf>\n",
+			FUNC, irq->name, irq->num, CALLER);
 		goto exit;
 	}
 
 	enable_irq(irq->num);
+
 	irq->active = true;
 
-	mif_err("%s(#%d) is enabled\n", irq->name, irq->num);
+	evt_log(1, "%s: %s(#%d) is enabled <pf>\n",
+		FUNC, irq->name, irq->num, CALLER);
 
 exit:
 	spin_unlock_irqrestore(&irq->lock, flags);
@@ -1268,14 +1256,17 @@ void mif_disable_irq(struct modem_irq *irq)
 	spin_lock_irqsave(&irq->lock, flags);
 
 	if (!irq->active) {
-		mif_err("%s(#%d) is not active\n", irq->name, irq->num);
+		evt_log(0, "%s: %s(#%d) is not active <%pf>\n",
+			FUNC, irq->name, irq->num, CALLER);
 		goto exit;
 	}
 
 	disable_irq_nosync(irq->num);
+
 	irq->active = false;
 
-	mif_err("%s(#%d) is disabled\n", irq->name, irq->num);
+	evt_log(1, "%s: %s(#%d) is disabled <%pf>\n",
+		FUNC, irq->name, irq->num, CALLER);
 
 exit:
 	spin_unlock_irqrestore(&irq->lock, flags);
@@ -1351,6 +1342,14 @@ int board_gpio_export(struct device *dev,
 	mif_info("%s exported\n", name);
 
 	return 0;
+}
+
+void make_gpio_floating(unsigned int gpio, bool floating)
+{
+	if (floating)
+		gpio_direction_input(gpio);
+	else
+		gpio_direction_output(gpio, 0);
 }
 
 int __ref register_cp_crash_notifier(struct notifier_block *nb)
