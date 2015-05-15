@@ -100,14 +100,12 @@ static int exynos5_devfreq_int_target(struct device *dev,
 
 	*target_freq = opp_get_freq(target_opp);
 	target_volt = opp_get_voltage(target_opp);
+	rcu_read_unlock();
 #ifdef CONFIG_EXYNOS_THERMAL
 	target_volt = get_limit_voltage(target_volt, data->volt_offset);
 #endif
 	/* just want to save voltage before apply constraint with isp */
 	data->target_volt = target_volt;
-	if (target_volt < data->volt_constraint_isp)
-		target_volt = data->volt_constraint_isp;
-	rcu_read_unlock();
 
 	target_idx = exynos5_devfreq_get_idx(devfreq_int_opp_list, data->max_state,
 						*target_freq);
@@ -221,7 +219,13 @@ static int exynos5_devfreq_int_reboot_notifier(struct notifier_block *nb, unsign
 						void *v)
 {
 	unsigned long freq = exynos5433_qos_int.default_qos;
-	exynos5_devfreq_int_target(int_dev, &freq, 0);
+	struct devfreq_data_int *data = dev_get_drvdata(int_dev);
+	struct devfreq *devfreq_int = data->devfreq;
+
+	devfreq_int->max_freq = freq;
+	mutex_lock(&devfreq_int->lock);
+	update_devfreq(devfreq_int);
+	mutex_unlock(&devfreq_int->lock);
 
 	return NOTIFY_DONE;
 }
@@ -268,6 +272,18 @@ static int exynos5_devfreq_int_probe(struct platform_device *pdev)
 	int_dev =
 	data->dev = &pdev->dev;
 	data->vdd_int = regulator_get(NULL, "vdd_int");
+
+	if (IS_ERR_OR_NULL(data->vdd_int)) {
+		pr_err("DEVFREQ(INT) : Failed to get regulator\n");
+		goto err_inittable;
+	}
+
+	data->vdd_int_m = regulator_get(NULL, "vdd_int_m");
+	if (IS_ERR(data->vdd_int)) {
+		dev_err(data->dev, "DEVFREQ(INT) : failed to get regulator\n");
+		goto err_regulator_m;
+	}
+
 	data->devfreq = devfreq_add_device(data->dev,
 						&exynos5_devfreq_int_profile,
 						"simple_ondemand",
@@ -303,6 +319,9 @@ static int exynos5_devfreq_int_probe(struct platform_device *pdev)
 	return ret;
 err_nb:
 	devfreq_remove_device(data->devfreq);
+	regulator_put(data->vdd_int_m);
+err_regulator_m:
+	regulator_put(data->vdd_int);
 err_inittable:
 	kfree(exynos5_devfreq_int_profile.freq_table);
 err_freqtable:

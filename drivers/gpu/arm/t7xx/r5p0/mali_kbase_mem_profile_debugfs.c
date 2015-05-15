@@ -19,6 +19,10 @@
 
 #ifdef CONFIG_DEBUG_FS
 
+#if SLSI_INTEGRATION
+extern struct kbase_device *pkbdev;
+#endif /* SLSI_INTEGRATION */
+
 /* mam_profile file name max length 22 based on format <int>_<int>\0 */
 #define KBASEP_DEBUGFS_FNAME_SIZE_MAX (10+1+10+1)
 
@@ -31,6 +35,25 @@ void kbasep_mem_profile_debugfs_insert(struct kbase_context *kctx, char *data,
 	kctx->mem_profile_size = size;
 	spin_unlock(&kctx->mem_profile_lock);
 }
+
+#if SLSI_INTEGRATION
+static mali_bool kbasep_mem_profile_check_kctx(struct kbase_context *kctx)
+{
+	struct kbasep_kctx_list_element *element, *tmp;
+	mali_bool found_element = MALI_FALSE;
+
+	mutex_lock(&pkbdev->kctx_list_lock);
+	list_for_each_entry_safe(element, tmp, &pkbdev->kctx_list, link) {
+		if (element->kctx == kctx) {
+			found_element = MALI_TRUE;
+			break;
+		}
+	}
+	mutex_unlock(&pkbdev->kctx_list_lock);
+
+	return found_element;
+}
+#endif /* SLSI_INTEGRATION */
 
 /** Show callback for the @c mem_profile debugfs file.
  *
@@ -49,9 +72,19 @@ static int kbasep_mem_profile_seq_show(struct seq_file *sfile, void *data)
 
 	KBASE_DEBUG_ASSERT(kctx != NULL);
 
+#if SLSI_INTEGRATION
+	if (!kbasep_mem_profile_check_kctx(kctx))
+		return 0;
+
+ 	if (kctx->destroying_context)               
+		return 0;
+#endif
+
 	spin_lock(&kctx->mem_profile_lock);
-	seq_write(sfile, kctx->mem_profile_data, kctx->mem_profile_size);
-	seq_putc(sfile, '\n');
+	if (kctx->mem_profile_data) {
+		seq_write(sfile, kctx->mem_profile_data, kctx->mem_profile_size);
+		seq_putc(sfile, '\n');
+	}
 	spin_unlock(&kctx->mem_profile_lock);
 
 	return 0;
@@ -80,7 +113,7 @@ mali_error kbasep_mem_profile_debugfs_add(struct kbase_context *kctx)
 
 	spin_lock_init(&kctx->mem_profile_lock);
 
-	scnprintf(name, KBASEP_DEBUGFS_FNAME_SIZE_MAX, "%d_%d", kctx->pid,
+	scnprintf(name, KBASEP_DEBUGFS_FNAME_SIZE_MAX, "%d_%d", kctx->tgid,
 			kctx->id);
 
 	kctx->mem_dentry = debugfs_create_file(name, S_IRUGO,
@@ -99,14 +132,16 @@ void kbasep_mem_profile_debugfs_remove(struct kbase_context *kctx)
 {
 	KBASE_DEBUG_ASSERT(kctx != NULL);
 
+	if (IS_ERR(kctx->mem_dentry))
+		goto out;
+
+	debugfs_remove(kctx->mem_dentry);
+
+out:
 	spin_lock(&kctx->mem_profile_lock);
 	kfree(kctx->mem_profile_data);
 	kctx->mem_profile_data = NULL;
 	spin_unlock(&kctx->mem_profile_lock);
-
-	if (IS_ERR(kctx->mem_dentry))
-		return;
-	debugfs_remove(kctx->mem_dentry);
 }
 
 #else /* CONFIG_DEBUG_FS */

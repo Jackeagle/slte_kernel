@@ -14,6 +14,9 @@
 #include <linux/cpumask.h>
 #include <linux/kernel.h>
 #include <linux/bug.h>
+#include <linux/delay.h>
+#include <linux/workqueue.h>
+#include <linux/cpu.h>
 
 #include <mach/regs-clock.h>
 #include <mach/regs-pmu.h>
@@ -26,6 +29,9 @@
 
 #define REG_CPU_STATE_ADDR     (S5P_VA_SYSRAM_NS + 0x28)
 
+static bool cluster_power;
+static struct workqueue_struct *cluster_down_wq;
+static struct delayed_work cluster_down_work;
 static struct exynos_pmu_conf *exynos_pmu_config;
 
 static struct exynos_pmu_conf exynos5430_pmu_config[] = {
@@ -189,23 +195,6 @@ void clear_boot_flag(unsigned int cpu, unsigned int mode)
 	__raw_writel(tmp, addr);
 }
 
-void exynos5430_secondary_up(unsigned int cpu_id)
-{
-	unsigned int phys_cpu = cpu_logical_map(cpu_id);
-	unsigned int tmp, core, cluster;
-	void __iomem *addr;
-
-	core = MPIDR_AFFINITY_LEVEL(phys_cpu, 0);
-	cluster = MPIDR_AFFINITY_LEVEL(phys_cpu, 1);
-
-	addr = EXYNOS_ARM_CORE_CONFIGURATION(core + (4 * cluster));
-
-	tmp = __raw_readl(addr);
-	tmp |= EXYNOS_CORE_INIT_WAKEUP_FROM_LOWPWR | EXYNOS_CORE_PWR_EN;
-
-	__raw_writel(tmp, addr);
-}
-
 void exynos5430_cpu_up(unsigned int cpu_id)
 {
 	unsigned int phys_cpu = cpu_logical_map(cpu_id);
@@ -258,7 +247,7 @@ unsigned int exynos5430_cluster_state(unsigned int cluster)
 
 	BUG_ON(cluster > 2);
 
-	cpu_start = (cluster) ? 4 : 0;
+	cpu_start = (cluster) ? 0 : 4;
 	cpu_end = cpu_start + 4;
 
 	for (;cpu_start < cpu_end; cpu_start++) {
@@ -320,9 +309,21 @@ unsigned int exynos5430_l2_status(unsigned int cluster)
 	return state & EXYNOS_L2_PWR_EN;
 }
 
+unsigned int exynos5430_noncpu_status(unsigned int cluster)
+{
+	unsigned int state;
+
+	BUG_ON(cluster > 2);
+
+	state = __raw_readl(EXYNOS_NONCPU_STATUS(cluster));
+
+	return state & EXYNOS_PWR_EN;
+}
+
 void exynos5430_l2_up(unsigned int cluster)
 {
 	unsigned int tmp = (EXYNOS_L2_PWR_EN << 8) | EXYNOS_L2_PWR_EN;
+	unsigned int timeout = 5;
 
 	if (exynos5430_l2_status(cluster))
 		return;
@@ -331,17 +332,149 @@ void exynos5430_l2_up(unsigned int cluster)
 	__raw_writel(tmp, EXYNOS_L2_CONFIGURATION(cluster));
 
 	/* wait for turning on */
-	while (exynos5430_l2_status(cluster));
+	while (timeout) {
+		if (exynos5430_l2_status(cluster))
+			break;
+
+		mdelay(1);
+		timeout--;
+
+		if (timeout == 0) {
+			printk(KERN_ERR "l2 cluster(%d) power up failed\n", cluster);
+			BUG();
+		}
+	}
 }
 
 void exynos5430_l2_down(unsigned int cluster)
 {
 	unsigned int tmp;
+	unsigned int timeout = 5;
 
 	tmp = __raw_readl(EXYNOS_L2_CONFIGURATION(cluster));
 	tmp &= ~(EXYNOS_L2_PWR_EN);
-
 	__raw_writel(tmp, EXYNOS_L2_CONFIGURATION(cluster));
+
+	/* wait for turning on */
+	while (timeout) {
+		if (!exynos5430_l2_status(cluster))
+			break;
+
+		mdelay(1);
+		timeout--;
+
+		if (timeout == 0) {
+			printk(KERN_ERR "l2 cluster(%d) power down failed\n", cluster);
+			BUG();
+		}
+	}
+}
+
+void exynos5430_noncpu_up(unsigned int cluster)
+{
+	unsigned int tmp = (EXYNOS_CORE_INIT_WAKEUP_FROM_LOWPWR << 16) |
+					(EXYNOS_PWR_EN << 8) | EXYNOS_PWR_EN;
+	unsigned int timeout = 5;
+
+	if (exynos5430_noncpu_status(cluster))
+		return;
+
+	tmp |= __raw_readl(EXYNOS_NONCPU_CONFIGURATION(cluster));
+	__raw_writel(tmp, EXYNOS_NONCPU_CONFIGURATION(cluster));
+
+	/* wait for turning on */
+	while (timeout) {
+		if (exynos5430_noncpu_status(cluster))
+			break;
+
+		mdelay(1);
+		timeout--;
+
+		if (timeout == 0) {
+			printk(KERN_ERR "non-cpu(%d) power up failed\n", cluster);
+			BUG();
+		}
+	}
+}
+
+void exynos5430_noncpu_down(unsigned int cluster)
+{
+	unsigned int tmp;
+	unsigned int timeout = 5;
+
+	tmp = __raw_readl(EXYNOS_NONCPU_CONFIGURATION(cluster));
+	tmp &= ~(EXYNOS_PWR_EN);
+	__raw_writel(tmp, EXYNOS_NONCPU_CONFIGURATION(cluster));
+
+	/* wait for turning on */
+	while (timeout) {
+		if (!exynos5430_noncpu_status(cluster))
+			break;
+
+		mdelay(1);
+		timeout--;
+
+		if (timeout == 0) {
+			printk(KERN_ERR "l2 cluster(%d) power down failed\n", cluster);
+			BUG();
+		}
+	}
+}
+
+static void exynos5430_cluster_down(struct work_struct *work)
+{
+	unsigned int cluster = 0;
+	unsigned int cpu_start, cpu_end;
+
+	get_online_cpus();
+
+	cpu_start = 4;
+	cpu_end = cpu_start + 4;
+
+	/* Even if just one cpu is online, skip cluster power down */
+	for (;cpu_start < cpu_end; cpu_start++) {
+		if (cpu_online(cpu_start))
+			goto out;
+	}
+
+	/*
+	 * If all cpus in cluster are powered down, power down cluster.
+	 * Else, call this function again after 10msec.
+	 */
+	if (!exynos5430_cluster_state(cluster)) {
+		exynos5430_l2_down(cluster);
+		exynos5430_noncpu_down(cluster);
+		cluster_power = false;
+	} else {
+		queue_delayed_work(cluster_down_wq,
+				&cluster_down_work,
+				msecs_to_jiffies(10));
+	}
+out:
+	put_online_cpus();
+}
+
+void exynos5430_secondary_up(unsigned int cpu_id)
+{
+	unsigned int phys_cpu = cpu_logical_map(cpu_id);
+	unsigned int tmp, core, cluster;
+	void __iomem *addr;
+
+	core = MPIDR_AFFINITY_LEVEL(phys_cpu, 0);
+	cluster = MPIDR_AFFINITY_LEVEL(phys_cpu, 1);
+
+	if (!cluster_power && cluster == 0) {
+		exynos5430_l2_up(cluster);
+		exynos5430_noncpu_up(cluster);
+		cluster_power = true;
+	}
+
+	addr = EXYNOS_ARM_CORE_CONFIGURATION(core + (4 * cluster));
+
+	tmp = __raw_readl(addr);
+	tmp |= EXYNOS_CORE_INIT_WAKEUP_FROM_LOWPWR | EXYNOS_CORE_PWR_EN;
+
+	__raw_writel(tmp, addr);
 }
 
 static void exynos_use_feedback(void)
@@ -470,6 +603,26 @@ void exynos_pmu_wdt_control(bool on, unsigned int pmu_wdt_reset_type)
 	return;
 }
 
+static int __cpuinit exynos5430_cpu_notifier(struct notifier_block *nfb,
+					unsigned long action, void *hcpu)
+{
+	cpumask_t temp_mask;
+
+	cpumask_and(&temp_mask, cpu_online_mask, cpu_coregroup_mask(4));
+	switch (action & ~CPU_TASKS_FROZEN) {
+		case CPU_POST_DEAD:
+			if (cpumask_weight(&temp_mask) == 0)
+				queue_delayed_work(cluster_down_wq, &cluster_down_work, 0);
+			break;
+	}
+
+	return NOTIFY_OK;
+}
+
+static struct notifier_block exynos5430_cpu_nb __cpuinitdata = {
+	.notifier_call = exynos5430_cpu_notifier,
+};
+
 #define EXYNOS5430_PRINT_PMU(name) \
 	pr_info("  - %s  CONFIG : 0x%x  STATUS : 0x%x  OPTION : 0x%x\n", \
 			#name, \
@@ -526,6 +679,8 @@ void show_exynos_pmu(void)
 int __init exynos5430_pmu_init(void)
 {
 	unsigned int tmp;
+	int ret;
+
 	/*
 	 * Set measure power on/off duration
 	 * Use SC_USE_FEEDBACK
@@ -589,6 +744,11 @@ int __init exynos5430_pmu_init(void)
 	exynos_cpu.cluster_state = exynos5430_cluster_state;
 	exynos_cpu.is_last_core = exynos5430_is_last_core;
 
+	cluster_power = true;
+	ret = register_hotcpu_notifier(&exynos5430_cpu_nb);
+	if (ret < 0)
+		return ret;
+
 	if (exynos_pmu_config != NULL)
 		pr_info("EXYNOS5430 PMU Initialize\n");
 	else
@@ -596,3 +756,12 @@ int __init exynos5430_pmu_init(void)
 
 	return 0;
 }
+
+static int __init exynos_pmu_late_init(void)
+{
+	cluster_down_wq = create_freezable_workqueue("cluster_down_wq");
+	INIT_DELAYED_WORK(&cluster_down_work, exynos5430_cluster_down);
+
+	return 0;
+}
+late_initcall(exynos_pmu_late_init);

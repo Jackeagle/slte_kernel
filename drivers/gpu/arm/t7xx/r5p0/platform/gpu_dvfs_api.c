@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_dvfs_api.c
+/* drivers/gpu/arm/.../platform/gpu_dvfs_api.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 DVFS driver
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -48,12 +48,15 @@ static int gpu_check_target_clock(struct exynos_context *platform, int clock)
 	if (!platform->dvfs_status)
 		return clock;
 
-	if ((platform->max_lock > 0) &&
-			((clock >= platform->max_lock) || (platform->cur_clock >= platform->max_lock)))
-		target_clock = platform->max_lock;
-	else if ((platform->min_lock > 0) &&
-			((clock <= platform->min_lock) || (platform->cur_clock <= platform->min_lock)))
+	GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "clock: %d, min: %d, max: %d\n", clock, platform->min_lock, platform->max_lock);
+
+	if ((platform->min_lock > 0) &&
+			((clock < platform->min_lock) || (platform->cur_clock < platform->min_lock)))
 		target_clock = platform->min_lock;
+
+	if ((platform->max_lock > 0) &&
+			((target_clock > platform->max_lock) || (platform->cur_clock > platform->max_lock)))
+		target_clock = platform->max_lock;
 #endif /* CONFIG_MALI_DVFS */
 
 	return target_clock;
@@ -69,6 +72,8 @@ static int gpu_update_cur_level(struct exynos_context *platform)
 	level = gpu_dvfs_get_level(platform->cur_clock);
 	if (level >= 0) {
 		spin_lock_irqsave(&platform->gpu_dvfs_spinlock, flags);
+		if (platform->step != level)
+			platform->down_requirement = platform->table[level].stay_count;
 		platform->step = level;
 		spin_unlock_irqrestore(&platform->gpu_dvfs_spinlock, flags);
 	} else {
@@ -79,7 +84,7 @@ static int gpu_update_cur_level(struct exynos_context *platform)
 	return 0;
 }
 
-int gpu_set_target_clk_vol(int clk)
+int gpu_set_target_clk_vol(int clk, bool pending_is_allowed)
 {
 	int ret = 0, target_clk = 0, target_vol = 0;
 	int prev_clk = 0;
@@ -88,10 +93,59 @@ int gpu_set_target_clk_vol(int clk)
 
 	DVFS_ASSERT(platform);
 
-	if (!gpu_is_power_on()) {
+	if (!gpu_control_is_power_on(pkbdev)) {
 		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "%s: can't set clock and voltage in the power-off state!\n", __func__);
 		return -1;
 	}
+
+	mutex_lock(&platform->gpu_clock_lock);
+#ifdef CONFIG_MALI_DVFS
+	if (pending_is_allowed && platform->dvs_is_enabled) {
+		if (!platform->dvfs_pending && clk < platform->cur_clock) {
+			platform->dvfs_pending = clk;
+			GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "pending to change the clock [%d -> %d\n", platform->cur_clock, platform->dvfs_pending);
+		} else if (clk > platform->cur_clock) {
+			platform->dvfs_pending = 0;
+		}
+		mutex_unlock(&platform->gpu_clock_lock);
+		return 0;
+	} else {
+		platform->dvfs_pending = 0;
+	}
+#endif /* CONFIG_MALI_DVFS */
+
+	target_clk = gpu_check_target_clock(platform, clk);
+	if (target_clk < 0) {
+		mutex_unlock(&platform->gpu_clock_lock);
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u,
+				"%s: mismatch clock error (source %d, target %d)\n", __func__, clk, target_clk);
+		return -1;
+	}
+
+	target_vol = MAX(gpu_dvfs_get_voltage(target_clk) + platform->voltage_margin, platform->cold_min_vol);
+
+	prev_clk = gpu_get_cur_clock(platform);
+
+	GPU_SET_CLK_VOL(kbdev, prev_clk, target_clk, target_vol);
+	ret = gpu_update_cur_level(platform);
+
+	mutex_unlock(&platform->gpu_clock_lock);
+
+	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "clk[%d -> %d], vol[%d (margin : %d)]\n",
+		prev_clk, gpu_get_cur_clock(platform), gpu_get_cur_voltage(platform), platform->voltage_margin);
+
+	return ret;
+}
+
+#ifdef CONFIG_MALI_DVFS
+int gpu_set_target_clk_vol_pending(int clk)
+{
+	int ret = 0, target_clk = 0, target_vol = 0;
+	int prev_clk = 0;
+	struct kbase_device *kbdev = pkbdev;
+	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+
+	DVFS_ASSERT(platform);
 
 	target_clk = gpu_check_target_clock(platform, clk);
 	if (target_clk < 0) {
@@ -104,18 +158,65 @@ int gpu_set_target_clk_vol(int clk)
 
 	prev_clk = gpu_get_cur_clock(platform);
 
-	mutex_lock(&platform->gpu_clock_lock);
-	GPU_SET_CLK_VOL(kbdev, prev_clk, target_clk, target_vol);
-	mutex_unlock(&platform->gpu_clock_lock);
+	GPU_SET_CLK_VOL(kbdev, platform->cur_clock, target_clk, target_vol);
+
+	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "pending clk[%d -> %d], vol[%d (margin : %d)]\n",
+		prev_clk, gpu_get_cur_clock(platform), gpu_get_cur_voltage(platform), platform->voltage_margin);
 
 	ret = gpu_update_cur_level(platform);
-
-	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "clk[%d -> %d], vol[%d (margin : %d)]\n", prev_clk, target_clk, target_vol, platform->voltage_margin);
 
 	return ret;
 }
 
-#ifdef CONFIG_MALI_DVFS
+int gpu_dvfs_boost_lock(gpu_dvfs_boost_command boost_command)
+{
+	struct kbase_device *kbdev = pkbdev;
+	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
+
+	DVFS_ASSERT(platform);
+
+	if (!platform->dvfs_status)
+		return 0;
+
+	if ((boost_command < GPU_DVFS_BOOST_SET) || (boost_command > GPU_DVFS_BOOST_END)) {
+		GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "%s: invalid boost command is called (%d)\n", __func__, boost_command);
+		return -1;
+	}
+
+	switch (boost_command) {
+	case GPU_DVFS_BOOST_SET:
+		if (platform->boost_gpu_min_lock)
+			gpu_dvfs_clock_lock(GPU_DVFS_MIN_LOCK, BOOST_LOCK, platform->boost_gpu_min_lock);
+		if (platform->boost_egl_min_lock) {
+			platform->boost_is_enabled = true;
+			gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_EGL_SET);
+		}
+		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "%s: boost mode is enabled (CPU: %d, GPU %d)\n",
+				__func__, platform->boost_egl_min_lock, platform->boost_gpu_min_lock);
+		break;
+	case GPU_DVFS_BOOST_UNSET:
+		if (platform->boost_gpu_min_lock)
+			gpu_dvfs_clock_lock(GPU_DVFS_MIN_UNLOCK, BOOST_LOCK, 0);
+		if (platform->boost_egl_min_lock) {
+			platform->boost_is_enabled = false;
+			gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_EGL_RESET);
+		}
+		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "%s: boost mode is disabled (CPU: %d, GPU %d)\n",
+				__func__, platform->boost_egl_min_lock, platform->boost_gpu_min_lock);
+		break;
+	case GPU_DVFS_BOOST_GPU_UNSET:
+		if (platform->boost_gpu_min_lock)
+			gpu_dvfs_clock_lock(GPU_DVFS_MIN_UNLOCK, BOOST_LOCK, 0);
+		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "%s: boost mode is disabled (GPU %d)\n",
+				__func__, platform->boost_gpu_min_lock);
+		break;
+	default:
+		break;
+	}
+
+	return 0;
+}
+
 int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type lock_type, int clock)
 {
 	struct kbase_device *kbdev = pkbdev;
@@ -159,7 +260,7 @@ int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type l
 		spin_unlock_irqrestore(&platform->gpu_dvfs_spinlock, flags);
 
 		if ((platform->max_lock > 0) && (platform->cur_clock >= platform->max_lock))
-			gpu_set_target_clk_vol(platform->max_lock);
+			gpu_set_target_clk_vol(platform->max_lock, false);
 
 		GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "lock max clk[%d], user lock[%d], current clk[%d]\n", platform->max_lock,
 				platform->user_max_lock[lock_type], platform->cur_clock);
@@ -188,7 +289,7 @@ int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type l
 
 		if ((platform->min_lock > 0)&& (platform->cur_clock < platform->min_lock)
 						&& (platform->min_lock <= platform->max_lock))
-			gpu_set_target_clk_vol(platform->min_lock);
+			gpu_set_target_clk_vol(platform->min_lock, false);
 
 		GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "lock min clk[%d], user lock[%d], current clk[%d]\n", platform->min_lock,
 				platform->user_min_lock[lock_type], platform->cur_clock);
@@ -295,13 +396,13 @@ int gpu_dvfs_on_off(bool enable)
 
 	mutex_lock(&platform->gpu_dvfs_handler_lock);
 	if (enable && !platform->dvfs_status) {
-		gpu_set_target_clk_vol(platform->cur_clock);
+		gpu_set_target_clk_vol(platform->cur_clock, false);
 		gpu_dvfs_handler_init(kbdev);
 		gpu_dvfs_timer_control(true);
 	} else if (!enable && platform->dvfs_status) {
 		gpu_dvfs_timer_control(false);
 		gpu_dvfs_handler_deinit(kbdev);
-		gpu_set_target_clk_vol(platform->gpu_dvfs_config_clock);
+		gpu_set_target_clk_vol(platform->gpu_dvfs_config_clock, false);
 	} else {
 		GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "%s: impossible state to change dvfs status (current: %d, request: %d)\n",
 				__func__, platform->dvfs_status, enable);
@@ -376,6 +477,9 @@ int gpu_dvfs_get_level(int clock)
 
 	DVFS_ASSERT(platform);
 
+	if ((clock < platform->gpu_min_clock) || (clock > platform->gpu_max_clock))
+		return -1;
+
 	for (i = 0; i < platform->table_size; i++) {
 		if (platform->table[i].clock == clock)
 			return i;
@@ -407,6 +511,9 @@ int gpu_dvfs_get_cur_asv_abb(void)
 
 	DVFS_ASSERT(platform);
 
+	if ((platform->step < 0) || (platform->step >= platform->table_size))
+		return 0;
+
 	return platform->table[platform->step].asv_abb;
 }
 
@@ -416,6 +523,9 @@ int gpu_dvfs_get_clock(int level)
 	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
 
 	DVFS_ASSERT(platform);
+
+	if ((level < 0) || (level >= platform->table_size))
+		return -1;
 
 	return platform->table[level].clock;
 }

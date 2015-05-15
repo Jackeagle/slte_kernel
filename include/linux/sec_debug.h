@@ -372,12 +372,18 @@ static inline void debug_rwsemaphore_up_log(struct rw_semaphore *sem)
 enum sec_debug_aux_log_idx {
 	SEC_DEBUG_AUXLOG_CPU_BUS_CLOCK_CHANGE,
 	SEC_DEBUG_AUXLOG_THERMAL_CHANGE,
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+	SEC_DEBUG_AUXLOG_IRQ,
+#endif
+	SEC_DEBUG_AUXLOG_WIFI,
 	SEC_DEBUG_AUXLOG_ITEM_MAX,
 };
 
 #ifdef CONFIG_SEC_DEBUG_AUXILIARY_LOG
+extern unsigned long long sec_debug_clock(void);
 extern void sec_debug_aux_log(int idx, char *fmt, ...);
 #else
+#define sec_debug_clock() do { } while (0)
 #define sec_debug_aux_log(idx, ...) do { } while (0)
 #endif
 
@@ -386,6 +392,9 @@ extern void sec_debug_avc_log(char *fmt, ...);
 #endif
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 extern void sec_debug_tsp_log(char *fmt, ...);
+#ifdef CONFIG_TOUCHSCREEN_FTS
+extern void tsp_dump(void);
+#endif
 #endif
 
 #ifdef CONFIG_SEC_DEBUG_CHECK_TASKPTR_FAULT

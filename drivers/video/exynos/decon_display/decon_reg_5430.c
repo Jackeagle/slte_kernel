@@ -362,6 +362,8 @@ void decon_reg_init_probe(struct decon_init_param *p)
 
 	if (psr->psr_mode == S3C_FB_MIPI_COMMAND_MODE)
 		decon_reg_configure_trigger(psr->trig_mode);
+
+	decon_reg_set_sys_reg();
 }
 
 void decon_reg_start(struct decon_psr_info *psr)
@@ -431,10 +433,9 @@ void decon_reg_set_int(struct decon_psr_info *psr, u32 en)
 	val = VIDINTCON0_INT_ENABLE | VIDINTCON0_FIFOLEVEL_EMPTY |
 		VIDINTCON0_INT_FIFO | VIDINTCON0_FIFOSEL_MAIN_EN;
 
+	val |= VIDINTCON0_INT_FRAME | VIDINTCON0_FRAMESEL0_VSYNC;
 	if (psr->psr_mode == S3C_FB_MIPI_COMMAND_MODE)
 		val |= VIDINTCON0_INT_I80_EN;
-	else
-		val |= VIDINTCON0_INT_FRAME | VIDINTCON0_FRAMESEL0_VSYNC;
 
 	if (en) {
 		if (psr->psr_mode == S3C_FB_MIPI_COMMAND_MODE)

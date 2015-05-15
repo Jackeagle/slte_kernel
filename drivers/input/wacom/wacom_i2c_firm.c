@@ -23,13 +23,10 @@ unsigned char *fw_data;
 bool ums_binary;
 extern unsigned int system_rev;
 
-const unsigned int fw_size = 0x0000;
 const unsigned char mpu_type = 0x2C;
 
-unsigned int fw_ver_file = 0x0164;
-unsigned char *fw_name = "epen/W9012_T.bin";
-
-char fw_chksum[] = { 0x1F, 0xef, 0x6, 0x58, 0xff};
+unsigned int fw_ver_file = 0x020F;
+char fw_chksum[] = { 0x1F, 0x2d, 0x83, 0xed, 0xec};
 
 #if 0
 void wacom_i2c_set_firm_data(struct wacom_i2c *wac_i2c)

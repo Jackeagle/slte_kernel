@@ -25,9 +25,36 @@ config LINK_POWER_MANAGEMENT_WITH_FSM
 	depends on SEC_MODEM_V1 && LINK_POWER_MANAGEMENT
 	default n
 
+config LINK_CONTROL_MSG_IOSM
+	bool "Control Message Type: IPC Over Shared Memory (IOSM)"
+	depends on SEC_MODEM_V1
+	default n
+
+config LINK_CONTROL_MSG_COMMAND
+	bool "Control Message Type: Simple Command"
+	depends on SEC_MODEM_V1
+	default n
+
 config LINK_DEVICE_WITH_SBD_ARCH
 	bool "Link device with the SBD architecture from MIPI-LLI"
 	depends on SEC_MODEM_V1
+	default n
+
+config LINK_DEVICE_NAPI
+	bool "Use Rx polling (NAPI)"
+	depends on SEC_MODEM_V1
+	default n
+	help
+	NAPI is a new driver API designed to reduce CPU and interrupt load
+	when the driver is receiving lots of packets.
+
+config SEC_MODEM_DEBUG
+	bool "Samsung modem interface debug"
+	default n
+
+config SEC_MODEM_DEBUGFS
+	bool "Samsung modem interface debugfs support"
+	depends on SEC_MODEM_DEBUG
 	default n
 
 config LINK_DEVICE_C2C
@@ -82,10 +109,19 @@ config UMTS_MODEM_SS300
 	select BOOT_DEVICE_SPI
 	select LINK_DEVICE_LLI
 	select LINK_POWER_MANAGEMENT_WITH_FSM
+	select LINK_CONTROL_MSG_COMMAND
+
+config UMTS_MODEM_SS333
+	bool "Samsung SS333 modem"
+	select BOOT_DEVICE_SPI
+	select LINK_DEVICE_LLI
+	select LINK_POWER_MANAGEMENT_WITH_FSM
+	select LINK_CONTROL_MSG_COMMAND
 
 config SEC_MODEM_XMM7260_CAT6
 	bool "IMC XMM7260 modem"
 	select LTE_MODEM_XMM7260
 	select LINK_DEVICE_HSIC
 	select LINK_DEVICE_LLI
+	select LINK_CONTROL_MSG_IOSM
 endchoice

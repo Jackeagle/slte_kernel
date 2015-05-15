@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_control.c
+/* drivers/gpu/arm/.../platform/gpu_control.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 DVFS driver
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -96,22 +96,6 @@ int gpu_control_set_voltage(struct kbase_device *kbdev, int voltage)
 		ctr_ops->set_voltage_post(platform, is_up);
 
 	prev_voltage = voltage;
-
-	return ret;
-}
-
-int gpu_control_set_voltage_locked(struct kbase_device *kbdev, int voltage)
-{
-	int ret = 0;
-	struct exynos_context *platform = (struct exynos_context *) kbdev->platform_context;
-	if (!platform) {
-		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: platform context is null\n", __func__);
-		return -ENODEV;
-	}
-
-	mutex_lock(&platform->gpu_clock_lock);
-	ret = gpu_control_set_voltage(kbdev, voltage);
-	mutex_unlock(&platform->gpu_clock_lock);
 
 	return ret;
 }
@@ -218,64 +202,61 @@ int gpu_control_is_power_on(struct kbase_device *kbdev)
 	return ret;
 }
 
-static struct gpu_regulator_ops *reg_ops;
-
-int gpu_regulator_enable_g3d(struct exynos_context *platform)
+int gpu_control_enable_customization(struct kbase_device *kbdev)
 {
 	int ret = 0;
+	struct exynos_context *platform = (struct exynos_context *)kbdev->platform_context;
+	if (!platform)
+		return -ENODEV;
 
-	if (reg_ops->enable_g3d_regulator)
-		ret = reg_ops->enable_g3d_regulator(platform);
-
-	return ret;
-}
-
-int gpu_regulator_disable_g3d(struct exynos_context *platform)
-{
-	int ret = 0;
-
-	if (reg_ops->disable_g3d_regulator)
-		ret = reg_ops->disable_g3d_regulator(platform);
-
-	return ret;
-}
-
-int gpu_control_enable_customization(struct exynos_context *platform)
-{
-	int ret = 0;
-
+#ifdef CONFIG_REGULATOR
 	if (!platform->dvs_status)
 		return 0;
 
 	mutex_lock(&platform->gpu_clock_lock);
 
-	if ((reg_ops->is_enabled_dvs_en) && (!reg_ops->is_enabled_dvs_en(platform)))
-		if (reg_ops->enable_dvs_en)
-			ret = reg_ops->enable_dvs_en(platform);
+	if (ctr_ops->set_clock_to_osc)
+		ctr_ops->set_clock_to_osc(platform);
+
+	ret = gpu_enable_dvs(platform);
 
 	platform->dvs_is_enabled = true;
 
 	mutex_unlock(&platform->gpu_clock_lock);
+#endif /* CONFIG_REGULATOR */
 
 	return ret;
 }
 
-int gpu_control_disable_customization(struct exynos_context *platform)
+int gpu_control_disable_customization(struct kbase_device *kbdev)
 {
 	int ret = 0;
+	struct exynos_context *platform = (struct exynos_context *)kbdev->platform_context;
+	if (!platform)
+		return -ENODEV;
 
+#ifdef CONFIG_REGULATOR
 	if (!platform->dvs_status)
 		return 0;
 
 	mutex_lock(&platform->gpu_clock_lock);
 
-	if ((reg_ops->is_enabled_dvs_en) && (reg_ops->is_enabled_dvs_en(platform)))
-		if (reg_ops->disable_dvs_en)
-			ret = reg_ops->disable_dvs_en(platform);
+	ret = gpu_disable_dvs(platform);
 
 	platform->dvs_is_enabled = false;
 
+	if (ctr_ops->set_clock) {
+#ifdef CONFIG_MALI_DVFS
+		if (platform->dvfs_pending) {
+			gpu_set_target_clk_vol_pending(platform->dvfs_pending);
+			platform->dvfs_pending = 0;
+		} else
+#endif /* CONFIG_MALI_DVFS */
+			ret = ctr_ops->set_clock(platform, platform->cur_clock);
+	}
+
 	mutex_unlock(&platform->gpu_clock_lock);
+#endif /* CONFIG_REGULATOR */
 
 	return ret;
 }
@@ -291,7 +272,6 @@ int gpu_control_module_init(struct kbase_device *kbdev)
 #endif /* CONFIG_MALI_RT_PM */
 
 	ctr_ops = gpu_get_control_ops();
-	reg_ops = gpu_get_regulator_ops();
 
 	if (gpu_power_init(kbdev) < 0) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to initialize power\n", __func__);
@@ -303,15 +283,14 @@ int gpu_control_module_init(struct kbase_device *kbdev)
 		goto out;
 	}
 
-	if ((reg_ops->init_g3d_regulator) && (reg_ops->init_g3d_regulator(platform) < 0)) {
+#ifdef CONFIG_REGULATOR
+	if (gpu_regulator_init(platform) < 0) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: failed to initialize regulator\n", __func__);
-		goto regulator_init_fail;
+		goto out;
 	}
+#endif /* CONFIG_REGULATOR */
 
 	return 0;
-regulator_init_fail:
-	if (reg_ops->disable_g3d_regulator)
-		reg_ops->disable_g3d_regulator(platform);
 out:
 	return -EPERM;
 }
@@ -325,6 +304,4 @@ void gpu_control_module_term(struct kbase_device *kbdev)
 #ifdef CONFIG_MALI_RT_PM
 	platform->exynos_pm_domain = NULL;
 #endif /* CONFIG_MALI_RT_PM */
-	if (reg_ops->disable_g3d_regulator)
-		reg_ops->disable_g3d_regulator(platform);
 }

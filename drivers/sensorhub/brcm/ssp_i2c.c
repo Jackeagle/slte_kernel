@@ -18,10 +18,8 @@
 #define RECEIVEBUFFERSIZE	12
 #define DEBUG_SHOW_DATA	0
 
-#ifdef CONFIG_SENSORS_SSP_BBD
 int bbd_do_transfer(struct ssp_data *data, struct ssp_msg *msg,
 		struct completion *done, int timeout);
-#endif
 
 void clean_msg(struct ssp_msg *msg) {
 	if (msg->free_buffer)
@@ -30,102 +28,20 @@ void clean_msg(struct ssp_msg *msg) {
 }
 
 static int do_transfer(struct ssp_data *data, struct ssp_msg *msg,
-		struct completion *done, int timeout) {
-#ifdef CONFIG_SENSORS_SSP_BBD
+		struct completion *done, int timeout)
+{
+	if(timeout)
+		wake_lock_timeout(&data->ssp_wake_lock, ((timeout/1000)+1)*HZ);
+
 	return bbd_do_transfer(data, msg, done, timeout);
-#else
-	int status = 0;
-	int iDelaycnt = 0;
-	bool msg_dead = false, ssp_down = false;
-	bool use_no_irq = msg->length == 0;
-
-	msg->dead_hook = &msg_dead;
-	msg->dead = false;
-	msg->done = done;
-
-	mutex_lock(&data->comm_mutex);
-
-	gpio_set_value_cansleep(data->ap_int, 0);
-	while (gpio_get_value_cansleep(data->mcu_int2)) {
-		mdelay(3);
-		if ((ssp_down = data->bSspShutdown) || iDelaycnt++ > 500) {
-			pr_err("[SSP]: %s exit1 - Time out!!\n", __func__);
-			gpio_set_value_cansleep(data->ap_int, 1);
-			status = -1;
-			goto exit;
-		}
-	}
-
-	status = spi_write(data->spi, msg, 9) >= 0;
-
-	if (status == 0) {
-		pr_err("[SSP]: %s spi_write fail!!\n", __func__);
-		gpio_set_value_cansleep(data->ap_int, 1);
-		status = -1;
-		goto exit;
-	}
-
-	if (!use_no_irq) {
-		mutex_lock(&data->pending_mutex);
-		list_add_tail(&msg->list, &data->pending_list);
-		mutex_unlock(&data->pending_mutex);
-	}
-
-	iDelaycnt = 0;
-	gpio_set_value_cansleep(data->ap_int, 1);
-	while (!gpio_get_value_cansleep(data->mcu_int2)) {
-		mdelay(3);
-		if ((ssp_down = data->bSspShutdown) || iDelaycnt++ > 500) {
-			pr_err("[SSP]: %s exit2 - Time out!!\n", __func__);
-			status = -2;
-			goto exit;
-		}
-	}
-
-exit:
-	mutex_unlock(&data->comm_mutex);
-
-	if (ssp_down)
-		pr_err("[SSP] : %s, ssp down\n", __func__);
-
-	if (status == -1) {
-		data->uTimeOutCnt += ssp_down ? 0 : 1;
-		clean_msg(msg);
-		return status;
-	}
-
-	if (status == 1 && done != NULL) {
-		if (wait_for_completion_timeout(done, msecs_to_jiffies(timeout)) == 0) {
-			status = -2;
-			pr_err("[SSP] - mcu_int1 level:%d\n", gpio_get_value(data->mcu_int1));
-		}
-	}
-	mutex_lock(&data->pending_mutex);
-	if (!msg_dead) {
-		msg->done = NULL;
-		msg->dead_hook = NULL;
-
-		if (status != 1)
-			msg->dead = true;
-		if (status == -2)
-			data->uTimeOutCnt += ssp_down ? 0 : 1;
-	}
-	mutex_unlock(&data->pending_mutex);
-
-	if (use_no_irq)
-		clean_msg(msg);
-
-	return status;
-#endif //CONFIG_SENSORS_SSP_BBD
 }
 
-int ssp_spi_async(struct ssp_data *data, struct ssp_msg *msg) {
+int ssp_spi_async(struct ssp_data *data, struct ssp_msg *msg)
+{
 	int status = 0;
 
-#if CONFIG_SENSORS_SSP_BBD
 	if (msg->length)
 		return ssp_spi_sync(data, msg, 1000);
-#endif
 
 	status = do_transfer(data, msg, NULL, 0);
 
@@ -297,11 +213,7 @@ int send_instruction(struct ssp_data *data, u8 uInst,
 	int iRet = 0;
 	struct ssp_msg *msg;
 
-	if (data->fw_dl_state == FW_DL_STATE_DOWNLOADING) {
-		pr_err("[SSP] %s - Skip Inst! DL state = %d\n",
-			__func__, data->fw_dl_state);
-		return SUCCESS;
-	} else if ((!(data->uSensorState & (1 << uSensorType)))
+	if ((!(data->uSensorState & (1 << uSensorType)))
 		&& (uInst <= CHANGE_DELAY)) {
 		pr_err("[SSP]: %s - Bypass Inst Skip! - %u\n",
 			__func__, uSensorType);
@@ -369,11 +281,7 @@ int send_instruction_sync(struct ssp_data *data, u8 uInst,
 	char buffer[10] = { 0, };
 	struct ssp_msg *msg;
 
-	if (data->fw_dl_state == FW_DL_STATE_DOWNLOADING) {
-		pr_err("[SSP] %s - Skip Inst! DL state = %d\n",
-			__func__, data->fw_dl_state);
-		return SUCCESS;
-	} else if ((!(data->uSensorState & (1 << uSensorType)))
+	if ((!(data->uSensorState & (1 << uSensorType)))
 		&& (uInst <= CHANGE_DELAY)) {
 		pr_err("[SSP]: %s - Bypass Inst Skip! - %u\n",
 			__func__, uSensorType);
@@ -601,7 +509,8 @@ void set_proximity_threshold(struct ssp_data *data,
 
 	msg= kzalloc(sizeof(*msg), GFP_KERNEL);
 	if (msg == NULL) {
-		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
+			__func__);
 		return;
 	}
 	msg->cmd = MSG2SSP_AP_SENSOR_PROXTHRESHOLD;
@@ -609,8 +518,6 @@ void set_proximity_threshold(struct ssp_data *data,
 	msg->options = AP2HUB_WRITE;
 	msg->buffer = (char*) kzalloc(4, GFP_KERNEL);
 	msg->free_buffer = 1;
-
-	pr_err("[SSP]: %s - SENSOR_PROXTHRESHOL",__func__);
 
 	msg->buffer[0] = (char)uData1;
 	msg->buffer[1] = (char)uData2;
@@ -729,41 +636,6 @@ unsigned int get_firmware_rev(struct ssp_data *data) {
 		pr_err("[SSP]: %s - transfer fail %d\n", __func__, iRet);
 
 	return result;
-}
-
-int get_fuserom_data(struct ssp_data *data)
-{
-	int iRet = 0;
-	char buffer[3] = { 0, };
-
-	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
-	if (msg == NULL) {
-		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
-		return -ENOMEM;
-	}
-	msg->cmd = MSG2SSP_AP_FUSEROM;
-	msg->length = 3;
-	msg->options = AP2HUB_READ;
-	msg->buffer = buffer;
-	msg->free_buffer = 0;
-
-	iRet = ssp_spi_sync(data, msg, 1000);
-
-	if (iRet) {
-		data->uFuseRomData[0] = buffer[0];
-		data->uFuseRomData[1] = buffer[1];
-		data->uFuseRomData[2] = buffer[2];
-	} else {
-		data->uFuseRomData[0] = 0;
-		data->uFuseRomData[1] = 0;
-		data->uFuseRomData[2] = 0;
-		return FAIL;
-	}
-
-	pr_info("[SSP] FUSE ROM Data %d , %d, %d\n", data->uFuseRomData[0],
-			data->uFuseRomData[1], data->uFuseRomData[2]);
-
-	return SUCCESS;
 }
 
 int set_big_data_start(struct ssp_data *data, u8 type, u32 length) {

@@ -12,13 +12,14 @@
 #include <linux/ctype.h>
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
+#include <linux/regulator/consumer.h>
 
 #include "sii8240_driver.h"
 #include "sii8240_platform.h"
 
 struct sii8240_platform_data *g_pdata;
 
-#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
+#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_MHL_EXTLDO)
 #define MHL_LDO1_8 "VCC_1.8V_MHL"
 #define MHL_LDO1_2 "VSIL_1.2V"
 #else
@@ -93,7 +94,7 @@ static void muic_mhl_cb(bool otg_enable, int plim)
 	return;
 }
 
-#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433) /* KQ-Helsinki MHL-Regulator */
+#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_MHL_EXTLDO)
 static void of_sii8240_hw_onoff(bool on)
 {
 	struct sii8240_platform_data *pdata = g_pdata;
@@ -279,7 +280,7 @@ static int of_sii8240_parse_dt(struct sii8240_platform_data *pdata)
 	if (pdata->mhl_sda > 0)
 		pr_info("sii8240: gpio: mhl_sda = %d\n", pdata->mhl_sda);
 
-	if (!of_property_read_u8(np, "sii8240,swing_level",
+	if (!of_property_read_u32(np, "sii8240,swing_level",
 				&pdata->swing_level))
 		pr_info("sii8240: swing_level = 0x%X\n", pdata->swing_level);
 

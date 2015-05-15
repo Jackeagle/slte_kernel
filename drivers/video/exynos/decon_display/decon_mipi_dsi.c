@@ -73,6 +73,8 @@ EXPORT_SYMBOL(dsim_for_decon);
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 int s5p_mipi_dsi_hibernation_power_on(struct display_driver *dispdrv);
 int s5p_mipi_dsi_hibernation_power_off(struct display_driver *dispdrv);
+int s5p_mipi_dsi_ulps_handling(u32 en, u32 lanes);
+
 #endif
 
 
@@ -137,6 +139,7 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 	unsigned int data0, unsigned int data1)
 {
 	int ret = 0;
+	unsigned long wr_timeout = MIPI_WR_TIMEOUT;
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 	struct display_driver *dispdrv = get_display_driver();
 	disp_pm_gate_lock(dispdrv, true);
@@ -151,7 +154,10 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 #endif
 		return -EINVAL;
 	}
-
+#ifdef CONFIG_LCD_ALPM
+	if(dsim->lcd_alpm)
+		wr_timeout *= ALPM_TIMEOUT;
+#endif
 	mutex_lock(&dsim_rd_wr_mutex);
 	switch (data_id) {
 	/* short packet types of packet types for command. */
@@ -165,7 +171,7 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		dsim_reg_clear_int(DSIM_INTSRC_SFR_PH_FIFO_EMPTY);
 		dsim_reg_wr_tx_header(data_id, data0, data1);
 		if (!wait_for_completion_interruptible_timeout(&dsim_ph_wr_comp,
-			MIPI_WR_TIMEOUT)) {
+			wr_timeout)) {
 				dev_err(dsim->dev, "MIPI DSIM short packet write Timeout! %02X\n", data0);
 				ret = -ETIMEDOUT;
 				goto exit;
@@ -181,7 +187,7 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		dsim_reg_clear_int(DSIM_INTSRC_SFR_PH_FIFO_EMPTY);
 		dsim_reg_wr_tx_header(data_id, data0, data1);
 		if (!wait_for_completion_interruptible_timeout(&dsim_ph_wr_comp,
-			MIPI_WR_TIMEOUT)) {
+			wr_timeout)) {
 				dev_err(dsim->dev, "MIPI DSIM short packet write Timeout! %02X\n", data0);
 				ret = -ETIMEDOUT;
 				goto exit;
@@ -205,7 +211,7 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		dsim_reg_clear_int_all();
 		dsim_reg_wr_tx_header(data_id, data0, data1);
 		if (!wait_for_completion_interruptible_timeout(&dsim_ph_wr_comp,
-			MIPI_WR_TIMEOUT)) {
+			wr_timeout)) {
 				dev_err(dsim->dev, "MIPI DSIM short packet write Timeout! %02X\n", data0);
 				ret = -ETIMEDOUT;
 				goto exit;
@@ -246,7 +252,7 @@ int s5p_mipi_dsi_wr_data(struct mipi_dsim_device *dsim, unsigned int data_id,
 		/* put data into header fifo */
 		dsim_reg_wr_tx_header(data_id, data1 & 0xff, (data1 & 0xff00) >> 8);
 		if (!wait_for_completion_interruptible_timeout(&dsim_wr_comp,
-			MIPI_WR_TIMEOUT)) {
+			wr_timeout)) {
 				dev_err(dsim->dev, "MIPI DSIM write Timeout! %02X\n", *(u8 *)(data0));
 				ret = -ETIMEDOUT;
 				goto exit;
@@ -326,6 +332,7 @@ int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, u32 data_id,
 {
 	u32 rx_fifo, rx_size = 0;
 	int i, j, ret = 0;
+	unsigned long rd_timeout = MIPI_RD_TIMEOUT;
 
 #ifdef CONFIG_FB_HIBERNATION_DISPLAY
 	struct display_driver *dispdrv = get_display_driver();
@@ -336,6 +343,11 @@ int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, u32 data_id,
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_LCD_ALPM
+	if(dsim->lcd_alpm)
+		rd_timeout *= ALPM_TIMEOUT;
+#endif
+
 	INIT_COMPLETION(dsim_rd_comp);
 
 	/* Set the maximum packet size returned */
@@ -345,7 +357,7 @@ int s5p_mipi_dsi_rd_data(struct mipi_dsim_device *dsim, u32 data_id,
 	/* Read request */
 	s5p_mipi_dsi_wr_data(dsim, data_id, addr, 0);
 	if (!wait_for_completion_interruptible_timeout(&dsim_rd_comp,
-		MIPI_RD_TIMEOUT)) {
+		rd_timeout)) {
 		dev_err(dsim->dev, "MIPI DSIM read Timeout!\n");
 		return -ETIMEDOUT;
 	}
@@ -529,6 +541,60 @@ int s5p_mipi_dsi_partial_area_command(struct mipi_dsim_device *dsim,
 
 	return 0;
 }
+#ifdef CONFIG_FB_DSU
+int s5p_mipi_dsi_dsu_command(struct mipi_dsim_device *dsim,
+                                int enable)
+{
+	int retry =2;
+	const u8 dsu_on[] = {0xBA,
+		0x00, 0x00, 0x00, 0x08, 0x08, 0x08, 0x0F, 0x1E, 0x03};
+	const u8 dsu_off[] = {0xBA,
+		0x01, 0x00, 0x00, 0x01, 0x01, 0x04, 0x0F, 0x1E, 0x02};
+	const u8 key_on[] = {0xF0, 0x5A, 0x5A};
+	const u8 key_off[] = {0xF0, 0xA5, 0xA5};
+
+	while (s5p_mipi_dsi_wr_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
+				(unsigned int)key_on, ARRAY_SIZE(key_on)) != 0) {
+		pr_info("%s:fail to write write key on F0\n", __func__);
+		if (--retry <= 0) {
+			pr_err("%s: size-b:failed: exceed retry count\n", __func__);
+			return -1;
+		}
+	}
+
+	if(enable == 1) {
+		while (s5p_mipi_dsi_wr_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
+					(unsigned int)dsu_on, ARRAY_SIZE(dsu_on)) != 0) {
+			pr_info("%s:fail to write window update size b.\n", __func__);
+			if (--retry <= 0) {
+				pr_err("%s: size-b:failed: exceed retry count\n", __func__);
+				return -1;
+			}
+		}
+	} else {
+		while (s5p_mipi_dsi_wr_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
+					(unsigned int)dsu_off, ARRAY_SIZE(dsu_off)) != 0) {
+			pr_info("%s:fail to write window update size b.\n", __func__);
+			if (--retry <= 0) {
+				pr_err("%s: size-b:failed: exceed retry count\n", __func__);
+				return -1;
+			}
+		}
+	}
+	while (s5p_mipi_dsi_wr_data(dsim, MIPI_DSI_DCS_LONG_WRITE,
+				(unsigned int)key_off, ARRAY_SIZE(key_off)) != 0) {
+		pr_info("%s:fail to write key off F0.\n", __func__);
+		if (--retry <= 0) {
+			pr_err("%s: size-b:failed: exceed retry count\n", __func__);
+			return -1;
+		}
+	}
+
+	dev_info(dsim->dev, "%s: DSS set value = %d\n", __func__, enable);
+
+	return 0;
+}
+#endif
 #endif
 void s5p_mipi_dsi_d_phy_onoff(struct mipi_dsim_device *dsim,
 	unsigned int enable)
@@ -596,6 +662,115 @@ static void clks_to_dsim_device(struct dsim_clks *clks,
 	dsim->byte_clk = clks->byte_clk;
 }
 
+int s5p_mipi_dsi_enable_for_tui(struct mipi_dsim_device *dsim)
+{
+	struct display_driver *dispdrv;
+	struct dsim_clks clks;
+
+	mutex_lock(&dsim->lock);
+
+	/* get a reference of the display driver */
+	dispdrv = get_display_driver();
+
+	if (dsim->enabled == true) {
+		mutex_unlock(&dsim->lock);
+		return 0;
+	}
+
+	GET_DISPDRV_OPS(dispdrv).enable_display_driver_power(dsim->dev);
+
+	if (dsim->dsim_lcd_drv->resume)
+		dsim->dsim_lcd_drv->resume(dsim);
+
+	/* DPHY power on */
+	s5p_mipi_dsi_d_phy_onoff(dsim, 1);
+
+	dsim->state = DSIM_STATE_INIT;
+
+	dsim_reg_init(dsim->lcd_info, dsim->dsim_config->e_no_data_lane + 1);
+
+	dsim_device_to_clks(dsim, &clks);
+	dsim_reg_set_clocks(&clks, DSIM_LANE_CLOCK | dsim->data_lane, 1);
+	clks_to_dsim_device(&clks, dsim);
+
+	dsim_reg_set_lanes(DSIM_LANE_CLOCK | dsim->data_lane, 1);
+
+	dsim->state = DSIM_STATE_STOP;
+
+	GET_DISPDRV_OPS(dispdrv).reset_display_driver_panel(dsim->dev);
+
+	dsim_reg_set_hs_clock(1);
+
+	dsim->state = DSIM_STATE_HSCLKEN;
+	/* enable interrupts */
+	dsim_reg_set_int(1);
+
+	dsim->enabled = true;
+
+	dsim->dsim_lcd_drv->displayon(dsim);
+
+#ifdef CONFIG_DECON_MIPI_DSI_PKTGO
+	dsim->pktgo = DSIM_PKTGO_STANDBY;
+#endif
+
+#ifdef CONFIG_FB_WINDOW_UPDATE
+	dsim->lcd_win.x = 0;
+	dsim->lcd_win.y = 0;
+	dsim->lcd_win.w = dsim->lcd_info->xres;
+	dsim->lcd_win.h = dsim->lcd_info->yres;
+#endif
+
+	mutex_unlock(&dsim->lock);
+
+	return 0;
+}
+
+int s5p_mipi_dsi_disable_for_tui(struct mipi_dsim_device *dsim)
+{
+	struct display_driver *dispdrv;
+
+	mutex_lock(&dsim->lock);
+
+	/* get a reference of the display driver */
+	dispdrv = get_display_driver();
+
+	if (dsim->enabled == false) {
+		mutex_unlock(&dsim->lock);
+		return 0;
+	}
+
+#ifdef CONFIG_DECON_MIPI_DSI_PKTGO
+	dsim_reg_set_pkt_go_cnt(0x0);
+	dsim_reg_set_pkt_go_enable(false);
+	dsim->pktgo = DSIM_PKTGO_DISABLED;
+#endif
+	dsim->dsim_lcd_drv->suspend(dsim);
+	dsim->enabled = false;
+
+	/* disable interrupts */
+	dsim_reg_set_int(0);
+
+	/* disable HS clock */
+	dsim_reg_set_hs_clock(0);
+
+	/* make CLK/DATA Lane as LP00 */
+	dsim_reg_set_lanes(DSIM_LANE_CLOCK | dsim->data_lane, 0);
+
+	dsim_reg_set_clocks(NULL, DSIM_LANE_CLOCK | dsim->data_lane, 0);
+
+	dsim_reg_sw_reset();
+
+	dsim->state = DSIM_STATE_SUSPEND;
+
+	s5p_mipi_dsi_d_phy_onoff(dsim, 0);
+
+	GET_DISPDRV_OPS(dispdrv).disable_display_driver_power(dsim->dev);
+
+	mutex_unlock(&dsim->lock);
+
+	return 0;
+}
+
 int s5p_mipi_dsi_enable(struct mipi_dsim_device *dsim)
 {
 	struct display_driver *dispdrv;
@@ -631,6 +806,12 @@ int s5p_mipi_dsi_enable(struct mipi_dsim_device *dsim)
 	clks_to_dsim_device(&clks, dsim);
 
 	dsim_reg_set_lanes(DSIM_LANE_CLOCK | dsim->data_lane, 1);
+#if defined(CONFIG_LCD_ALPM) && defined(CONFIG_FB_HIBERNATION_DISPLAY)
+		if(dsim->lcd_alpm) {
+			/* Exit ULPS mode clk & data */
+			s5p_mipi_dsi_ulps_handling(0, dsim->data_lane);
+		}
+#endif
 
 	dsim->state = DSIM_STATE_STOP;
 
@@ -695,6 +876,13 @@ int s5p_mipi_dsi_disable(struct mipi_dsim_device *dsim)
 
 	/* disable HS clock */
 	dsim_reg_set_hs_clock(0);
+#if defined(CONFIG_LCD_ALPM) && defined(CONFIG_FB_HIBERNATION_DISPLAY)
+		if(dsim->lcd_alpm) {
+			/* Enter ULPS mode clk & data */
+			if (!s5p_mipi_dsi_ulps_handling(1, dsim->data_lane))
+				dsim->state = DSIM_STATE_ULPS;
+		}
+#endif
 
 	/* make CLK/DATA Lane as LP00 */
 	dsim_reg_set_lanes(DSIM_LANE_CLOCK | dsim->data_lane, 0);
@@ -977,6 +1165,10 @@ int create_mipi_dsi_controller(struct platform_device *pdev)
 
 	dsim->lcd_update = kzalloc(sizeof(struct decon_lcd), GFP_KERNEL);
 	memcpy(dsim->lcd_update, dsim->lcd_info, sizeof(struct decon_lcd));
+#endif
+
+#ifdef CONFIG_LCD_ALPM
+	dsim->lcd_alpm = 0;
 #endif
 
 #ifdef CONFIG_FB_WINDOW_UPDATE

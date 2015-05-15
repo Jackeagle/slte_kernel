@@ -15,11 +15,11 @@
 
 #define SYSC_DVFS_END_LVL_EGL		SYSC_DVFS_L24
 #define SYSC_DVFS_END_LVL_KFC		SYSC_DVFS_L19
-#define SYSC_DVFS_END_LVL_G3D		SYSC_DVFS_L9
+#define SYSC_DVFS_END_LVL_G3D		SYSC_DVFS_L10
 #define SYSC_DVFS_END_LVL_MIF		SYSC_DVFS_L10
 #define SYSC_DVFS_END_LVL_INT		SYSC_DVFS_L7
 #define SYSC_DVFS_END_LVL_DISP		SYSC_DVFS_L4
-#define SYSC_DVFS_END_LVL_CAM		SYSC_DVFS_L7
+#define SYSC_DVFS_END_LVL_CAM		SYSC_DVFS_L11
 #define MAX_ASV_GROUP			16
 
 const u32 ids_table_v0[MAX_ASV_GROUP] = {
@@ -80,6 +80,7 @@ const u32 abb_table_kfc_v0[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1] = {
 
 const u32 abb_table_g3d_v0[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1] = {
 	/*	ASV0	      ASV1	  ASV2	      ASV3	  ASV4	      ASV5	   ASV6	      ASV7       ASV8        ASV9        ASV10        ASV11       ASV12       ASV13      ASV 14       ASV15 */
+	{730, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{700, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{650, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{600, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
@@ -168,6 +169,7 @@ const u32 abb_table_kfc_v1[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1] = {
 
 const u32 abb_table_g3d_v1[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1] = {
 	/*	ASV0	      ASV1	  ASV2	      ASV3	  ASV4	      ASV5	   ASV6	      ASV7       ASV8        ASV9        ASV10        ASV11       ASV12       ASV13      ASV 14       ASV15 */
+	{730, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{700, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{650, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{600, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
@@ -211,24 +213,24 @@ const u32 abb_table_egl_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
 	{2200, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{2100, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
 	{2000, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
-	{1900,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1800, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1700, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1600,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1500, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1400, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1300, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1200, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1100, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{1000, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 900, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 800, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 700, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 600, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 500, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 400, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 300, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 200, 	 ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
+	{1900,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1800,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1300,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1100,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1000,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 900,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 800,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 300,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
 };
 
 const u32 abb_table_kfc_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
@@ -254,38 +256,125 @@ const u32 abb_table_kfc_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
 };
 
 const u32 abb_table_g3d_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
-	{ 700,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 650,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 600,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 550,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 500,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 420,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 350,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 266,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 160,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
+	{ 730,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 650,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 550,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 420,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 350,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 266,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 160,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
 };
 
 const u32 abb_table_mif_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
-	{ 825,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 667,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 543,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 413,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 272,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 222,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 167,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 136,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 109,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{  78,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
+	{ 825,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 667,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 543,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 413,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 272,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 222,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 167,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 136,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 109,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{  78,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
 };
 
 const u32 abb_table_int_v2[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
-	{ 400,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 334,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 267,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 200,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 160,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 133,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
-	{ 100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100,   ABB_X100},
+	{ 400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 334,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 267,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 160,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 133,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 100,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+};
+
+/* V111 */
+const u32 abb_table_egl_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	{2500, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{2400, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{2300, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{2200, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{2100, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{2000, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1900,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1800,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1300,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1100,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{1000,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 900,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 800,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 300,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+};
+
+const u32 abb_table_kfc_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	{2000, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1900, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1800, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1700, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1600, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1500, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1400, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1300, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1200, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1100, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{1000, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 900, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 800, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 700, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 600, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 500, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 400, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 300, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+	{ 200, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS, ABB_BYPASS},
+};
+
+const u32 abb_table_g3d_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	{ 730,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 700,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 650,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 600,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 550,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 500,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 420,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 350,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 266,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 160,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+};
+
+const u32 abb_table_mif_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	{ 825,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0},
+	{ 667,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 543,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 413,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 272,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 222,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 167,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 136,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 109,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{  78,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+};
+
+const u32 abb_table_int_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	{ 400,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 334,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 267,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 200,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 160,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 133,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
+	{ 100,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8,        0x8},
 };
 
 const u32 volt_table_egl_v0[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
@@ -341,6 +430,7 @@ const u32 volt_table_kfc_v0[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1] = {
 
 const u32 volt_table_g3d_v0[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1] = {
 	/*	 ASV0	  ASV1	   ASV2	    ASV3     ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{730, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1100000, 1087500, 1087500, 1087500, 1075000, 1062500, 1062500, 1050000},
 	{700, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1037500, 1025000, 1025000, 1012500, 1012500, 1000000, 1000000,  987500},
 	{650, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1037500, 1025000, 1025000, 1012500, 1012500, 1000000, 1000000,  987500},
 	{600, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1012500, 1000000, 1000000,  987500,  987500,  975000,  975000,  962500},
@@ -381,10 +471,13 @@ const u32 volt_table_cam_v0[SYSC_DVFS_END_LVL_CAM+1][MAX_ASV_GROUP+1] = {
 	/*	 ASV0	  ASV1	   ASV2	    ASV3     ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
 	{777, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
 	{666, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
+	{600, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
+	{580, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
 	{555,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  875000,  875000,  862500,  862500,  850000},
 	{444,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
 	{333,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
 	{222,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
+	{200,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
 	{111,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
 	{ 66,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  812500,  812500,  800000,  800000,  800000,  800000,  800000},
 };
@@ -442,6 +535,7 @@ const u32 volt_table_kfc_v1[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1] = {
 
 const u32 volt_table_g3d_v1[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1] = {
 	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{730, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1100000, 1087500, 1087500, 1087500, 1075000, 1062500, 1062500, 1050000},
 	{700, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1050000, 1050000, 1037500, 1025000, 1012500, 1000000},
 	{600, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  962500,  962500,  950000,  937500,  925000,  912500},
 	{550, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  912500,  912500,  900000,  887500,  875000,  862500},
@@ -481,10 +575,13 @@ const u32 volt_table_cam_v1[SYSC_DVFS_END_LVL_CAM+1][MAX_ASV_GROUP+1] = {
 	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
 	{777, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
 	{666, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
+	{600, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
+	{580, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  900000,  900000,  887500,  887500,  875000},
 	{555,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  875000,  875000,  862500,  862500,  850000},
 	{444,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
 	{333,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
 	{222,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
+	{200,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
 	{111,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
 	{ 66,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  812500},
 };
@@ -542,6 +639,7 @@ const u32 volt_table_kfc_v2[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1]  = {
 
 const u32 volt_table_g3d_v2[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1]  = {
 	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{730, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1100000, 1087500, 1087500, 1087500, 1075000, 1062500, 1062500, 1050000},
 	{700, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1062500, 1062500, 1050000, 1050000, 1050000, 1037500, 1025000, 1025000, 1012500},
 	{650, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1025000, 1025000, 1012500, 1012500, 1012500, 1000000,  987500,  987500,  975000},
 	{600, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  975000,  975000,  962500,  962500,  962500,  950000,  937500,  937500,  925000},
@@ -562,7 +660,7 @@ const u32 volt_table_mif_v2[SYSC_DVFS_END_LVL_MIF+1][MAX_ASV_GROUP+1]  = {
 	{272,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
 	{222,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
 	{167,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
-	{138,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
+	{136,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
 	{109,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
 	{ 78,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  775000,  775000,  775000,  775000,  762500,  750000,  737500,  725000},
 };
@@ -582,10 +680,119 @@ const u32 volt_table_cam_v2[SYSC_DVFS_END_LVL_CAM+1][MAX_ASV_GROUP+1]  = {
 	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
 	{777,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
 	{666,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{600,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{580,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
 	{555,  962500,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  875000,  862500,  862500,  862500,  850000,  850000,  837500,  837500},
 	{444,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  862500,  850000,  850000,  850000,  837500,  837500,  825000,  825000},
 	{333,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  862500,  850000,  850000,  850000,  837500,  837500,  825000,  825000},
 	{222,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  850000,  837500,  837500,  837500,  825000,  825000,  812500,  812500},
+	{200,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  850000,  837500,  837500,  837500,  825000,  825000,  812500,  812500},
+	{111,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  825000,  812500,  812500,  800000,  800000},
+	{ 66,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  825000,  812500,  812500,  800000,  800000},
+};
+
+/* V111 */
+const u32 volt_table_egl_v3[SYSC_DVFS_END_LVL_EGL+1][MAX_ASV_GROUP+1] = {
+	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{2500, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000},
+	{2400, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000},
+	{2300, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1337500, 1325000},
+	{2200, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1337500, 1325000, 1312500, 1300000, 1287500, 1275000},
+	{2100, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1337500, 1325000, 1312500, 1300000, 1287500, 1275000, 1262500, 1250000, 1237500, 1225000},
+	{2000, 1362500, 1350000, 1337500, 1325000, 1312500, 1300000, 1287500, 1275000, 1262500, 1250000, 1237500, 1225000, 1212500, 1200000, 1187500, 1175000},
+	{1900, 1300000, 1300000, 1287500, 1275000, 1262500, 1250000, 1237500, 1225000, 1212500, 1200000, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000},
+	{1800, 1275000, 1262500, 1250000, 1237500, 1225000, 1212500, 1200000, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500},
+	{1700, 1237500, 1225000, 1212500, 1200000, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000},
+	{1600, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000},
+	{1500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500},
+	{1400, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500},
+	{1300, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500},
+	{1200, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000},
+	{1100, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  900000,  900000},
+	{1000, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 900, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 800,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 700,  950000,  937500,  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 600,  925000,  912500,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 500,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 400,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 300,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+	{ 200,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000,  900000},
+};
+
+const u32 volt_table_kfc_v3[SYSC_DVFS_END_LVL_KFC+1][MAX_ASV_GROUP+1]  = {
+	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{2000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000},
+	{1900, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000},
+	{1800, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000},
+	{1700, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1337500, 1325000, 1312500, 1300000},
+	{1600, 1350000, 1350000, 1350000, 1350000, 1350000, 1350000, 1337500, 1325000, 1312500, 1300000, 1300000, 1300000, 1287500, 1275000, 1262500, 1250000},
+	{1500, 1362500, 1350000, 1337500, 1325000, 1312500, 1300000, 1287500, 1275000, 1262500, 1250000, 1250000, 1250000, 1237500, 1225000, 1212500, 1200000},
+	{1400, 1287500, 1275000, 1262500, 1250000, 1237500, 1225000, 1212500, 1200000, 1187500, 1175000, 1175000, 1175000, 1162500, 1150000, 1137500, 1125000},
+	{1300, 1225000, 1212500, 1200000, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1112500, 1112500, 1100000, 1087500, 1075000, 1062500},
+	{1200, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1062500, 1062500, 1050000, 1037500, 1025000, 1012500},
+	{1100, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1025000, 1025000, 1012500, 1000000,  987500,  975000},
+	{1000, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  987500,  987500,  975000,  962500,  950000,  937500},
+	{ 900, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  962500,  950000,  950000,  937500,  937500,  950000,  937500,  925000,  912500,  900000},
+	{ 800, 1012500, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  912500,  912500,  925000,  912500,  900000,  887500,  875000},
+	{ 700,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  887500,  887500,  875000,  875000,  887500,  875000,  862500,  850000,  837500},
+	{ 600,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  862500,  850000,  850000,  862500,  850000,  837500,  825000,  812500},
+	{ 500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  837500,  825000,  812500,  800000,  787500},
+	{ 400,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  800000,  800000,  787500,  787500,  800000,  787500,  775000,  762500,  750000},
+	{ 300,  862500,  837500,  825000,  812500,  800000,  787500,  775000,  762500,  762500,  750000,  750000,  762500,  750000,  737500,  725000,  725000},
+	{ 200,  862500,  837500,  812500,  787500,  775000,  762500,  750000,  737500,  737500,  725000,  725000,  725000,  725000,  725000,  725000,  725000},
+};
+
+const u32 volt_table_g3d_v3[SYSC_DVFS_END_LVL_G3D+1][MAX_ASV_GROUP+1]  = {
+	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{730, 1187500, 1175000, 1162500, 1150000, 1137500, 1125000, 1112500, 1100000, 1100000, 1087500, 1087500, 1087500, 1075000, 1062500, 1062500, 1050000},
+	{700, 1150000, 1137500, 1125000, 1112500, 1100000, 1087500, 1075000, 1062500, 1062500, 1050000, 1050000, 1050000, 1037500, 1025000, 1025000, 1012500},
+	{650, 1100000, 1087500, 1075000, 1062500, 1050000, 1037500, 1025000, 1025000, 1025000, 1012500, 1012500, 1012500, 1000000,  987500,  987500,  975000},
+	{600, 1050000, 1037500, 1025000, 1012500, 1000000,  987500,  975000,  975000,  975000,  962500,  962500,  962500,  950000,  937500,  937500,  925000},
+	{550, 1000000,  987500,  975000,  962500,  950000,  937500,  925000,  925000,  925000,  912500,  912500,  912500,  900000,  887500,  887500,  875000},
+	{500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  887500,  887500,  875000,  875000,  875000,  862500,  850000,  850000,  837500},
+	{420,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  837500,  825000,  812500,  812500,  800000},
+	{350,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  812500,  812500,  800000,  787500,  787500,  775000},
+	{266,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  806250,  800000,  793750,  787500,  775000,  775000,  775000,  762500},
+	{160,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  800000,  787500,  775000,  775000,  775000,  762500,  750000,  750000,  737500},
+};
+
+const u32 volt_table_mif_v3[SYSC_DVFS_END_LVL_MIF+1][MAX_ASV_GROUP+1]  = {
+	/* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{825, 1025000, 1012500, 1000000,  987500,  975000,  975000,  962500,  962500,  950000,  950000,  950000,  950000,  937500,  925000,  912500,  900000},
+	{667,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  875000,  875000,  875000,  875000,  887500,  875000,  862500,  850000},
+	{543,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  812500,  812500,  812500,  812500,  825000,  812500,  800000,  787500},
+	{413,  837500,  825000,  812500,  800000,  787500,  787500,  775000,  775000,  762500,  762500,  762500,  762500,  775000,  762500,  750000,  737500},
+	{272,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+	{222,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+	{167,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+	{136,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+	{109,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+	{ 78,  825000,  812500,  800000,  787500,  775000,  775000,  762500,  762500,  750000,  750000,  750000,  750000,  762500,  750000,  737500,  725000},
+};
+
+const u32 volt_table_int_v3[SYSC_DVFS_END_LVL_INT+1][MAX_ASV_GROUP+1]  = {
+	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{400, 1000000,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  875000,  875000,  862500,  850000,  837500,  825000},
+	{334,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  825000,  825000,  825000,  812500,  800000,  787500,  775000},
+	{267,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  812500,  812500,  812500,  800000,  787500,  775000,  762500},
+	{200,  912500,  887500,  875000,  862500,  850000,  837500,  825000,  812500,  800000,  787500,  787500,  787500,  775000,  762500,  750000,  750000},
+	{160,  862500,  837500,  825000,  812500,  800000,  787500,  787500,  787500,  787500,  787500,  787500,  787500,  775000,  762500,  750000,  750000},
+	{133,  862500,  837500,  825000,  812500,  800000,  787500,  775000,  775000,  775000,  775000,  775000,  775000,  762500,  750000,  750000,  750000},
+	{100,  862500,  837500,  825000,  812500,  800000,  787500,  775000,  775000,  775000,  775000,  775000,  775000,  762500,  750000,  750000,  750000},
+};
+
+const u32 volt_table_cam_v3[SYSC_DVFS_END_LVL_CAM+1][MAX_ASV_GROUP+1]  = {
+	      /* ASV0     ASV1     ASV2    ASV3      ASV4     ASV5     ASV6     ASV7     ASV8     ASV9    ASV10    ASV11    ASV12    ASV13    ASV14    ASV15 */
+	{777,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{666,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{600,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{580,  987500,  975000,  962500,  950000,  937500,  925000,  912500,  900000,  900000,  887500,  887500,  887500,  875000,  875000,  862500,  862500},
+	{555,  962500,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  875000,  862500,  862500,  862500,  850000,  850000,  837500,  837500},
+	{444,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  862500,  850000,  850000,  850000,  837500,  837500,  825000,  825000},
+	{333,  950000,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  862500,  850000,  850000,  850000,  837500,  837500,  825000,  825000},
+	{222,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  850000,  837500,  837500,  837500,  825000,  825000,  812500,  812500},
+	{200,  937500,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  850000,  837500,  837500,  837500,  825000,  825000,  812500,  812500},
 	{111,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  825000,  812500,  812500,  800000,  800000},
 	{ 66,  925000,  912500,  900000,  887500,  875000,  862500,  850000,  837500,  837500,  825000,  825000,  825000,  812500,  812500,  800000,  800000},
 };

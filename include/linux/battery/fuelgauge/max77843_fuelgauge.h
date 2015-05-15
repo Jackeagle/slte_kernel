@@ -70,10 +70,18 @@ enum {
 #define CURRENT_RANGE_MAX_NUM	5
 
 struct battery_data_t {
+	u32 QResidual20;
+	u32 QResidual30;
 	u32 Capacity;
 	u32 low_battery_comp_voltage;
 	s32 low_battery_table[CURRENT_RANGE_MAX_NUM][TABLE_MAX];
 	u8	*type_str;
+	u32 ichgterm;
+	u32 misccfg;
+	u32 fullsocthr;
+	u32 ichgterm_2nd;
+	u32 misccfg_2nd;
+	u32 fullsocthr_2nd;
 };
 
 struct sec_fg_info {
@@ -123,6 +131,7 @@ struct sec_fg_info {
 struct max77843_fuelgauge_data {
 	struct device           *dev;
 	struct i2c_client       *i2c;
+	struct i2c_client       *pmic;
 	struct mutex            fuelgauge_mutex;
 	struct max77843_platform_data *max77843_pdata;
 	sec_battery_platform_data_t *pdata;
@@ -151,6 +160,8 @@ struct max77843_fuelgauge_data {
 	/* register programming */
 	int reg_addr;
 	u8 reg_data[2];
+
+	unsigned int pre_soc;
 
 	int fg_irq;
 };

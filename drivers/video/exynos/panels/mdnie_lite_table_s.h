@@ -1,7 +1,7 @@
-#ifndef __MDNIE_TABLE_H__
-#define __MDNIE_TABLE_H__
+#ifndef __MDNIE_TABLE_S_H__
+#define __MDNIE_TABLE_S_H__
 
-/* 2014.07.28 */
+/* 2015.01.19 */
 
 /* SCR Position can be different each panel */
 #define MDNIE_RED_R		104		/* ASCR_WIDE_CR[7:0] */
@@ -25,7 +25,7 @@
 #define COLOR_OFFSET_F4(x, y)		(((y << 10) + (((x << 10) * 157) / 52) - (12055 << 10)) >> 10)
 
 /* color coordination order is WR, WG, WB */
-static unsigned char coordinate_data[][3] = {
+static unsigned char coordinate_data_1[][3] = {
 	{0xff, 0xff, 0xff}, /* dummy */
 	{0xff, 0xfa, 0xfa}, /* Tune_1 */
 	{0xff, 0xfb, 0xfe}, /* Tune_2 */
@@ -36,6 +36,27 @@ static unsigned char coordinate_data[][3] = {
 	{0xfd, 0xff, 0xf9}, /* Tune_7 */
 	{0xfc, 0xff, 0xfc}, /* Tune_8 */
 	{0xfa, 0xff, 0xff}, /* Tune_9 */
+};
+
+static unsigned char coordinate_data_2[][3] = {
+	{0xff, 0xff, 0xff}, /* dummy */
+	{0xff, 0xf8, 0xed}, /* Tune_1 */
+	{0xff, 0xf8, 0xed}, /* Tune_2 */
+	{0xff, 0xf8, 0xed}, /* Tune_3 */
+	{0xff, 0xf8, 0xed}, /* Tune_4 */
+	{0xff, 0xf8, 0xed}, /* Tune_5 */
+	{0xff, 0xf8, 0xed}, /* Tune_6 */
+	{0xff, 0xf8, 0xed}, /* Tune_7 */
+	{0xff, 0xf8, 0xed}, /* Tune_8 */
+	{0xff, 0xf8, 0xed}, /* Tune_9 */
+};
+
+static unsigned char (*coordinate_data[MODE_MAX])[3] = {
+	coordinate_data_1,
+	coordinate_data_2,
+	coordinate_data_2,
+	coordinate_data_1,
+	coordinate_data_1,
 };
 
 ////////////////// UI /// /////////////////////
@@ -7470,32 +7491,32 @@ static unsigned char LOCAL_CE_TEXT_1[] = {
 };
 
 
-static unsigned char LEVEL1_UNLOCK[] = {
+static unsigned char LEVEL_UNLOCK[] = {
 	0xF0,
 	0x5A, 0x5A
 };
 
-static unsigned char LEVEL1_LOCK[] = {
+static unsigned char LEVEL_LOCK[] = {
 	0xF0,
 	0xA5, 0xA5
 };
 
-struct mdnie_table bypass_table[BYPASS_MAX] = {
+static struct mdnie_table bypass_table[BYPASS_MAX] = {
 	[BYPASS_ON] = MDNIE_SET(BYPASS)
 };
 
-struct mdnie_table accessibility_table[ACCESSIBILITY_MAX] = {
+static struct mdnie_table accessibility_table[ACCESSIBILITY_MAX] = {
 	[NEGATIVE] = MDNIE_SET(NEGATIVE),
 	MDNIE_SET(COLOR_BLIND),
 	MDNIE_SET(SCREEN_CURTAIN)
 };
 
-struct mdnie_table hbm_table[HBM_MAX] = {
+static struct mdnie_table hbm_table[HBM_MAX] = {
 	[HBM_ON] = MDNIE_SET(LOCAL_CE),
 	MDNIE_SET(LOCAL_CE_TEXT)
 };
 
-struct mdnie_table tuning_table[SCENARIO_MAX][MODE_MAX] = {
+static struct mdnie_table main_table[SCENARIO_MAX][MODE_MAX] = {
 	{
 		MDNIE_SET(DYNAMIC_UI),
 		MDNIE_SET(STANDARD_UI),

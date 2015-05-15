@@ -26,6 +26,7 @@
  */
 #define S3C_FB_MAX_WIN	(5)
 #define S3C_WIN_UPDATE_IDX      (5)
+#define DEV_DECON	6
 #ifdef CONFIG_FB_EXYNOS_FIMD_MC
 #define SYSREG_MIXER0_VALID	(1 << 7)
 #define SYSREG_MIXER1_VALID	(1 << 4)
@@ -243,6 +244,7 @@ struct s3c_reg_data {
 	u32			vidw_buf_size[S3C_FB_MAX_WIN];
 	struct s3c_dma_buf_data	dma_buf_data[S3C_FB_MAX_WIN];
 	unsigned int		bandwidth;
+	unsigned int		num_of_window;
 	u32			win_overlap_cnt;
 	int 			otf_state[S3C_FB_MAX_WIN];
 	u32 		x[S3C_FB_MAX_WIN + 1];
@@ -250,6 +252,8 @@ struct s3c_reg_data {
 	u32 		w[S3C_FB_MAX_WIN + 1];
 	u32 		h[S3C_FB_MAX_WIN + 1];
 	bool		need_update;
+	bool		protection[S3C_FB_MAX_WIN];
+	struct sync_fence *fence;
 };
 #endif
 
@@ -327,6 +331,7 @@ struct s3c_fb_win_rect {
 	int	y;
 	__u32	w;
 	__u32	h;
+	bool	protection;
 };
 
 
@@ -395,13 +400,20 @@ struct s3c_fb {
 #endif
 	struct exynos5_bus_mif_handle *fb_mif_handle;
 	struct exynos5_bus_int_handle *fb_int_handle;
-
+	wait_queue_head_t               wait_frmint;
+	int	framint_cnt;
 	struct decon_lcd *lcd_info;
 	atomic_t	dsd_clk_ref_cnt;
 #ifdef CONFIG_FB_WINDOW_UPDATE
 	struct s3c_fb_win_rect	update_win;
 	bool	need_update;
 	bool	full_update;
+#ifdef CONFIG_FB_DSU
+	bool	need_DSU_update;
+	bool	DSU_mode;
+	int		DSU_x_delta;
+	int		DSU_y_delta;
+#endif
 #endif
 #if defined(CONFIG_FB_HIBERNATION_DISPLAY) || defined(CONFIG_FB_WINDOW_UPDATE)
 	struct decon_lcd	*lcd_update;
@@ -413,6 +425,7 @@ struct s3c_fb {
 	unsigned int		pcd_detected;
 	struct notifier_block	pcd_reboot_noti;
 #endif
+	bool	protected_content;
 };
 
 struct s3c_fb_rect {
@@ -490,12 +503,20 @@ struct s3c_fb_win_config {
 			int				fence_fd;
 			int				plane_alpha;
 		};
+		struct {
+			int left;
+			int top;
+			int right;
+			int bottom;
+			int enableDSU;
+		};
 	};
 
 	int	x;
 	int	y;
 	__u32	w;
 	__u32	h;
+	bool	protection;
 };
 
 #define WIN_CONFIG_DMA(x) (regs->otf_state[x] != S3C_FB_WIN_STATE_OTF)
@@ -516,6 +537,9 @@ int s3c_fb_resume(struct device *dev);
 int s3c_fb_suspend(struct device *dev);
 int disp_pm_power_on(struct s3c_fb *sfb);
 int disp_pm_power_off(struct s3c_fb *sfb);
+
+void s3c_fb_activate_vsync(struct s3c_fb *sfb);
+void s3c_fb_deactivate_vsync(struct s3c_fb *sfb);
 
 #define VALID_BPP(x) (1 << ((x) - 1))
 #define VALID_BPP124 (VALID_BPP(1) | VALID_BPP(2) | VALID_BPP(4))

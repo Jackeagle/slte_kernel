@@ -49,8 +49,8 @@ enum arizona_type {
 #define ARIZONA_IRQ_DSP_IRQ6              17
 #define ARIZONA_IRQ_DSP_IRQ7              18
 #define ARIZONA_IRQ_DSP_IRQ8              19
-#define ARIZONA_IRQ_SPK_SHUTDOWN_WARN     20
-#define ARIZONA_IRQ_SPK_SHUTDOWN          21
+#define ARIZONA_IRQ_SPK_OVERHEAT_WARN     20
+#define ARIZONA_IRQ_SPK_OVERHEAT          21
 #define ARIZONA_IRQ_MICDET                22
 #define ARIZONA_IRQ_HPDET                 23
 #define ARIZONA_IRQ_WSEQ_DONE             24
@@ -81,8 +81,31 @@ enum arizona_type {
 #define ARIZONA_IRQ_FLL1_CLOCK_OK         49
 #define ARIZONA_IRQ_MICD_CLAMP_RISE	  50
 #define ARIZONA_IRQ_MICD_CLAMP_FALL	  51
+#define ARIZONA_IRQ_HP3R_DONE             52
+#define ARIZONA_IRQ_HP3L_DONE             53
+#define ARIZONA_IRQ_HP2R_DONE             54
+#define ARIZONA_IRQ_HP2L_DONE             55
+#define ARIZONA_IRQ_HP1R_DONE             56
+#define ARIZONA_IRQ_HP1L_DONE             57
+#define ARIZONA_IRQ_ISRC3_CFG_ERR         58
+#define ARIZONA_IRQ_DSP_SHARED_WR_COLL    59
+#define ARIZONA_IRQ_SPK_SHUTDOWN          60
+#define ARIZONA_IRQ_SPK1R_SHORT           61
+#define ARIZONA_IRQ_SPK1L_SHORT           62
+#define ARIZONA_IRQ_HP3R_SC_NEG           63
+#define ARIZONA_IRQ_HP3R_SC_POS           64
+#define ARIZONA_IRQ_HP3L_SC_NEG           65
+#define ARIZONA_IRQ_HP3L_SC_POS           66
+#define ARIZONA_IRQ_HP2R_SC_NEG           67
+#define ARIZONA_IRQ_HP2R_SC_POS           68
+#define ARIZONA_IRQ_HP2L_SC_NEG           69
+#define ARIZONA_IRQ_HP2L_SC_POS           70
+#define ARIZONA_IRQ_HP1R_SC_NEG           71
+#define ARIZONA_IRQ_HP1R_SC_POS           72
+#define ARIZONA_IRQ_HP1L_SC_NEG           73
+#define ARIZONA_IRQ_HP1L_SC_POS           74
 
-#define ARIZONA_NUM_IRQ                   52
+#define ARIZONA_NUM_IRQ                   75
 
 #define ARIZONA_HP_SHORT_IMPEDANCE        4
 struct snd_soc_dapm_context;
@@ -97,6 +120,7 @@ struct arizona {
 	int num_core_supplies;
 	struct regulator_bulk_data core_supplies[ARIZONA_MAX_CORE_SUPPLIES];
 	struct regulator *dcvdd;
+	struct notifier_block dcvdd_notifier;
 
 	struct arizona_pdata pdata;
 
@@ -108,7 +132,7 @@ struct arizona {
 	struct regmap_irq_chip_data *aod_irq_chip;
 	struct regmap_irq_chip_data *irq_chip;
 
-	bool hpdet_magic;
+	bool hpdet_clamp;
 	unsigned int hp_ena;
 
 	unsigned int hp_impedance;
@@ -128,6 +152,8 @@ struct arizona {
 
 	uint16_t out_comp_coeff;
 	uint8_t out_comp_enabled;
+
+	bool bypass_cache;
 };
 
 #define ARIZONA_DVFS_SR1_RQ          0x00000001

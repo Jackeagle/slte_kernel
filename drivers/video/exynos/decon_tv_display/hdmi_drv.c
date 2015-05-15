@@ -116,16 +116,16 @@ const struct hdmi_3d_info *hdmi_timing2info(struct v4l2_dv_timings *timings)
 
 void s5p_v4l2_int_src_hdmi_hpd(struct hdmi_device *hdev)
 {
-    int ret = 0;
+	int ret = 0;
 
-    ret = pinctrl_select_state(hdev->pinctrl, hdev->pin_int);
+	ret = pinctrl_select_state(hdev->pinctrl, hdev->pin_int);
 	if (ret)
 		dev_err(hdev->dev, "failed to set hdmi hpd interrupt");
 }
 
 void s5p_v4l2_int_src_ext_hpd(struct hdmi_device *hdev)
 {
-    int ret = 0;
+	int ret = 0;
 
 	ret = pinctrl_select_state(hdev->pinctrl, hdev->pin_ext);
 	if (ret)
@@ -752,6 +752,10 @@ irqreturn_t hdmi_irq_handler_ext(int irq, void *dev_data)
 	return IRQ_HANDLED;
 }
 
+#if defined(CONFIG_SEC_MHL_EDID) && defined(CONFIG_SEC_MHL_SII8620)
+extern int cea861f_hev_resolution;
+#endif
+
 static void hdmi_hpd_changed(struct hdmi_device *hdev, int state)
 {
 	int ret;
@@ -787,6 +791,9 @@ static void hdmi_hpd_changed(struct hdmi_device *hdev, int state)
 
 	} else {
 		switch_set_state(&hdev->audio_ch_switch, -1);
+#if defined(CONFIG_SEC_MHL_EDID) && defined(CONFIG_SEC_MHL_SII8620)
+		cea861f_hev_resolution = -1;
+#endif
 	}
 #endif
 }
@@ -844,7 +851,6 @@ int hdmi_set_gpio(struct hdmi_device *hdev)
 			ret = -ENODEV;
 		} else {
 			gpio_direction_input(res->gpio_hpd);
-			s5p_v4l2_int_src_ext_hpd(hdev);
 			dev_info(dev, "success request GPIO for hdmi-hpd\n");
 		}
 
@@ -1014,25 +1020,25 @@ static int hdmi_probe(struct platform_device *pdev)
 	if (ret)
 		goto fail_vdev;
 
-    /* HDMI pin control */
-    hdmi_dev->pinctrl = devm_pinctrl_get(dev);
-    if (IS_ERR(hdmi_dev->pinctrl)) {
-        dev_err(dev, "could not set hdmi internal hpd pins\n");
-        goto fail_clk;
-    } else {
-        hdmi_dev->pin_int =
-            pinctrl_lookup_state(hdmi_dev->pinctrl, "hdmi_hdmi_hpd");
-        if(IS_ERR(hdmi_dev->pin_int)) {
-            dev_err(dev, "could not get hdmi internal hpd pin state\n");
-            goto fail_clk;
-        }
-        hdmi_dev->pin_ext =
-            pinctrl_lookup_state(hdmi_dev->pinctrl, "hdmi_ext_hpd");
-        if(IS_ERR(hdmi_dev->pin_ext)) {
-            dev_err(dev, "could not get hdmi external hpd pin state\n");
-            goto fail_clk;
-        }
-    }
+	/* HDMI pin control */
+	hdmi_dev->pinctrl = devm_pinctrl_get(dev);
+	if (IS_ERR(hdmi_dev->pinctrl)) {
+		dev_err(dev, "could not set hdmi internal hpd pins\n");
+		goto fail_clk;
+	} else {
+		hdmi_dev->pin_int =
+			pinctrl_lookup_state(hdmi_dev->pinctrl, "hdmi_hdmi_hpd");
+		if(IS_ERR(hdmi_dev->pin_int)) {
+			dev_err(dev, "could not get hdmi internal hpd pin state\n");
+			goto fail_clk;
+		}
+		hdmi_dev->pin_ext =
+			pinctrl_lookup_state(hdmi_dev->pinctrl, "hdmi_ext_hpd");
+		if(IS_ERR(hdmi_dev->pin_ext)) {
+			dev_err(dev, "could not get hdmi external hpd pin state\n");
+			goto fail_clk;
+		}
+	}
 
 	/* setting the GPIO */
 	ret = hdmi_set_gpio(hdmi_dev);
@@ -1066,7 +1072,7 @@ static int hdmi_probe(struct platform_device *pdev)
 	ret  = switch_dev_register(&hdmi_dev->audio_ch_switch);
 	if (ret) {
 		dev_err(dev, "request hdmi_audio_switch class failed.\n");
-        goto fail_switch;
+		goto fail_switch;
 	}
 #endif
 

@@ -107,8 +107,6 @@
 
 #include "exfat_super.h"
 
-#include <linux/stlog.h>
-
 static struct kmem_cache *exfat_inode_cachep;
 
 static int exfat_default_codepage = DEFAULT_CODEPAGE;
@@ -158,13 +156,6 @@ static UINT32 get_current_msec(void)
                 else                                            \
                         leap_year = ((year + 3) / 4);           \
         } while(0)
-
-#ifdef EXFAT_FS_VIRTUAL_XATTR
-extern int exfat_setxattr(struct dentry *dentry, const char *name, const void *value, size_t size, int flags);
-extern ssize_t exfat_getxattr(struct dentry *dentry, const char *name, void *value, size_t size);
-extern ssize_t exfat_listxattr(struct dentry *dentry, char *list, size_t size);
-extern int exfat_removexattr(struct dentry *dentry, const char *name);
-#endif
 
 static time_t accum_days_in_year[] = {
 	0,   0, 31, 59, 90,120,151,181,212,243,273,304,334, 0, 0, 0,
@@ -1287,7 +1278,7 @@ const struct inode_operations exfat_dir_inode_operations = {
 	.rename        = exfat_rename,
 	.setattr       = exfat_setattr,
 	.getattr       = exfat_getattr,
-#ifdef EXFAT_FS_VIRTUAL_XATTR
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
 	.setxattr	= exfat_setxattr,
 	.getxattr	= exfat_getxattr,
 	.listxattr	= exfat_listxattr,
@@ -1305,7 +1296,7 @@ static void *exfat_follow_link(struct dentry *dentry, struct nameidata *nd)
 const struct inode_operations exfat_symlink_inode_operations = {
 	.readlink    = generic_readlink,
 	.follow_link = exfat_follow_link,
-#ifdef EXFAT_FS_VIRTUAL_XATTR
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
 	.setxattr	= exfat_setxattr,
 	.getxattr	= exfat_getxattr,
 	.listxattr	= exfat_listxattr,
@@ -1382,7 +1373,7 @@ const struct inode_operations exfat_file_inode_operations = {
 #endif
 	.setattr     = exfat_setattr,
 	.getattr     = exfat_getattr,
-#ifdef EXFAT_FS_VIRTUAL_XATTR
+#ifdef CONFIG_EXFAT_VIRTUAL_XATTR
 	.setxattr	= exfat_setxattr,
 	.getxattr	= exfat_getxattr,
 	.listxattr	= exfat_listxattr,

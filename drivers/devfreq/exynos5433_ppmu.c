@@ -301,7 +301,9 @@ static int exynos5433_ppmu_probe(struct platform_device *pdev)
 {
 	exynos_ppmu_wq = create_freezable_workqueue("exynos5433_ppmu_wq");
 	INIT_DELAYED_WORK(&exynos_ppmu_work, exynos5433_monitor);
-	exynos5433_ppmu_activate();
+	if (exynos5433_ppmu_activate() != 0) {
+		pr_err("DEVFREQ(PPMu) : can't activate ppmu\n");
+	}
 
 	return 0;
 }

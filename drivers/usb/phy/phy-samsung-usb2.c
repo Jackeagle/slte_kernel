@@ -286,22 +286,12 @@ static int samsung_usb2phy_init(struct usb_phy *phy)
 
 	spin_lock_irqsave(&sphy->lock, flags);
 
-#if defined(CONFIG_MDM_HSIC_PM)
-	if (sphy->usage_count >= 1) {
-		dev_dbg(sphy->dev, "PHY is already initialized\n");
-		spin_unlock_irqrestore(&sphy->lock, flags);
-		goto exit;
-	}
-#endif
 	sphy->usage_count++;
 
-#if !defined(CONFIG_MDM_HSIC_PM)
 	if (sphy->usage_count - 1) {
 		dev_vdbg(sphy->dev, "PHY is already initialized\n");
-		spin_unlock_irqrestore(&sphy->lock, flags);
 		goto exit;
 	}
-#endif
 
 	if (host) {
 		/* setting default phy-type for USB 2.0 */
@@ -331,17 +321,9 @@ static int samsung_usb2phy_init(struct usb_phy *phy)
 	else
 		samsung_usb2phy_enable(sphy);
 
+exit:
 	spin_unlock_irqrestore(&sphy->lock, flags);
 
-	pm_runtime_set_active(phy->dev);
-	pm_runtime_enable(phy->dev);
-#if defined(CONFIG_MDM_HSIC_PM)
-	pm_runtime_get_noresume(phy->dev);
-#endif
-exit:
-#if !defined(CONFIG_MDM_HSIC_PM)
-	pm_runtime_get_noresume(phy->dev);
-#endif
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 	pr_info("%s: usage=%d, child=%d\n", __func__,
 				atomic_read(&phy->dev->power.usage_count),
@@ -380,16 +362,14 @@ static void samsung_usb2phy_shutdown(struct usb_phy *phy)
 
 	if (!sphy->usage_count) {
 		dev_vdbg(sphy->dev, "PHY is already shutdown\n");
-		spin_unlock_irqrestore(&sphy->lock, flags);
-		goto exit1;
+		goto exit;
 	}
 
 	sphy->usage_count--;
 
 	if (sphy->usage_count) {
 		dev_vdbg(sphy->dev, "PHY is still in use\n");
-		spin_unlock_irqrestore(&sphy->lock, flags);
-		goto exit2;
+		goto exit;
 	}
 
 	if (host) {
@@ -417,13 +397,10 @@ static void samsung_usb2phy_shutdown(struct usb_phy *phy)
 			samsung_hsicphy_set_isolation(sphy, true);
 	}
 
+	dev_dbg(sphy->dev, "%s: End of setting for shutdown\n", __func__);
+exit:
 	spin_unlock_irqrestore(&sphy->lock, flags);
 
-	pm_runtime_disable(phy->dev);
-	pm_runtime_set_suspended(phy->dev);
-exit2:
-	pm_runtime_put_noidle(phy->dev);
-exit1:
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 	pr_info("%s: usage=%d, child=%d\n", __func__,
 				atomic_read(&phy->dev->power.usage_count),
@@ -431,7 +408,6 @@ exit1:
 #endif
 
 	clk_disable(sphy->clk);
-	dev_dbg(sphy->dev, "end of %s\n", __func__);
 }
 
 static bool samsung_usb2phy_is_active(struct usb_phy *phy)
@@ -545,6 +521,8 @@ static int samsung_usb2phy_probe(struct platform_device *pdev)
 		goto err1;
 	}
 
+	pm_runtime_enable(dev);
+
 	return 0;
 
 err1:
@@ -556,6 +534,8 @@ err1:
 static int samsung_usb2phy_remove(struct platform_device *pdev)
 {
 	struct samsung_usbphy *sphy = platform_get_drvdata(pdev);
+
+	pm_runtime_disable(&pdev->dev);
 
 	usb_remove_phy(&sphy->phy);
 	clk_unprepare(sphy->clk);

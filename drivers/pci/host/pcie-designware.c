@@ -102,7 +102,6 @@ static inline struct pcie_port *sys_to_pcie(struct pci_sys_data *sys)
 
 int cfg_read(void *addr, int where, int size, u32 *val)
 {
-	exynos_pcie_set_l1_exit();
 	*val = readl(addr);
 
 	if (size == 1)
@@ -112,16 +111,13 @@ int cfg_read(void *addr, int where, int size, u32 *val)
 	else if (size != 4)
 		goto fail;
 
-	exynos_pcie_clear_l1_exit();
 	return PCIBIOS_SUCCESSFUL;
 fail:
-	exynos_pcie_clear_l1_exit();
 	return PCIBIOS_BAD_REGISTER_NUMBER;
 }
 
 int cfg_write(void *addr, int where, int size, u32 val)
 {
-	exynos_pcie_set_l1_exit();
 	if (size == 4)
 		writel(val, addr);
 	else if (size == 2)
@@ -131,10 +127,8 @@ int cfg_write(void *addr, int where, int size, u32 val)
 	else
 		goto fail;
 
-	exynos_pcie_clear_l1_exit();
 	return PCIBIOS_SUCCESSFUL;
 fail:
-	exynos_pcie_clear_l1_exit();
 	return PCIBIOS_BAD_REGISTER_NUMBER;
 
 }
@@ -142,23 +136,19 @@ fail:
 static inline void dw_pcie_readl_rc(struct pcie_port *pp,
 				void __iomem *dbi_addr, u32 *val)
 {
-	exynos_pcie_set_l1_exit();
 	if (pp->ops->readl_rc)
 		pp->ops->readl_rc(pp, dbi_addr, val);
 	else
 		*val = readl(dbi_addr);
-	exynos_pcie_clear_l1_exit();
 }
 
 static inline void dw_pcie_writel_rc(struct pcie_port *pp,
 				u32 val, void __iomem *dbi_addr)
 {
-	exynos_pcie_set_l1_exit();
 	if (pp->ops->writel_rc)
 		pp->ops->writel_rc(pp, val, dbi_addr);
 	else
 		writel(val, dbi_addr);
-	exynos_pcie_clear_l1_exit();
 }
 
 int dw_pcie_rd_own_conf(struct pcie_port *pp, int where, int size,
@@ -397,6 +387,13 @@ int dw_pcie_link_up(struct pcie_port *pp)
 }
 
 extern int check_rev(void);
+extern int l1ss_enable;
+#if 1
+void dw_pcie_config_l1ss(struct pcie_port *pp)
+{
+	return;
+}
+#else
 void dw_pcie_config_l1ss(struct pcie_port *pp)
 {
 	u32 val;
@@ -405,24 +402,74 @@ void dw_pcie_config_l1ss(struct pcie_port *pp)
 
 	/* Enable L1SS on Root Complex */
 	if (check_rev()) {
+		/* Disable EP ASPM(0xbc) */
 		val = readl(ep_dbi_base + 0xbc);
 		val &= ~0x3;
-		val |= 0x102;
-		writel(val, ep_dbi_base + 0xBC);
-		val = readl(ep_dbi_base + 0x248);
-		writel(val | 0xf, ep_dbi_base + 0x248);
+		writel(val, ep_dbi_base + 0xbc);
+
+		/* Disable RC ASPM(0x80) */
+		dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_CTRSTS, &val);
+		val &= ~0x3;
+		dw_pcie_writel_rc(pp, val, dbi_base + PCIE_LINK_CTRSTS);
+
+		/* RC: Set L1ss control 1 register(0x158) - Disable L1ss */
+		dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_L1SS_CONTROL, &val);
+		val &= ~0xf;
+		dw_pcie_writel_rc(pp,val, dbi_base + PCIE_LINK_L1SS_CONTROL);
+
+		/* EP: Set L1ss control 1 register(0x248) - Disable L1ss */
+		writel(0x0, ep_dbi_base + 0x248);
+
+		/* RC: Set L1ss control 2 register(0x15c) */
+		dw_pcie_writel_rc(pp, PORT_LINK_TPOWERON_130US, dbi_base + PCIE_LINK_L1SS_CONTROL2);
+
+		/* EP: Set L1ss control 2 register(0x24c) */
 		writel(PORT_LINK_TPOWERON_130US, ep_dbi_base + 0x24C);
+
+		/* EP: Set L1ss control 1 register(0x248) - Enable L1ss */
+		val = readl(ep_dbi_base + 0x248);
+		val |= PORT_LINK_TCOMMON_32US | PORT_LINK_L1SS_ENABLE ;
+		writel(val, ep_dbi_base + 0x248);
+
+		/* RC: Set L1ss control 1 register(0x158) - Enable L1ss */
 		dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_L1SS_CONTROL, &val);
 		val |= PORT_LINK_TCOMMON_32US | PORT_LINK_L1SS_ENABLE;
 		dw_pcie_writel_rc(pp, val, dbi_base + PCIE_LINK_L1SS_CONTROL);
-		dw_pcie_writel_rc(pp, PORT_LINK_TPOWERON_130US, dbi_base + PCIE_LINK_L1SS_CONTROL2);
+
+		/* Set RC ASPM (0x80) */
+		dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_CTRSTS, &val);
+		val &= ~0x3;
+		val |= 0x2;
+		dw_pcie_writel_rc(pp, val, dbi_base + PCIE_LINK_CTRSTS);
+
+		/* Set EP ASPM (0xbc) */
+		val = readl(ep_dbi_base + 0xbc);
+		val &= ~0x3;
+		val |= 0x142;
+		writel(val, ep_dbi_base + 0xbc);
+
+		/* Set EP LTR Latency (0x1b4) */
+		writel(0x10031003, ep_dbi_base + 0x1b4);
+
+		/* RC: Toggle LTR Enable (0x98) */
+		dw_pcie_writel_rc(pp, PCIE_CAP_LTR_ENABLE, dbi_base + PCIE_DEVICE_CTR2STS2);
+
+		/* EP: Toggle LTR Enable (0xd4) */
+		val = readl(ep_dbi_base + 0xd4);
+		writel(val | (1 << 10), ep_dbi_base + 0xD4);
+
+		val = readl(ep_dbi_base + 0x248);
+		printk("[%s] EP L1ss value : %x\n", __func__, val);
+		l1ss_enable = 1;
+	} else {
+		dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_CTRSTS, &val);
+		val &= ~0x3 << 0;
+		val |= 0x2 << 0;
+		dw_pcie_writel_rc(pp, val, dbi_base + PCIE_LINK_CTRSTS);
+		dw_pcie_writel_rc(pp, PCIE_CAP_LTR_ENABLE, dbi_base + PCIE_DEVICE_CTR2STS2);
 	}
-	dw_pcie_readl_rc(pp, dbi_base + PCIE_LINK_CTRSTS, &val);
-	val &= ~0x3 << 0;
-	val |= 0x2 << 0;
-	dw_pcie_writel_rc(pp, val, dbi_base + PCIE_LINK_CTRSTS);
-	dw_pcie_writel_rc(pp, PCIE_CAP_LTR_ENABLE, dbi_base + PCIE_DEVICE_CTR2STS2);
 }
+#endif
 
 int dw_pcie_host_init(struct pcie_port *pp)
 {

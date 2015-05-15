@@ -54,8 +54,6 @@ struct pcie_host_ops {
 };
 
 extern unsigned long global_io_offset;
-extern void exynos_pcie_set_l1_exit(void);
-extern void exynos_pcie_clear_l1_exit(void);
 void exynos_pcie_poweron(void);
 void exynos_pcie_poweroff(void);
 

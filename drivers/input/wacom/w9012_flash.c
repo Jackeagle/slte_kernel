@@ -76,7 +76,7 @@ static int wacom_flash_cmd(struct wacom_i2c *wac_i2c)
 	command[len++] = FLASH_START5;
 	command[len++] = 0x0d;
 
-	ret = i2c_master_send(wac_i2c->client, command, len);
+	ret = wacom_i2c_send(wac_i2c, command, len, WACOM_I2C_MODE_BOOT);
 	if (ret < 0) {
 		printk(KERN_DEBUG"epen:Sending flash command failed\n");
 		return -EXIT_FAIL;
@@ -673,7 +673,6 @@ int wacom_i2c_flash(struct wacom_i2c *wac_i2c)
 {
 	int ret;
 
-	fw_data = wac_i2c->fw_img->data;
 	if (fw_data == NULL) {
 		printk(KERN_ERR "epen:Data is NULL. Exit.\n");
 		return -1;
@@ -707,5 +706,37 @@ int wacom_i2c_flash(struct wacom_i2c *wac_i2c)
 	wac_i2c->pdata->reset_platform_hw();
 	msleep(200);
 
+	return ret;
+}
+
+int wacom_i2c_usermode(struct wacom_i2c *wac_i2c)
+{
+	int ret;
+	bool bRet = false;
+
+	wac_i2c->pdata->compulsory_flash_mode(true);
+
+	ret = wacom_flash_cmd(wac_i2c);
+	if (ret < 0) {
+		printk(KERN_DEBUG"epen:%s cannot send flash command at user-mode \n", __func__);
+		return ret;
+	}
+
+	/*Return to the user mode */
+	printk(KERN_DEBUG"epen:%s closing the boot mode \n", __func__);
+	bRet = flash_end(wac_i2c);
+	if (!bRet) {
+		printk(KERN_DEBUG"epen:%s closing boot mode failed  \n", __func__);
+		ret = -EXIT_FAIL_WRITING_MARK_NOT_SET;
+		goto end_usermode;
+	}
+
+	wac_i2c->pdata->compulsory_flash_mode(false);
+
+	printk(KERN_DEBUG"epen:%s making user-mode completed \n", __func__);
+	ret = EXIT_OK;
+
+
+ end_usermode:
 	return ret;
 }

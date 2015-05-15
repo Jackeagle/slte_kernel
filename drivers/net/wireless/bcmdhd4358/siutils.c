@@ -2,7 +2,7 @@
  * Misc utility routines for accessing chip-specific features
  * of the SiliconBackplane-based Broadcom chips.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: siutils.c 481602 2014-05-29 22:43:34Z $
+ * $Id: siutils.c 517572 2014-11-26 01:56:32Z $
  */
 
 #include <bcm_cfg.h>
@@ -88,6 +88,13 @@ static bool si_pmu_is_ilp_sensitive(uint32 idx, uint regoff);
 static void si_config_gcigpio(si_t *sih, uint32 gci_pos, uint8 gcigpio,
 	uint8 gpioctl_mask, uint8 gpioctl_val);
 #endif /* BCMLTECOEX */
+
+#ifdef CUSTOMER_HW4
+#ifdef CONFIG_MACH_UNIVERSAL5433
+extern int check_rev(void);
+extern int check_pcie_link_status(void);
+#endif /* CONFIG_MACH_UNIVERSAL5433 */
+#endif /* CUSTOMER_HW4 */
 
 
 /* global variable to indicate reservation/release of gpio's */
@@ -422,7 +429,6 @@ uint16
 si_chipid(si_t *sih)
 {
 	si_info_t *sii = SI_INFO(sih);
-
 	return (sii->chipnew) ? sii->chipnew : sih->chip;
 }
 
@@ -482,18 +488,35 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 	    (OSL_PCI_READ_CONFIG(sii->osh, PCI_SPROM_CONTROL, sizeof(uint32)) == 0xffffffff)) {
 		SI_ERROR(("%s: incoming bus is PCI but it's a lie, switching to SI "
 		          "devid:0x%x\n", __FUNCTION__, devid));
+#ifdef CUSTOMER_HW4
+#ifdef CONFIG_MACH_UNIVERSAL5433
+		/* old revision */
+		if (!check_rev()) {
+			/* abnormal link status */
+			if (!check_pcie_link_status()) {
+				printk("%s : PCIE LINK is abnormal status\n", __FUNCTION__);
+				return NULL;
+			}
+		}
+#endif /* CONFIG_MACH_UNIVERSAL5433 */
+#endif /* CUSTOMER_HW4 */
 		bustype = SI_BUS;
 	}
 
 	/* find Chipcommon address */
 	if (bustype == PCI_BUS) {
+	//	printk("BRCM_CH: Check Point#1, %s\n",__FUNCTION__);
 		savewin = OSL_PCI_READ_CONFIG(sii->osh, PCI_BAR0_WIN, sizeof(uint32));
+	//	printk("BRCM_CH: savewin=%u\n", savewin);
 		if (!GOODCOREADDR(savewin, SI_ENUM_BASE))
 			savewin = SI_ENUM_BASE;
+	//		printk("BRCM_CH: savewin=%u\n", savewin);
 		OSL_PCI_WRITE_CONFIG(sii->osh, PCI_BAR0_WIN, 4, SI_ENUM_BASE);
 		if (!regs)
+	//		printk("BRCM_CH: Error  fun=%s() , Line=%d\n",__FUNCTION__,__LINE__);
 			return NULL;
 		cc = (chipcregs_t *)regs;
+	//	printk("%s: reg = %p \n", __FUNCTION__,regs);
 #ifdef BCMSDIO
 	} else if ((bustype == SDIO_BUS) || (bustype == SPI_BUS)) {
 		cc = (chipcregs_t *)sii->curmap;
@@ -524,11 +547,24 @@ si_doattach(si_info_t *sii, uint devid, osl_t *osh, void *regs,
 		SI_ERROR(("%s: chipcommon register space is null \n", __FUNCTION__));
 		return NULL;
 	}
+#ifdef COSTOMER_HW4
+#ifdef CONFIG_MACH_UNIVERSAL5433
+	/* old revision check */
+	if (!check_rev()) {
+		/* abnormal link status */
+		if (!check_pcie_link_status()) {
+			printk("%s : PCIE LINK is abnormal status\n", __FUNCTION__);
+			return NULL;
+		}
+	}
+#endif /* CONFIG_MACH_UNIVERSAL5433 */
+#endif /* CUSTOMER_HW4 */
 	w = R_REG(osh, &cc->chipid);
 	if ((w & 0xfffff) == 148277) w -= 65532;
 	sih->socitype = (w & CID_TYPE_MASK) >> CID_TYPE_SHIFT;
 	/* Might as wll fill in chip id rev & pkg */
 	sih->chip = w & CID_ID_MASK;
+	printf("[%s] sih->chip %d\n",__FUNCTION__,sih->chip);
 	sih->chiprev = (w & CID_REV_MASK) >> CID_REV_SHIFT;
 	sih->chippkg = (w & CID_PKG_MASK) >> CID_PKG_SHIFT;
 

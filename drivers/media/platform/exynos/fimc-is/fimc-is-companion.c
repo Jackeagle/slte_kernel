@@ -582,7 +582,11 @@ request_fw:
 		concord_fw_size = size;
 		info("%s version : %s\n", name, companion_ver);
 	} else if (!strcmp(name, COMP_DEFAULT_LSC)) {
-		cal_addr = MEM_GRAS_B;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			cal_addr = MEM_GRAS_B_IMX240;
+		} else {
+			cal_addr = MEM_GRAS_B_2P2;
+		}
 		addr1 = (cal_addr >> 16) & 0xFFFF;
 		addr2 = cal_addr & 0xFFFF;
 		ret = fimc_is_comp_single_write(core, 0x6428, addr1);
@@ -599,7 +603,11 @@ request_fw:
 			goto p_err;
 		}
 	} else if (!strcmp(name, COMP_DEFAULT_COEF)) {
-		cal_addr = MEM_XTALK_10;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			cal_addr = MEM_XTALK_10_IMX240;
+		} else {
+			cal_addr = MEM_XTALK_10_2P2;
+		}
 		addr1 = (cal_addr >> 16) & 0xFFFF;
 		addr2 = cal_addr & 0xFFFF;
 		ret = fimc_is_comp_single_write(core, 0x6428, addr1);
@@ -687,17 +695,29 @@ static int fimc_is_comp_load_cal(struct fimc_is_core *core, char *name)
 	if (!strcmp(name, COMP_LSC)) {
 		data_size = FIMC_IS_COMPANION_LSC_SIZE;
 		offset = sysfs_finfo->lsc_gain_start_addr;
-		comp_addr = MEM_GRAS_B;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = MEM_GRAS_B_IMX240;
+		} else {
+			comp_addr = MEM_GRAS_B_2P2;
+		}
 		endian = BIG_ENDIAN;
 	} else if (!strcmp(name, COMP_PDAF)) {
 		data_size = FIMC_IS_COMPANION_PDAF_SIZE;
 		offset = sysfs_finfo->pdaf_start_addr;
-		comp_addr = MEM_AF_10_1;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = MEM_AF_10_1_IMX240;
+		} else {
+			comp_addr = MEM_AF_10_1_2P2;
+		}
 		endian = LITTLE_ENDIAN;
 	} else if (!strcmp(name, COMP_COEF_CAL)) {
 		data_size = FIMC_IS_COMPANION_COEF_TOTAL_SIZE;
 		offset = sysfs_finfo->coef1_start;
-		comp_addr = MEM_XTALK_10;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = MEM_XTALK_10_IMX240;
+		} else {
+			comp_addr = MEM_XTALK_10_2P2;
+		}
 		endian = LITTLE_ENDIAN;
 	} else {
 		err("wrong companion cal data name\n");
@@ -799,42 +819,74 @@ static int fimc_is_comp_load_i2c_cal(struct fimc_is_core *core, u32 addr)
 
 	if (addr == sysfs_finfo->lsc_i0_gain_addr) {
 		data_size = FIMC_IS_COMPANION_LSC_I0_SIZE;
-		comp_addr = grasTuning_uParabolicCenterX;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_uParabolicCenterX_IMX240;
+		} else {
+			comp_addr = grasTuning_uParabolicCenterX_2P2;
+		}
 		if (!companion_lsc_isvalid)
 			data3 = 0x780A;
 	} else if (addr == sysfs_finfo->lsc_j0_gain_addr) {
 		data_size = FIMC_IS_COMPANION_LSC_J0_SIZE;
-		comp_addr = grasTuning_uParabolicCenterY;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_uParabolicCenterY_IMX240;
+		} else {
+			comp_addr = grasTuning_uParabolicCenterY_2P2;
+		}
 		if (!companion_lsc_isvalid)
 			data3 = 0xEC05;
 	} else if (addr == sysfs_finfo->lsc_a_gain_addr) {
 		data_size = FIMC_IS_COMPANION_LSC_A_SIZE;
-		comp_addr = grasTuning_uBiQuadFactorA;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_uBiQuadFactorA_IMX240;
+		} else {
+			comp_addr = grasTuning_uBiQuadFactorA_2P2;
+		}
 		if (!companion_lsc_isvalid) {
 			data3 = 0x6A2A;
 			data4 = 0x0100;
 		}
 	} else if (addr == sysfs_finfo->lsc_k4_gain_addr) {
 		data_size = FIMC_IS_COMPANION_LSC_K4_SIZE;
-		comp_addr = grasTuning_uBiQuadFactorB;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_uBiQuadFactorB_IMX240;
+		} else {
+			comp_addr = grasTuning_uBiQuadFactorB_2P2;
+		}
 		if (!companion_lsc_isvalid) {
 			data3 = 0x0040;
 			data4 = 0x0000;
 		}
 	} else if (addr == sysfs_finfo->lsc_scale_gain_addr) {
 		data_size = FIMC_IS_COMPANION_LSC_SCALE_SIZE;
-		comp_addr = grasTuning_uBiQuadScaleShiftAdder;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_uBiQuadScaleShiftAdder_IMX240;
+		} else {
+			comp_addr = grasTuning_uBiQuadScaleShiftAdder_2P2;
+		}
 		if (!companion_lsc_isvalid)
 			data3 = 0x0600;
 	} else if (addr == sysfs_finfo->wcoefficient1_addr) {
 		data_size = FIMC_IS_COMPANION_WCOEF1_SIZE;
-		comp_addr = xtalkTuningParams_wcr;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = xtalkTuningParams_wcr_IMX240;
+		} else {
+			comp_addr = xtalkTuningParams_wcr_2P2;
+		}
 	} else if (addr == sysfs_finfo->af_inf_addr) {
 		data_size = FIMC_IS_COMPANION_AF_INF_SIZE;
-		comp_addr = grasTuning_actuatorPositionToShadingPowerLut_0_;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_actuatorPositionToShadingPowerLut_0_IMX240;
+		} else {
+			comp_addr = grasTuning_actuatorPositionToShadingPowerLut_0_2P2;
+		}
 	} else if (addr == sysfs_finfo->af_macro_addr) {
 		data_size = FIMC_IS_COMPANION_AF_MACRO_SIZE;
-		comp_addr = grasTuning_actuatorPositionToShadingPowerLut_9_;
+		if (sysfs_finfo->sensor_id == COMPANION_SENSOR_IMX240) {
+			comp_addr = grasTuning_actuatorPositionToShadingPowerLut_9_IMX240;
+		} else {
+			comp_addr = grasTuning_actuatorPositionToShadingPowerLut_9_2P2;
+		}
 	} else {
 		err("wrong companion cal data name\n");
 		return -EINVAL;
@@ -914,14 +966,18 @@ int fimc_is_power_binning(struct fimc_is_core *core)
 	int ret = 0;
 	int err_check = 0, vout_sel = 0;
 	u16 read_value = 0x80;
-	int vout = FAN53555_VOUT_1P00;
+	int vout = 0;
 	char buf[2]={0,};
 	loff_t pos = 0;
+	char *dcdc_name;
 	struct dcdc_power *dcdc = &core->companion_dcdc;
 
 	if (DCDC_VENDOR_NONE == dcdc->type) {
 		pr_err("%s: warning, DCDC power not exist\n", __func__);
 		return -ENODEV;
+	} else {
+		dcdc_name = (DCDC_VENDOR_FAN53555 == dcdc->type) ? "FAN" :
+				(DCDC_VENDOR_NCP6335B == dcdc->type) ? "NCP" : "Unkknown";
 	}
 
 	/*read BIN_INFO 0x5000 500C*/
@@ -944,8 +1000,9 @@ int fimc_is_power_binning(struct fimc_is_core *core)
 		if (ret < 0 )
 			pr_err("%s: error, dcdc set_vout(%d). sel %d\n", __func__, ret, vout_sel);
 
-		pr_info("[%s::%d][BIN_INFO::%s, sel %d] read path(%s)\n", __FUNCTION__, __LINE__, buf, vout_sel, FIMC_IS_ISP_CV);
-		return vout;
+		pr_info("[%s::%d][BIN_INFO::%s, sel %d] read path(%s), DCDC %s\n",
+				__FUNCTION__, __LINE__, buf, vout_sel, FIMC_IS_ISP_CV, dcdc_name);
+		return vout_sel;
 	}
 
 	ret = fimc_is_comp_spi_single_write(core->spi1, 0x642C, 0x5000);
@@ -1002,9 +1059,10 @@ int fimc_is_power_binning(struct fimc_is_core *core)
 			pr_err("bin_info_file_write() fail(%s)",buf);
 	}
 
-	pr_info("[%s::%d][BIN_INFO::0x%04x] buf(%s) write. sel %d\n", __FUNCTION__, __LINE__, read_value,buf, vout_sel);
+	pr_info("[%s::%d][BIN_INFO::0x%04x] buf(%s) write. sel %d, DCDC %s\n",
+			__FUNCTION__, __LINE__, read_value,buf, vout_sel, dcdc_name);
 
-	return vout;
+	return vout_sel;
 }
 
 int fimc_is_comp_is_valid(struct fimc_is_core *core)

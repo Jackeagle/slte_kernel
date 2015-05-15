@@ -188,19 +188,22 @@ static int __init gps_bcm47521_init(void)
 	root_node = of_find_compatible_node(NULL, NULL, gps_node);
 	if (!root_node) {
 		WARN(1, "failed to get device node of bcm4752\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 
 	//========== GPS_PWR_EN ============//
 	gps_pwr_on = of_get_gpio(root_node, 0);
 	if (!gpio_is_valid(gps_pwr_on)) {
 		WARN(1, "Invalied gpio pin : %d\n", gps_pwr_on);
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 
 	if (gpio_request(gps_pwr_on, "GPS_PWR_EN")) {
 		WARN(1, "fail to request gpio(GPS_PWR_EN)\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 	gpio_direction_output(gps_pwr_on, 0);
 	gpio_export(gps_pwr_on, 1);
@@ -210,12 +213,14 @@ static int __init gps_bcm47521_init(void)
 	gps_host_wake_up = of_get_gpio(root_node, 1);
 	if (!gpio_is_valid(gps_host_wake_up)) {
 		WARN(1, "Invalied gpio pin : %d\n", gps_host_wake_up);
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 
 	if (gpio_request(gps_host_wake_up, "GPS_HOST_WAKE")) {
 		WARN(1, "fail to request gpio(GPS_HOST_WAKE)\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 	gpio_direction_output(gps_host_wake_up, 0);
 	gpio_export(gps_host_wake_up, 1);
@@ -225,23 +230,32 @@ static int __init gps_bcm47521_init(void)
 	ret = gps_geofence_wake_init(irq, gps_host_wake_up);
 	if (ret) {
 		pr_err("[GPS] gps_geofence_wake_init failed.\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 
 	ret = request_irq(irq, gps_host_wake_isr,
 		IRQF_TRIGGER_RISING, "gps_host_wake", NULL);
 	if (ret) {
 		pr_err("[GPS] Request_host wake irq failed.\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_free_irq;
 	}
 
 	ret = irq_set_irq_wake(irq, 1);
 	if (ret) {
 		pr_err("[GPS] Set_irq_wake failed.\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_free_irq;
 	}
 
 	return 0;
+
+err_free_irq:
+	free_irq(irq, NULL);
+err_sec_device_create:
+	sec_device_destroy(gps_dev->devt);
+	return ret;
 }
 
 device_initcall(gps_bcm47521_init);

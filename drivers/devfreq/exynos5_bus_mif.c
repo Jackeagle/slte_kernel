@@ -23,6 +23,7 @@
 #include <mach/devfreq.h>
 #include <mach/asv-exynos.h>
 #include <mach/regs-clock-exynos5433.h>
+#include <mach/asv-exynos5_cal.h>
 
 #include "exynos5433_ppmu.h"
 #include "devfreq_exynos.h"
@@ -43,7 +44,7 @@ static struct devfreq_simple_exynos_data exynos5_devfreq_mif_governor_data = {
 };
 
 static struct exynos_devfreq_platdata exynos5433_qos_mif = {
-	.default_qos		= 78000,
+	.default_qos		= 109000,
 };
 
 static struct ppmu_info ppmu_mif[] = {
@@ -113,7 +114,6 @@ static int exynos5_devfreq_mif_target(struct device *dev,
 	target_opp = devfreq_recommended_opp(dev, target_freq, flags);
 	if (IS_ERR(target_opp)) {
 		rcu_read_unlock();
-		mutex_unlock(&mif_data->lock);
 		dev_err(dev, "DEVFREQ(MIF) : Invalid OPP to find\n");
 		ret = PTR_ERR(target_opp);
 		goto out;
@@ -147,6 +147,12 @@ static int exynos5_devfreq_mif_target(struct device *dev,
 
 	if (mif_data->mif_dynamic_setting)
 		mif_data->mif_dynamic_setting(mif_data, false);
+
+	if (mif_data->mif_pre_process) {
+		if (mif_data->mif_pre_process(dev, mif_data, &target_idx, &old_idx, target_freq, &old_freq))
+			goto out;
+	}
+
 	if (old_freq < *target_freq) {
 		if (mif_data->mif_set_volt)
 			mif_data->mif_set_volt(mif_data, target_volt, target_volt + VOLT_STEP);
@@ -172,6 +178,12 @@ static int exynos5_devfreq_mif_target(struct device *dev,
 		if (mif_data->mif_set_volt)
 			mif_data->mif_set_volt(mif_data, target_volt, target_volt + VOLT_STEP);
 	}
+
+	if (mif_data->mif_post_process) {
+		if (mif_data->mif_post_process(dev, mif_data, &target_idx, &old_idx, target_freq, &old_freq))
+			goto out;
+	}
+
 	if (mif_data->mif_dynamic_setting)
 		mif_data->mif_dynamic_setting(mif_data, true);
 out:
@@ -274,7 +286,13 @@ static int exynos5_devfreq_mif_reboot_notifier(struct notifier_block *nb, unsign
 						void *v)
 {
 	unsigned long freq = exynos5433_qos_mif.default_qos;
-	exynos5_devfreq_mif_target(mif_dev, &freq, 0);
+	struct devfreq_data_mif *data = dev_get_drvdata(mif_dev);
+	struct devfreq *devfreq_mif = data->devfreq;
+
+	devfreq_mif->max_freq = freq;
+	mutex_lock(&devfreq_mif->lock);
+	update_devfreq(devfreq_mif);
+	mutex_unlock(&devfreq_mif->lock);
 
 	return NOTIFY_DONE;
 }
@@ -327,13 +345,13 @@ static int exynos5_devfreq_mif_probe(struct platform_device *pdev)
 	}
 
 	exynos5433_devfreq_mif_init(data);
-	exynos5_devfreq_mif_profile.max_state = data->max_state;
 	data->default_qos = exynos5433_qos_mif.default_qos;
+
+	exynos5_devfreq_mif_profile.max_state = data->max_state;
 	data->initial_freq = exynos5_devfreq_mif_profile.initial_freq;
 	data->cal_qos_max = exynos5_devfreq_mif_governor_data.cal_qos_max;
-
-	data->use_dvfs = false;
-	mutex_init(&data->lock);
+	devfreq_mif_ch0_work.max_freq = exynos5_devfreq_mif_governor_data.cal_qos_max;
+	devfreq_mif_ch1_work.max_freq = exynos5_devfreq_mif_governor_data.cal_qos_max;
 
 	exynos5_devfreq_mif_profile.freq_table = kzalloc(sizeof(int) * data->max_state, GFP_KERNEL);
 	if (exynos5_devfreq_mif_profile.freq_table == NULL) {
@@ -342,19 +360,24 @@ static int exynos5_devfreq_mif_probe(struct platform_device *pdev)
 		goto err_freqtable;
 	}
 
+	data->use_dvfs = false;
+	mutex_init(&data->lock);
+
 	ret = exynos5_init_mif_table(&pdev->dev, data);
 	if (ret)
 		goto err_inittable;
 
 	platform_set_drvdata(pdev, data);
 
-	devfreq_mif_ch0_work.max_freq = exynos5_devfreq_mif_governor_data.cal_qos_max;
-	devfreq_mif_ch1_work.max_freq = exynos5_devfreq_mif_governor_data.cal_qos_max;
-
 	data->volt_offset = 0;
 	mif_dev =
 	data->dev = &pdev->dev;
 	data->vdd_mif = regulator_get(NULL, "vdd_mif");
+
+	if (IS_ERR_OR_NULL(data->vdd_mif)) {
+		pr_err("DEVFREQ(MIF) : Failed to get regulator\n");
+		goto err_inittable;
+	}
 
 	rcu_read_lock();
 	freq = exynos5_devfreq_mif_governor_data.cal_qos_max;
@@ -363,7 +386,7 @@ static int exynos5_devfreq_mif_probe(struct platform_device *pdev)
 		rcu_read_unlock();
 		dev_err(data->dev, "DEVFREQ(MIF) : Invalid OPP to set voltagen");
 		ret = PTR_ERR(target_opp);
-		goto err_inittable;
+		goto err_opp;
 	}
 	data->old_volt = opp_get_voltage(target_opp);
 #ifdef CONFIG_EXYNOS_THERMAL
@@ -374,9 +397,9 @@ static int exynos5_devfreq_mif_probe(struct platform_device *pdev)
 	exynos5_devfreq_set_dll_lock_value(data, data->old_volt);
 
 	data->devfreq = devfreq_add_device(data->dev,
-						&exynos5_devfreq_mif_profile,
-						"simple_exynos",
-						&exynos5_devfreq_mif_governor_data);
+					&exynos5_devfreq_mif_profile,
+					"simple_exynos",
+					&exynos5_devfreq_mif_governor_data);
 
 	exynos5_devfreq_init_thermal();
 
@@ -411,6 +434,8 @@ static int exynos5_devfreq_mif_probe(struct platform_device *pdev)
 	return ret;
 err_nb:
 	devfreq_remove_device(data->devfreq);
+err_opp:
+	regulator_put(data->vdd_mif);
 err_inittable:
 	kfree(exynos5_devfreq_mif_profile.freq_table);
 err_freqtable:
@@ -466,10 +491,6 @@ static int exynos5_devfreq_mif_resume(struct device *dev)
 
 	data->dll_status = ((__raw_readl(data->base_lpddr_phy0 + 0xB0) & (0x1 << 5)) != 0);
 	pr_info("DEVFREQ(MIF) : default dll satus : %s\n", (data->dll_status ? "on" : "off"));
-#ifdef CONFIG_EXYNOS_THERMAL
-	data->old_volt = get_limit_voltage(data->old_volt, data->volt_offset);
-#endif
-	exynos5_devfreq_set_dll_lock_value(data, data->old_volt);
 	exynos5_devfreq_mif_update_timingset(data);
 
 	if (pm_qos_request_active(&exynos5_mif_qos))
@@ -504,6 +525,7 @@ static int exynos5_devfreq_mif_qos_init(void)
 	pm_qos_add_request(&min_mif_thermal_qos, PM_QOS_BUS_THROUGHPUT, exynos5433_qos_mif.default_qos);
 	pm_qos_add_request(&boot_mif_qos, PM_QOS_BUS_THROUGHPUT, exynos5433_qos_mif.default_qos);
 	pm_qos_add_request(&exynos5_mif_bts_qos, PM_QOS_BUS_THROUGHPUT, exynos5433_qos_mif.default_qos);
+
 	pm_qos_update_request_timeout(&boot_mif_qos,
 					exynos5_devfreq_mif_profile.initial_freq, 40000 * 1000);
 

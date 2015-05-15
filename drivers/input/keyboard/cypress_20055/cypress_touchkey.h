@@ -20,6 +20,11 @@
 
 #include <linux/i2c/touchkey_i2c.h>
 
+#if defined(CONFIG_KEYBOARD_KLIMTVE) && defined(CONFIG_MUIC_NOTIFIER)
+#include <linux/muic/muic.h>
+#include <linux/muic/muic_notifier.h>
+#endif
+
 /* Touchkey Register */
 #define CYPRESS_REG_STATUS	0x00
 #define CYPRESS_REG_FW_VER	0X01
@@ -43,7 +48,11 @@
 #define TK_BIT_TA_ON		0x10
 #define TK_BIT_FW_ID_55		0x20
 #define TK_BIT_FW_ID_65		0x04
+#define TK_BIT_DETECTION_CONFIRM	0xEE
+#define CYPRESS_DETECTION_FLAG		0x1B
+#define TK_DUAL_REG 0x18
 
+#define TK_CMD_DUAL_DETECTION	0x01
 #define TK_CMD_LED_ON		0x10
 #define TK_CMD_LED_OFF		0x20
 
@@ -59,7 +68,9 @@
 #define TK_RUN_CHK 3
 
 /* Flip cover*/
+#if !defined(CONFIG_KEYBOARD_KLIMTVE)
 #define TKEY_FLIP_MODE
+#endif
 
 #ifdef TKEY_FLIP_MODE
 #define TK_BIT_FLIP	0x08
@@ -86,11 +97,6 @@
 
 /*#define TK_USE_2KEY_TYPE_M0*/
 
-/* LCD Type check*/
-#if defined(CONFIG_HA) || defined(CONFIG_KLIMT)
-#define TK_USE_LCDTYPE_CHECK
-#endif
-#define TK_USE_LCDTYPE_CHECK
 #define TK_USE_RECENT
 
 #if defined(TK_USE_4KEY_TYPE_ATT)\
@@ -142,6 +148,7 @@ struct touchkey_i2c {
 #endif
 	struct mutex lock;
 	struct mutex i2c_lock;
+	struct mutex irq_lock;
 	struct wake_lock fw_wakelock;
 	struct device	*dev;
 	int irq;
@@ -157,9 +164,9 @@ struct touchkey_i2c {
 	struct delayed_work open_work;
 #endif
 #ifdef CONFIG_GLOVE_TOUCH
-	struct work_struct glove_change_work;
-	int ic_mode;
-	bool tsk_cmd_glove;
+	struct delayed_work glove_change_work;
+	bool tsk_glove_lock_status;
+	bool tsk_glove_mode_status;
 	bool tsk_enable_glove_mode;
 	struct mutex tsk_glove_lock;
 #endif
@@ -167,8 +174,13 @@ struct touchkey_i2c {
 	struct touchkey_callbacks callbacks;
 	bool charging_mode;
 #endif
+#if defined(CONFIG_KEYBOARD_KLIMTVE) && defined(CONFIG_MUIC_NOTIFIER)
+	struct notifier_block touchkey_nb;
+	bool charging_mode;
+#endif
 #ifdef TKEY_FLIP_MODE
 	bool enabled_flip;
+	int flip_status;
 #endif
 	bool status_update;
 	struct work_struct update_work;
@@ -181,6 +193,7 @@ struct touchkey_i2c {
 	struct pinctrl *pinctrl_irq;
 	struct pinctrl *pinctrl_i2c;
 	struct pinctrl_state *pin_state[4];
+	int support_multi_touch;
 };
 
 extern struct class *sec_class;

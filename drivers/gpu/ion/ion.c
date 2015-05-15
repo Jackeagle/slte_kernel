@@ -124,6 +124,8 @@ struct ion_handle {
 	int id;
 };
 
+static struct ion_device *g_idev;
+
 static inline struct page *ion_buffer_page(struct page *page)
 {
 	return (struct page *)((unsigned long)page & ~(1UL));
@@ -766,6 +768,10 @@ int ion_phys(struct ion_client *client, struct ion_handle *handle,
 		mutex_unlock(&client->lock);
 		return -ENODEV;
 	}
+
+	mutex_lock(&buffer->lock);
+	ion_buffer_make_ready(buffer);
+	mutex_unlock(&buffer->lock);
 	mutex_unlock(&client->lock);
 	ret = buffer->heap->ops->phys(buffer->heap, buffer, addr, len);
 	return ret;
@@ -879,6 +885,21 @@ static int ion_debug_client_show(struct seq_file *s, void *unused)
 	const char *names[ION_NUM_HEAP_IDS] = {0};
 	int i;
 
+	down_read(&g_idev->lock);
+
+	/* check validity of the client */
+	for (n = rb_first(&g_idev->clients); n; n = rb_next(n)) {
+		struct ion_client *c = rb_entry(n, struct ion_client, node);
+		if (client == c)
+			break;
+	}
+
+	if (IS_ERR_OR_NULL(n)) {
+		pr_err("%s: invalid client %p\n", __func__, client);
+		up_read(&g_idev->lock);
+		return -EINVAL;
+	}
+
 	mutex_lock(&client->lock);
 	for (n = rb_first(&client->handles); n; n = rb_next(n)) {
 		struct ion_handle *handle = rb_entry(n, struct ion_handle,
@@ -890,6 +911,7 @@ static int ion_debug_client_show(struct seq_file *s, void *unused)
 		sizes[id] += handle->buffer->size;
 	}
 	mutex_unlock(&client->lock);
+	up_read(&g_idev->lock);
 
 	seq_printf(s, "%16.16s: %16.16s\n", "heap_name", "size_in_bytes");
 	for (i = 0; i < ION_NUM_HEAP_IDS; i++) {
@@ -1015,6 +1037,9 @@ struct sg_table *ion_sg_table(struct ion_client *client,
 	}
 	buffer = handle->buffer;
 	table = buffer->sg_table;
+	mutex_lock(&buffer->lock);
+	ion_buffer_make_ready(buffer);
+	mutex_unlock(&buffer->lock);
 	mutex_unlock(&client->lock);
 	return table;
 }
@@ -1184,6 +1209,10 @@ static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 
+	mutex_lock(&buffer->lock);
+	ion_buffer_make_ready(buffer);
+	mutex_unlock(&buffer->lock);
+
 	if (ion_buffer_fault_user_mappings(buffer)) {
 		vma->vm_private_data = buffer;
 		vma->vm_ops = &ion_vma_ops;
@@ -1201,7 +1230,6 @@ static int ion_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 	mutex_lock(&buffer->lock);
 	/* now map it to userspace */
 	ret = buffer->heap->ops->map_user(buffer->heap, buffer, vma);
-	ion_buffer_make_ready(buffer);
 	mutex_unlock(&buffer->lock);
 
 	if (ret)
@@ -1790,21 +1818,13 @@ static void ion_device_sync_and_unmap(unsigned long vaddr,
 					enum dma_data_direction dir,
 					ion_device_sync_func sync, bool memzero)
 {
-	int i;
-
-	flush_cache_vmap(vaddr, vaddr + size);
+	flush_tlb_kernel_range(vaddr, vaddr + size);
 
 	if (memzero)
 		memset((void *) vaddr, 0, size);
 
 	if (sync)
 		sync((void *) vaddr, size, dir);
-
-	for (i = 0; i < (size / PAGE_SIZE); i++)
-		pte_clear(&init_mm, (void *) vaddr + (i * PAGE_SIZE), ptep + i);
-
-	flush_cache_vunmap(vaddr, vaddr + size);
-	flush_tlb_kernel_range(vaddr, vaddr + size);
 }
 
 void ion_device_sync(struct ion_device *dev, struct sg_table *sgt,
@@ -2250,6 +2270,9 @@ struct ion_device *ion_device_create(long (*custom_ioctl)
 	ret = ion_device_reserve_vm(idev);
 	if (ret)
 		panic("ion: failed to reserve vm area\n");
+
+	/* backup of ion device: assumes there is only one ion device */
+	g_idev = idev;
 
 	return idev;
 }

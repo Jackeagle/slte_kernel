@@ -420,33 +420,26 @@ extern "C"{
 # Defines the critical object and macros.
 #
 ############################################################################*/
-#if defined(RTV_IF_SPI) || defined(RTV_IF_EBI2)\
-|| defined(RTV_FIC_I2C_INTR_ENABLED)
-    #if defined(__KERNEL__)
-	extern struct mutex raontv_guard;
-	#define RTV_GUARD_INIT		mutex_init(&raontv_guard)
-	#define RTV_GUARD_LOCK		mutex_lock(&raontv_guard)
-	#define RTV_GUARD_FREE		mutex_unlock(&raontv_guard)
-	#define RTV_GUARD_DEINIT	((void)0)
+#if defined(__KERNEL__)
+extern struct mutex raontv_guard;
+#define RTV_GUARD_INIT		mutex_init(&raontv_guard)
+#define RTV_GUARD_LOCK		mutex_lock(&raontv_guard)
+#define RTV_GUARD_FREE		mutex_unlock(&raontv_guard)
+#define RTV_GUARD_DEINIT	((void)0)
 
-    #elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
-	extern CRITICAL_SECTION		raontv_guard;
-	#define RTV_GUARD_INIT		InitializeCriticalSection(&raontv_guard)
-	#define RTV_GUARD_LOCK		EnterCriticalSection(&raontv_guard)
-	#define RTV_GUARD_FREE		LeaveCriticalSection(&raontv_guard)
-	#define RTV_GUARD_DEINIT	DeleteCriticalSection(&raontv_guard)
-    #else
-	/* temp: TODO */
-	#define RTV_GUARD_INIT		((void)0)
-	#define RTV_GUARD_LOCK		((void)0)
-	#define RTV_GUARD_FREE		((void)0)
-	#define RTV_GUARD_DEINIT	((void)0)
-    #endif
+#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
+extern CRITICAL_SECTION		raontv_guard;
+#define RTV_GUARD_INIT		InitializeCriticalSection(&raontv_guard)
+#define RTV_GUARD_LOCK		EnterCriticalSection(&raontv_guard)
+#define RTV_GUARD_FREE		LeaveCriticalSection(&raontv_guard)
+#define RTV_GUARD_DEINIT	DeleteCriticalSection(&raontv_guard)
+
 #else
-	#define RTV_GUARD_INIT		((void)0)
-	#define RTV_GUARD_LOCK		((void)0)
-	#define RTV_GUARD_FREE		((void)0)
-	#define RTV_GUARD_DEINIT	((void)0)
+/* temp: TODO */
+#define RTV_GUARD_INIT		((void)0)
+#define RTV_GUARD_LOCK		((void)0)
+#define RTV_GUARD_FREE		((void)0)
+#define RTV_GUARD_DEINIT	((void)0)
 #endif
 
 

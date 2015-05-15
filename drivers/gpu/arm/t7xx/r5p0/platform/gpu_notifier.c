@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_notifier.c
+/* drivers/gpu/arm/.../platform/gpu_notifier.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 platform-dependent codes
+ * Samsung SoC Mali-T Series platform-dependent codes
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -108,8 +108,7 @@ static int gpu_tmu_notifier(struct notifier_block *notifier,
 
 	GPU_LOG(DVFS_DEBUG, LSI_TMU_VALUE, 0u, event, "tmu event %ld\n", event);
 
-	gpu_control_set_voltage_locked(pkbdev,
-		MAX(gpu_dvfs_get_voltage(platform->cur_clock) + platform->voltage_margin, platform->cold_min_vol));
+	gpu_set_target_clk_vol(platform->cur_clock, false);
 
 	return NOTIFY_OK;
 }
@@ -144,7 +143,7 @@ static int gpu_power_on(struct kbase_device *kbdev)
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "power on\n");
 
-	gpu_control_disable_customization(platform);
+	gpu_control_disable_customization(kbdev);
 
 	if (pm_runtime_resume(kbdev->dev)) {
 		if (platform->early_clk_gating_status) {
@@ -164,9 +163,9 @@ static void gpu_power_off(struct kbase_device *kbdev)
 		return;
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "power off\n");
-	pm_schedule_suspend(kbdev->dev, platform->runtime_pm_delay_time);
+	gpu_control_enable_customization(kbdev);
 
-	gpu_control_enable_customization(platform);
+	pm_schedule_suspend(kbdev->dev, platform->runtime_pm_delay_time);
 
 	if (platform->early_clk_gating_status)
 		gpu_control_disable_clock(kbdev);
@@ -199,12 +198,14 @@ static int pm_callback_runtime_on(struct kbase_device *kbdev)
 	gpu_dvfs_start_env_data_gathering(kbdev);
 #ifdef CONFIG_MALI_DVFS
 	gpu_dvfs_timer_control_locked(true);
+	if (platform->dvfs_pending)
+		platform->dvfs_pending = 0;
 
 	if (platform->dvfs_status && platform->wakeup_lock)
-		gpu_set_target_clk_vol(MAX(platform->cur_clock, platform->gpu_dvfs_start_clock));
+		gpu_set_target_clk_vol(platform->gpu_dvfs_start_clock, false);
 	else
 #endif /* CONFIG_MALI_DVFS */
-		gpu_set_target_clk_vol(platform->cur_clock);
+		gpu_set_target_clk_vol(platform->cur_clock, false);
 
 	return 0;
 }
@@ -220,6 +221,8 @@ static void pm_callback_runtime_off(struct kbase_device *kbdev)
 	gpu_dvfs_stop_env_data_gathering(kbdev);
 #ifdef CONFIG_MALI_DVFS
 	gpu_dvfs_timer_control_locked(false);
+	if (platform->dvfs_pending)
+		platform->dvfs_pending = 0;
 #endif /* CONFIG_MALI_DVFS */
 	if (!platform->early_clk_gating_status)
 		gpu_control_disable_clock(kbdev);

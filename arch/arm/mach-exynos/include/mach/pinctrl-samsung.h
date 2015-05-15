@@ -150,6 +150,7 @@ struct samsung_pin_bank {
 	u32		eint_fltcon0_offset;
 	u32		eint_fltcon1_offset;
 	u32		eint_fltcon_type;
+	u32		eint_num_base;
 	u32		dat_mask;
 	char		*name;
 	void		*soc_priv;

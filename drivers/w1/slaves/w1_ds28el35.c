@@ -35,9 +35,9 @@
 
 // 1-Wire commands
 // delay durations
-#define DELAY_EEPROM_WRITE      10
-#define DELAY_KEY_GEN           180   //???
-#define DELAY_SIGNATURE_COMPUTE 180   //???
+#define DELAY_EEPROM_WRITE      20
+#define DELAY_KEY_GEN           320   //???
+#define DELAY_SIGNATURE_COMPUTE 320   //???
 #define DELAY_SHA256            5     //????
 
 // 1-Wire Memory commands
@@ -113,12 +113,14 @@
 #define ID_MIN2     100
 #define ID_MAX2     100
 #define CO_MIN      0
-#define CO_MAX      9 
+#define CO_MAX      16
 #define MD_MIN      1
 #define MD_MAX      3
 #define ID_DEFAULT  1
 #define CO_DEFAULT  1
 #define MD_DEFAULT  1
+#define TB_ID_DEFAULT  1
+#define TB_MD_DEFAULT  3
 #define ID_INDEX    0
 #define CO_INDEX    1
 #define MD_INDEX    3
@@ -165,15 +167,17 @@ static char rom_no[8];
 // debug
 static int ecdsa_debug = 1;
 
-int verification = -1, id = 2, color = 0, model = 1;   // for samsung
-char g_sn[14];
+int w1_verification = -1, w1_id = 2, w1_color = 0, w1_model = 1, detect;  // for samsung
+char w1_g_sn[14];
+
+bool w1_attached;
+
 #ifdef CONFIG_W1_CF
-int cf_node = -1;
+int w1_cf_node = -1;
 #endif  /* CONFIG_W1_CF */
 
 #define READ_EOP_BYTE(seg) (32 - seg * 4)
 
-static u8 skip_setup = 1;       // for test if the chip did not have secret code, we would need to write temp secret value
 static u8 init_verify = 1;      // for inital verifying
 
 
@@ -1384,137 +1388,6 @@ void print_str_reverse_endian(char *str)
 		dprintf("%X%X", str[i - 1], str[i]);
 }
 
-static int w1_ds28el35_setup_device(struct w1_slave *sl)
-{
-	int i, rslt, rt, seg;
-	uchar buf[256], challenge[32], new_page[32], sig_r[25], sig_s[25];
-	int pg;
-	char device_cert_r[80], device_cert_s[80];
-
-	rt = 0;
-
-	set_system_key();
-
-	// check if skipping the setup
-	if (!skip_setup) {
-		// ----- DS28EL35 Setup
-		dprintf("-------- DS28EL35 Setup Example\n");
-	}
-
-	// set the rom number
-	set_romid((u8 *)&sl->reg_num);
-
-	// read protection
-	dprintf("DS28EL35 : Read Protection settings\n");
-	rslt = read_administrativedata(sl, ADMIN_PAGE_PROTECTION, 0, buf);
-	dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-	if (!rslt) {
-		rt = -1;
-		goto out;
-	} else {
-		dprintf("DS28EL35 : Protection bytes: ");
-		for (i = 0; i < 4; i++)
-			dprintf("%02X ", buf[i]);
-		dprintf("\n");
-	}
-
-	// Compute new key pair
-	dprintf("DS28EL35 : Generate new device key pair\n");
-	rslt = generate_keypair(sl, 0);
-	dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-	if (!rslt) {
-		rt = -2;
-		goto out;
-	}
-
-	// Read out public key
-	dprintf("DS28EL35 : Read the device Public Key\n");
-	rslt = read_publickey(sl);
-	dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-	if (!rslt) {
-		rt = -3;
-		goto out;
-	}
-
-	// Compute certificate
-	// Write certificate
-#ifdef WRITE_CERTIFICATE
-	dprintf("DS28EL35 : Generated and write system certificate to device\n");
-	rslt = write_certificate(sl, device_cert_r, device_cert_s);
-	dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-	if (!rslt) {
-		rt = -4;
-		goto out;
-	} else {
-		dprintf("DS28EL35 : Certificate r: ");
-		print_str_reverse_endian(device_cert_r);
-		dprintf("\n			 s: ");
-		print_str_reverse_endian(device_cert_s);
-		dprintf("\n");
-	}
-#endif
-
-	// Verify Certificate
-	dprintf("DS28EL35 : Read and verify certificate\n");
-	rslt = verify_certificate(sl, device_cert_r, device_cert_s);
-	dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-	if (!rslt) {
-		rt = -5;
-		goto out;
-	}
-
-	// Write User memory to starting image
-	dprintf("DS28EL35 : Write All Memory\n");
-	for (pg = 0; pg < 4; pg++) {
-		for (seg = 0; seg < 8; seg++) {
-			// set new page data to write
-			memset(&new_page[0], pg + 0x34, 32); // use page number for demo
-
-			// write each segment
-			dprintf("DS28EL35: Write segment at address %04Xh\n", pg * 32 + seg * 4);
-			rslt = write_memorysegment(sl, seg, pg, &new_page[seg * 4], seg != 0);
-			dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-			if (!rslt) {
-				rt = -6;
-				goto out;
-			}
-		}
-	}
-
-	// Perform a Compute Page Signature and Verify
-	for (pg = 0; pg < 4; pg++) {
-		dprintf("DS28EL35 : Read page %d, generate signature and verify\n", pg);
-		get_random_bytes(challenge, 32);        // random challenge
-		rslt = read_authverify(sl, pg, challenge, buf, sig_r, sig_s);
-		dprintf("DS28EL35-%s\n", (rslt) ? " SUCCESS" : "FAIL");
-		if (!rslt) {
-			rt = -7;
-			goto out;
-		} else {
-			dprintf("Page Data: ");
-			for (i = 0; i < 32; i++)
-				dprintf("%02X", buf[i]);
-			dprintf("\nChallenge: ");
-			for (i = 0; i < 32; i++)
-				dprintf("%02X", challenge[i]);
-			dprintf("\nSignature r: ");
-			for (i = 0; i < 24; i++)
-				dprintf("%02X", sig_r[i]);
-			dprintf("\n		  s: ");
-			for (i = 0; i < 24; i++)
-				dprintf("%02X", sig_s[i]);
-			dprintf("\n");
-		}
-	}
-
-	dprintf("DS28EL35 Setup Example: %s\n", (rt) ? "FAIL" : " SUCCESS");
-	dprintf("------------------------------------------------\n");
-
-out:
-	dprintf("DS28EL35 : w1_ds28el35_setup_device, return=%d\n", rt);
-	return rt;
-}
-
 static ssize_t w1_ds28el35_read_user_eeprom(struct device *device,
 					    struct device_attribute *attr, char *buf);
 
@@ -1568,7 +1441,7 @@ static ssize_t w1_ds28el35_check_color(struct device *device,
 				       struct device_attribute *attr, char *buf)
 {
 	// read cover color
-	return sprintf(buf, "%d\n", color);
+	return sprintf(buf, "%d\n", w1_color);
 }
 
 static ssize_t w1_ds28el35_check_id(struct device *device,
@@ -1582,7 +1455,7 @@ static ssize_t w1_ds28el35_check_id(struct device *device,
 				    struct device_attribute *attr, char *buf)
 {
 	// read cover id
-	return sprintf(buf, "%d\n", id);
+	return sprintf(buf, "%d\n", w1_id);
 }
 
 static ssize_t w1_ds28el35_verify_mac(struct device *device,
@@ -1635,6 +1508,9 @@ static bool w1_ds28el35_check_digit(const uchar *sn)
 	int i, tmp1 = 0, tmp2 = 0;
 	int cdigit = sn[3];
 
+	if (cdigit == 0x1e)
+		return true;
+
 	for (i = 4; i < 10; i++)
 		tmp1 += sn[i];
 
@@ -1676,10 +1552,12 @@ static void w1_ds28el35_slave_sn(const uchar *rdbuf)
 
 		pr_info("%s: %s\n", __func__, sn);
 		for (i = 0; i < 14; i++)
-			g_sn[i] = sn[13 - i];
+			w1_g_sn[i] = sn[13 - i];
 	} else {
 /* We will not convert here, because the check digit was wrong */
-		pr_info("%s: sn is not good\n", __func__);
+		for (i = 0 ; i < 14 ; i++)
+			sn[i] = w1_ds28el35_char_convert(rdbuf[i + 4]);
+		pr_info("%s: sn is not good %s\n", __func__, sn);
 	}
 }
 
@@ -1695,18 +1573,18 @@ static void w1_ds28el35_update_slave_info(struct w1_slave *sl)
 			continue;
 		}
 
-		if (rdbuf[CO_INDEX] < CO_MIN || rdbuf[CO_INDEX] > CO_MAX)
+		if (rdbuf[CO_INDEX] > CO_MAX)
 			continue;
 		if (rdbuf[MD_INDEX] < MD_MIN || rdbuf[MD_INDEX] > MD_MAX)
 			continue;
-		if ((rdbuf[ID_INDEX] >= ID_MIN && rdbuf[ID_INDEX] <= ID_MAX)
+		if ((rdbuf[ID_INDEX] <= ID_MAX)
 				|| (rdbuf[ID_INDEX] >= ID_MIN2 && rdbuf[ID_INDEX] <= ID_MAX2)) {
 
-			model = rdbuf[MD_INDEX];
-			color = rdbuf[CO_INDEX];
-			id = rdbuf[ID_INDEX];
+			w1_model = rdbuf[MD_INDEX];
+			w1_color = rdbuf[CO_INDEX];
+			w1_id = rdbuf[ID_INDEX];
 			pr_info("%s retry count(%d), Read ID(%d) & Color(%d) & Model(%d)\n"
-				, __func__, retry, id, color, model);
+				, __func__, retry, w1_id, w1_color, w1_model);
 			success++;
 			break;
 		}
@@ -1714,12 +1592,19 @@ static void w1_ds28el35_update_slave_info(struct w1_slave *sl)
 	}
 	if (!success) {
 		pr_info("%s Before change ID(%d) & Color(%d) & Model(%d)\n"
-				, __func__, id, color, model);
-		id = ID_DEFAULT;
-		color = CO_DEFAULT;
-		model = MD_DEFAULT;
+				, __func__, w1_id, w1_color, w1_model);
+#ifdef CONFIG_TB_DS28EL35
+		w1_id = TB_ID_DEFAULT;
+		w1_color = CO_DEFAULT;
+		w1_model = TB_MD_DEFAULT;
+#else
+		w1_id = ID_DEFAULT;
+		w1_color = CO_DEFAULT;
+		w1_model = MD_DEFAULT;
+#endif
 	}
 
+	w1_attached = true;
 	w1_ds28el35_slave_sn(&rdbuf[0]);
 }
 
@@ -1779,42 +1664,23 @@ static int w1_ds28el35_add_slave(struct w1_slave *sl)
 	memcpy(rom_no, (u8 *)&sl->reg_num, sizeof(sl->reg_num));
 
 	if (init_verify) {
-		if (skip_setup == 0) {
-			pr_err("w1_ds28el35_setup_device\n");
-			err = w1_ds28el35_setup_device(sl);
-			if (err)
-				goto out;
+		err = w1_ds28el35_verifyecdsa(sl);
+		w1_verification = err;
+		printk(KERN_ERR "w1_ds28el35_verifyecdsa\n");
 
-			skip_setup = 1;
-			err = w1_ds28el35_verifyecdsa(sl);
-			verification = err;
-			if (err) {
-				pr_info("%s verifymac failed 1\n", __func__);
-				return err;
-			}
-		} else   {
-			err = w1_ds28el35_verifyecdsa(sl);
-			verification = err;
-			pr_err("w1_ds28el35_verifyecdsa\n");
-			if (err) {
-				pr_info("%s verifymac failed 2\n", __func__);
-				return err;
-			}
-		}
 	}
-	if (!verification) {
+	if (!w1_verification) {
 #ifdef CONFIG_W1_CF
 		if (w1_ds28el35_read_memory_check(sl, 0, 0, rdbuf, 32))
-			cf_node = 1;
+			w1_cf_node = 1;
 		else
-			cf_node = 0;
+			w1_cf_node = 0;
 
-		pr_info("%s: COVER CLASS(%d)\n", __func__, cf_node);
+		pr_info("%s: COVER CLASS(%d)\n", __func__, w1_cf_node);
 #endif  /* CONFIG_W1_CF */
 		w1_ds28el35_update_slave_info(sl);
 	}
-out:
-	pr_err("w1_ds28el35_add_slave end, skip_setup=%d, err=%d\n", skip_setup, err);
+	printk(KERN_ERR "w1_ds28el35_add_slave end, err=%d\n", err);
 	return err;
 }
 
@@ -1825,7 +1691,8 @@ static void w1_ds28el35_remove_slave(struct w1_slave *sl)
 	device_remove_file(&sl->dev, &w1_check_id_attr);
 	device_remove_file(&sl->dev, &w1_check_color_attr);
 
-	verification = -1;
+	w1_verification = -1;
+	w1_attached = false;
 	printk(KERN_ERR "\nw1_ds28el35_remove_slave\n");
 }
 
@@ -1855,3 +1722,4 @@ module_exit(w1_ds28el35_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("TaiEup Kim <clark.kim@maximintegrated.com>");
 MODULE_DESCRIPTION("1-wire Driver for Maxim/Dallas DS23EL35 DeepCover Secure Authenticator IC");
+

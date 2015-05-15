@@ -47,6 +47,8 @@
 #include <linux/battery/charger/max77823_charger.h>
 #elif defined(CONFIG_CHARGER_MAX77843)
 #include <linux/battery/charger/max77843_charger.h>
+#elif defined(CONFIG_CHARGER_MAX77888)
+#include <linux/battery/charger/max77888_charger.h>
 #elif defined(CONFIG_CHARGER_MAX77693)
 #include <linux/battery/charger/max77693_charger.h>
 #elif defined(CONFIG_CHARGER_NCP1851)

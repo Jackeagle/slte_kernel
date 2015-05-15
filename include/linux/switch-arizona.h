@@ -27,16 +27,14 @@
 #define ARIZONA_ACCDET_MODE_ADC     7
 #define ARIZONA_ACCDET_MODE_INVALID 8
 
-enum {
-	MICD_LVL_1_TO_7 = ARIZONA_MICD_LVL_1 | ARIZONA_MICD_LVL_2 |
-			  ARIZONA_MICD_LVL_3 | ARIZONA_MICD_LVL_4 |
-			  ARIZONA_MICD_LVL_5 | ARIZONA_MICD_LVL_6 |
-			  ARIZONA_MICD_LVL_7,
+#define MICD_LVL_1_TO_7 (ARIZONA_MICD_LVL_1 | ARIZONA_MICD_LVL_2 | \
+			 ARIZONA_MICD_LVL_3 | ARIZONA_MICD_LVL_4 | \
+			 ARIZONA_MICD_LVL_5 | ARIZONA_MICD_LVL_6 | \
+			 ARIZONA_MICD_LVL_7)
 
-	MICD_LVL_0_TO_7 = ARIZONA_MICD_LVL_0 | MICD_LVL_1_TO_7,
+#define MICD_LVL_0_TO_7 (ARIZONA_MICD_LVL_0 | MICD_LVL_1_TO_7)
 
-	MICD_LVL_0_TO_8 = MICD_LVL_0_TO_7 | ARIZONA_MICD_LVL_8,
-};
+#define MICD_LVL_0_TO_8 (MICD_LVL_0_TO_7 | ARIZONA_MICD_LVL_8)
 
 struct arizona_extcon_info;
 
@@ -54,6 +52,9 @@ struct arizona_jd_state {
 
 int arizona_jds_set_state(struct arizona_extcon_info *info,
 			  const struct arizona_jd_state *new_state);
+
+extern void arizona_set_headphone_imp(struct arizona_extcon_info *info,
+				      int imp);
 
 extern const struct arizona_jd_state arizona_hpdet_left;
 extern const struct arizona_jd_state arizona_hpdet_right;

@@ -646,17 +646,6 @@ static int max77804_get_health_state(struct max77804_charger_data *charger)
 	int retry_cnt;
 	u8 chg_dtls_00, chg_dtls, reg_data;
 	u8 chg_cnfg_00, chg_cnfg_01 ,chg_cnfg_02, chg_cnfg_04, chg_cnfg_09, chg_cnfg_12;
-	u8 wt_data;
-
-	wt_data = (0x01 << CHG_CNFG_06_WT_SHIFT);
-	max77804_update_reg(charger->max77804->i2c,
-			    MAX77804_CHG_REG_CHG_CNFG_06,
-			    wt_data, CHG_CNFG_06_WT_MASK);
-
-	max77804_read_reg(charger->max77804->i2c,
-			  MAX77804_CHG_REG_CHG_CNFG_06,
-			  &reg_data);
-	pr_info("%s: WT reset(0x%02x)\n", __func__, reg_data);
 
 	max77804_read_reg(charger->max77804->i2c,
 		MAX77804_CHG_REG_CHG_DTLS_01, &reg_data);
@@ -750,10 +739,11 @@ static int max77804_get_health_state(struct max77804_charger_data *charger)
 				} else
 					state = POWER_SUPPLY_HEALTH_GOOD;
 			}
-		} else if (((vbus_state == 0x0) || (vbus_state == 0x01)) &&(chg_dtls & 0x08) && \
+		} else if (((vbus_state == 0x0) || (vbus_state == 0x01)) || \
+				((chg_dtls & 0x08) && \
 				(chg_cnfg_00 & MAX77804_MODE_BUCK) && \
 				(chg_cnfg_00 & MAX77804_MODE_CHGR) && \
-				(charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS)) {
+				(charger->cable_type != POWER_SUPPLY_TYPE_WIRELESS))) {
 			pr_info("%s: vbus is under\n", __func__);
 			state = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
 		} else if((value.intval == POWER_SUPPLY_HEALTH_UNDERVOLTAGE) && \
@@ -884,7 +874,6 @@ static int sec_chg_set_property(struct power_supply *psy,
 			chg_cnfg_00 &= ~(CHG_CNFG_00_CHG_MASK
 					 | CHG_CNFG_00_OTG_MASK
 					 | CHG_CNFG_00_BOOST_MASK
-					 | CHG_CNFG_00_WDTEN_MASK
 					 | CHG_CNFG_00_DIS_MUIC_CTRL_MASK);
 
 			set_charging_current_max =
@@ -897,7 +886,6 @@ static int sec_chg_set_property(struct power_supply *psy,
 					    (CHG_CNFG_00_CHG_MASK
 					     | CHG_CNFG_00_OTG_MASK
 					     | CHG_CNFG_00_BOOST_MASK
-					     | CHG_CNFG_00_WDTEN_MASK
 					     | CHG_CNFG_00_DIS_MUIC_CTRL_MASK));
 		} else {
 			charger->is_charging = true;
@@ -908,12 +896,6 @@ static int sec_chg_set_property(struct power_supply *psy,
 					charger->pdata->charging_current
 					[charger->cable_type].fast_charging_current;
 			/* decrease the charging current according to siop level */
-
-			chg_cnfg_00 = (1 << CHG_CNFG_00_WDTEN_SHIFT);
-			max77804_update_reg(charger->max77804->i2c,
-					    MAX77804_CHG_REG_CHG_CNFG_00,
-					    chg_cnfg_00,
-					    CHG_CNFG_00_WDTEN_MASK);
 
 			set_charging_current =
 				charger->charging_current * charger->siop_level / 100;
@@ -1516,24 +1498,26 @@ static void max77804_chgin_isr_work(struct work_struct *work)
 					value.intval = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
-				} else if ((battery_health == \
-							POWER_SUPPLY_HEALTH_OVERVOLTAGE) &&
-						(chgin_dtls != 0x02)) {
+				}
+			} else {
+				if ((battery_health ==			\
+				     POWER_SUPPLY_HEALTH_OVERVOLTAGE) &&
+				    (chgin_dtls != 0x02)) {
 					pr_info("%s: vbus_state : 0x%d, chg_state : 0x%d\n", __func__, chgin_dtls, chg_dtls);
 					pr_info("%s: overvoltage->normal\n", __func__);
 					value.intval = POWER_SUPPLY_HEALTH_GOOD;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
-				} else if ((battery_health == \
-							POWER_SUPPLY_HEALTH_UNDERVOLTAGE) &&
-						!((chgin_dtls == 0x0) || (chgin_dtls == 0x01))){
+				} else if ((battery_health ==		\
+					    POWER_SUPPLY_HEALTH_UNDERVOLTAGE) &&
+					   !((chgin_dtls == 0x0) || (chgin_dtls == 0x01))){
 					pr_info("%s: vbus_state : 0x%d, chg_state : 0x%d\n", __func__, chgin_dtls, chg_dtls);
 					pr_info("%s: undervoltage->normal\n", __func__);
 					value.intval = POWER_SUPPLY_HEALTH_GOOD;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
 					max77804_set_input_current(charger,
-							charger->charging_current_max);
+								   charger->charging_current_max);
 				}
 			}
 			break;

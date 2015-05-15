@@ -2,7 +2,7 @@
  * Broadcom PCIE
  * Software-specific definitions shared between device and host side
  * Explains the shared area between host and dongle
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmpcie.h 490808 2014-07-12 00:33:13Z $
+ * $Id: bcmpcie.h 524904 2015-01-08 10:55:45Z $
  */
 
 #ifndef	_bcmpcie_h_
@@ -64,8 +64,11 @@ typedef struct {
 #define PCIE_SHARED_EVT_SEQNUM		0x08000
 #define PCIE_SHARED_DMA_INDEX		0x10000
 
-#define PCIE_SHARED_D2H_MAGIC		0xFEDCBA09
-#define PCIE_SHARED_H2D_MAGIC		0x12345678
+/* D2H M2M DMA Complete Sync mechanism: Modulo-253-SeqNum or XORCSUM */
+#define PCIE_SHARED_D2H_SYNC_SEQNUM		0x20000
+#define PCIE_SHARED_D2H_SYNC_XORCSUM		0x40000
+#define PCIE_SHARED_D2H_SYNC_MODE_MASK \
+	(PCIE_SHARED_D2H_SYNC_SEQNUM | PCIE_SHARED_D2H_SYNC_XORCSUM)
 
 #define BCMPCIE_H2D_MSGRING_CONTROL_SUBMIT		0
 #define BCMPCIE_H2D_MSGRING_RXPOST_SUBMIT		1
@@ -183,6 +186,9 @@ typedef struct {
 #define D2H_DEV_DS_ENTER_REQ	0x00000002
 #define D2H_DEV_DS_EXIT_NOTE	0x00000004
 #define D2H_DEV_FWHALT		0x10000000
+#define D2H_DEV_MB_MASK		(D2H_DEV_D3_ACK | D2H_DEV_DS_ENTER_REQ | \
+				D2H_DEV_DS_EXIT_NOTE | D2H_DEV_FWHALT)
+#define D2H_DEV_MB_INVALIDATED(x)	((!x) || (x & ~D2H_DEV_MB_MASK))
 
 
 extern pciedev_shared_t pciedev_shared;

@@ -288,6 +288,53 @@ static struct device_attribute *mag_attrs[] = {
 	NULL,
 };
 
+static int get_fuserom_data(struct ssp_data *data)
+{
+	int iRet = 0;
+	char buffer[3] = { 0, };
+
+	struct ssp_msg *msg = kzalloc(sizeof(*msg), GFP_KERNEL);
+	if (msg == NULL) {
+		pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+		return -ENOMEM;
+	}
+	msg->cmd = MSG2SSP_AP_FUSEROM;
+	msg->length = 3;
+	msg->options = AP2HUB_READ;
+	msg->buffer = buffer;
+	msg->free_buffer = 0;
+
+	iRet = ssp_spi_sync(data, msg, 1000);
+
+	if (iRet) {
+		data->uFuseRomData[0] = buffer[0];
+		data->uFuseRomData[1] = buffer[1];
+		data->uFuseRomData[2] = buffer[2];
+	} else {
+		data->uFuseRomData[0] = 0;
+		data->uFuseRomData[1] = 0;
+		data->uFuseRomData[2] = 0;
+		return FAIL;
+	}
+
+	pr_info("[SSP] FUSE ROM Data %d , %d, %d\n", data->uFuseRomData[0],
+			data->uFuseRomData[1], data->uFuseRomData[2]);
+
+	return SUCCESS;
+}
+
+int initialize_magnetic_sensor(struct ssp_data *data)
+{
+	int ret;
+
+	ret = get_fuserom_data(data);
+	if (ret < 0)
+		pr_err("[SSP]: %s - get_fuserom_data failed %d\n",
+			__func__, ret);
+
+	return ret;
+}
+
 void initialize_magnetic_factorytest(struct ssp_data *data)
 {
 	sensors_register(data->mag_device, data, mag_attrs, "magnetic_sensor");

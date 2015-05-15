@@ -118,6 +118,10 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 
 #define mfc_get_disp_first_addr()	-1
 #define mfc_get_dec_first_addr()	-1
+#define mfc_get_last_disp_info()	((readl(dev->regs_base + 			\
+						S5P_FIMV_D_DISPLAY_STATUS)		\
+						>> S5P_FIMV_DISPLAY_LAST_INFO_SHIFT)	\
+						& S5P_FIMV_DISPLAY_LAST_INFO_MASK)
 
 #define mb_width(x_size)		((x_size + 15) / 16)
 #define mb_height(y_size)		((y_size + 15) / 16)
@@ -144,6 +148,7 @@ void s5p_mfc_enc_calc_src_size(struct s5p_mfc_ctx *ctx);
 #define ENC_MPEG4_VOP_TIME_RES_MAX	((1 << 16) - 1)
 #define FRAME_DELTA_DEFAULT		1
 #define TIGHT_CBR_MAX			10
+#define I_LIMIT_CBR_MAX			5
 
 /* Definitions for shared memory compatibility */
 #define PIC_TIME_TOP		S5P_FIMV_D_RET_PICTURE_TAG_TOP

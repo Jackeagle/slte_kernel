@@ -27,7 +27,7 @@
 #include "devfreq_exynos.h"
 #include "governor.h"
 
-#define DEVFREQ_INITIAL_FREQ	(111000)
+#define DEVFREQ_INITIAL_FREQ	(66000)
 #define DEVFREQ_POLLING_PERIOD	(0)
 
 /* extern */
@@ -42,7 +42,7 @@ static struct devfreq_simple_ondemand_data exynos5_devfreq_isp_governor_data = {
 };
 
 static struct exynos_devfreq_platdata exynos5433_qos_isp = {
-	.default_qos		= 111000,
+	.default_qos		= 66000,
 };
 
 static struct pm_qos_request exynos5_isp_qos;
@@ -171,7 +171,13 @@ static int exynos5_devfreq_isp_reboot_notifier(struct notifier_block *nb, unsign
 						void *v)
 {
 	unsigned long freq = exynos5433_qos_isp.default_qos;
-	exynos5_devfreq_isp_target(isp_dev, &freq, 0);
+	struct devfreq_data_isp *data = dev_get_drvdata(isp_dev);
+	struct devfreq *devfreq_isp = data->devfreq;
+
+	devfreq_isp->max_freq = freq;
+	mutex_lock(&devfreq_isp->lock);
+	update_devfreq(devfreq_isp);
+	mutex_unlock(&devfreq_isp->lock);
 
 	return NOTIFY_DONE;
 }
@@ -218,6 +224,12 @@ static int exynos5_devfreq_isp_probe(struct platform_device *pdev)
 	isp_dev =
 	data->dev = &pdev->dev;
 	data->vdd_isp = regulator_get(NULL, "vdd_disp_cam0");
+
+	if (IS_ERR_OR_NULL(data->vdd_isp)) {
+		pr_err("DEVFREQ(ISP) : Failed to get regulator\n");
+		goto err_inittable;
+	}
+
 	freq = DEVFREQ_INITIAL_FREQ;
 	rcu_read_lock();
 	target_opp = devfreq_recommended_opp(data->dev, &freq, 0);
@@ -225,7 +237,7 @@ static int exynos5_devfreq_isp_probe(struct platform_device *pdev)
 		rcu_read_unlock();
 		dev_err(data->dev, "DEVFREQ(ISP) : Invalid OPP to set voltage");
 		ret = PTR_ERR(target_opp);
-		goto err_inittable;
+		goto err_opp;
 	}
 	volt = opp_get_voltage(target_opp);
 #ifdef CONFIG_EXYNOS_THERMAL
@@ -254,6 +266,8 @@ static int exynos5_devfreq_isp_probe(struct platform_device *pdev)
 	data->use_dvfs = true;
 
 	return ret;
+err_opp:
+	regulator_put(data->vdd_isp);
 err_inittable:
 	devfreq_remove_device(data->devfreq);
 	kfree(exynos5_devfreq_isp_profile.freq_table);

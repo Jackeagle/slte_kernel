@@ -60,6 +60,7 @@
 #define MODE_HR				2
 #define MODE_SPO2			3
 #define MODE_FLEX			7
+#define MODE_GEST			8
 
 #define IR_LED_CH			1
 #define RED_LED_CH			2
@@ -211,16 +212,21 @@ struct max86900_device_data
 	struct i2c_client *client;          // represents the slave device
 	struct device *dev;
 	struct input_dev *hrm_input_dev;
+	struct input_dev *hrmled_input_dev;
 	struct input_dev *uv_input_dev;
 	struct mutex i2clock;
 	struct mutex activelock;
 	struct delayed_work uv_sr_work_queue;
+	struct delayed_work reenable_work_queue;
 	const char *led_3p3;
 	const char *vdd_1p8;
 	bool *bio_status;
 	atomic_t hrm_is_enable;
 	atomic_t uv_is_enable;
+	atomic_t enhanced_uv_mode;
 	atomic_t is_suspend;
+	atomic_t hrm_need_reenable;
+	atomic_t isEnable_led;
 	u8 led_current;
 	u8 led_current1;
 	u8 led_current2;
@@ -232,6 +238,7 @@ struct max86900_device_data
 	u8 look_mode_ir;
 	u8 look_mode_red;
 	u8 eol_test_is_enable;
+	u8 uv_eol_test_is_enable;
 	u8 part_type;
 	u8 default_current;
 	u8 default_current1;
@@ -246,8 +253,10 @@ struct max86900_device_data
 	u8 test_current_led4;
 	u8 eol_test_status;
 	u8 regulator_is_enable;
+	u8 skip_i2c_msleep;
 	u16 led;
 	u16 sample_cnt;
+	int dual_hrm;
 	int hrm_int;
 	int hrm_en;
 	int irq;
@@ -261,6 +270,10 @@ struct max86900_device_data
 	int spo2_mode;
 	u8 flex_mode;
 	int num_samples;
+	int sum_gesture_data;
+	u8 reenable_set;
+	u8 reenable_cnt;
+	u8 irq_state;
 };
 
 extern int sensors_create_symlink(struct input_dev *inputdev);

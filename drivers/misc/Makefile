@@ -60,14 +60,13 @@ obj-$(CONFIG_SEC_MODEM_V2)	+= modem_v2/
 obj-$(CONFIG_QC_MODEM)		+= mdm_if/
 obj-$(CONFIG_LED_COVER)		+= led_cover_pwr.o
 
-ifeq ($(CONFIG_SOC_EXYNOS5422),y)
+# Secure OS Mobicore Interface
 obj-$(CONFIG_MOBICORE_DRIVER)  += tzic.o
-endif
-
-ifeq ($(CONFIG_SOC_EXYNOS5430),y)
-obj-$(CONFIG_MOBICORE_DRIVER)  += tzic.o
-endif
 
 ifeq ($(TIMA_ENABLED),1)
 obj-$(CONFIG_TIMA_LOG)		+= tima_debug_log.o
 endif
+
+obj-$(CONFIG_DM_VERITY)		+= dmverity_query.o
+
+obj-y += dualwave/

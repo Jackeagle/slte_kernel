@@ -93,7 +93,7 @@
 		.name		= id			\
 	}
 
-#define EXYNOS_PIN_BANK_EINTW_EXT(types, pins, reg, id, offs, base, ftype, fcon0, fcon1)	\
+#define EXYNOS_PIN_BANK_EINTW_EXT(types, pins, reg, id, offs, base, ftype, fcon0, fcon1, inum_base)	\
 	{							\
 		.type			= &types,		\
 		.pctl_offset		= reg,			\
@@ -104,6 +104,7 @@
 		.eint_fltcon0_offset	= fcon0,		\
 		.eint_fltcon1_offset	= fcon1,		\
 		.eint_fltcon_type	= ftype,		\
+		.eint_num_base		= inum_base,		\
 		.name			= id			\
 	}
 

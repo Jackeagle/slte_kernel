@@ -139,9 +139,6 @@ void panic(const char *fmt, ...)
 	show_exynos_cmu();
 #endif
 
-#ifdef CONFIG_EXYNOS_CORESIGHT_PC_INFO
-	exynos_cs_show_pcval();
-#endif
 	sysrq_sched_debug_show();
 
 	/*
@@ -160,6 +157,9 @@ void panic(const char *fmt, ...)
 
 	kmsg_dump(KMSG_DUMP_PANIC);
 
+#ifdef CONFIG_EXYNOS_CORESIGHT_PC_INFO
+	exynos_cs_show_pcval();
+#endif
 	atomic_notifier_call_chain(&panic_notifier_list, 0, buf);
 
 	bust_spinlocks(0);

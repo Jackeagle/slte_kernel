@@ -108,7 +108,8 @@ struct dw_mci_cmd_log {
 #define DW_MCI_FLAG_NEW_CMD_ERR	BIT(7)
 
 	u16	rint_sts;	/* RINTSTS value in case of error */
-	u8	status_count;	/* TBD : It can be changed */
+	u32	resp0;		/* resp0 is needed to check eMMC status when CD */
+	u32	status_count;	/* TBD : It can be changed */
 };
 
 enum dw_mci_req_log_state {
@@ -394,6 +395,8 @@ struct dw_mci_dma_ops {
 #define DW_MMC_QUIRK_NOT_ALLOW_SINGLE_DMA	BIT(12)
 /* Use the security management unit */
 #define DW_MCI_QUIRK_USE_SMU			BIT(13)
+/* Enables ultra low power mode */
+#define DW_MCI_QUIRK_ENABLE_ULP			BIT(14)
 
 /* Slot level quirks */
 /* This slot has no write protect */

@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/mali_kbase_platform.c
+/* drivers/gpu/arm/.../platform/mali_kbase_platform.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 platform-dependent codes
+ * Samsung SoC Mali-T Series platform-dependent codes
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -175,6 +175,11 @@ static int gpu_validate_attrib_data(struct exynos_context *platform)
 	platform->tmu_lock_clk[THROTTLING4] = data == 0 ? 266 : (u32) data;
 	data = gpu_get_attrib_data(attrib, GPU_TEMP_TRIPPING);
 	platform->tmu_lock_clk[TRIPPING] = data == 0 ? 266 : (u32) data;
+
+	data = gpu_get_attrib_data(attrib, GPU_BOOST_MIN_LOCK);
+	platform->boost_gpu_min_lock = data == 0 ? 0 : (u32) data;
+	data = gpu_get_attrib_data(attrib, GPU_BOOST_EGL_MIN_LOCK);
+	platform->boost_egl_min_lock = data == 0 ? 0 : (u32) data;
 #endif /* CONFIG_MALI_DVFS */
 
 	data = gpu_get_attrib_data(attrib, GPU_TMU_CONTROL);
@@ -336,23 +341,23 @@ static kbase_attribute config_attributes[] = {
 	},
 	{
 		KBASE_CONFIG_ATTR_JS_SOFT_STOP_TICKS,
-		110 /* 11sec */
+		340 /* 17sec */
 	},
 	{
 		KBASE_CONFIG_ATTR_JS_HARD_STOP_TICKS_SS,
-		120 /* 12sec */
+		360 /* 18sec */
 	},
 	{
 		KBASE_CONFIG_ATTR_JS_RESET_TICKS_SS,
-		130 /* 13sec */
+		380 /* 19sec */
 	},
 	{
 		KBASE_CONFIG_ATTR_JS_HARD_STOP_TICKS_NSS,
-		140 /* 14sec */
+		400 /* 20sec */
 	},
 	{
 		KBASE_CONFIG_ATTR_JS_RESET_TICKS_NSS,
-		150 /* 15sec */
+		420 /* 21sec */
 	},
 	{
 		KBASE_CONFIG_ATTR_CPU_SPEED_FUNC,

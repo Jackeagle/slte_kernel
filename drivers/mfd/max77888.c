@@ -33,12 +33,16 @@
 
 #include <linux/muic/max77888-muic.h>
 
+#if !defined(CONFIG_SEC_FACTORY)
+#include <linux/muic/muic.h>
+#endif /* CONFIG_SEC_FACTORY */
+
 #if defined (CONFIG_OF)
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #endif /* CONFIG_OF */
 
-#define I2C_ADDR_PMIC	(0xCC >> 1)	/* Charger */
+#define I2C_ADDR_PMIC	(0xCC >> 1)	/* Charger, Flash LED */
 #define I2C_ADDR_MUIC	(0x4A >> 1)
 #define I2C_ADDR_HAPTIC	(0x90 >> 1)
 
@@ -46,6 +50,9 @@ static struct mfd_cell max77888_devs[] = {
 #if defined(CONFIG_CHARGER_MAX77888)
 	{ .name = "max77888-charger", },
 #endif /* CONFIG_CHARGER_MAX77888 */
+#if defined(CONFIG_LEDS_MAX77888)
+	{ .name = "max77888-led", },
+#endif /* CONFIG_LEDS_MAX77888 */
 #if defined(CONFIG_MUIC_MAX77888)
 	{ .name = MUIC_DEV_NAME, },
 #endif /* CONFIG_MUIC_MAX77888 */
@@ -56,6 +63,21 @@ static struct mfd_cell max77888_devs[] = {
 	{ .name = "max77888-haptic", },
 #endif /* CONFIG_MAX77888_HAPTIC */
 };
+
+/* WA for MUIC RESET */
+static u8 muic_reg_snapshot[MAX77888_MUIC_REG_END];
+
+static void max77888_reg_snapshot(u8 reg, u8 value)
+{
+	if (reg < MAX77888_MUIC_REG_END)
+		muic_reg_snapshot[reg] = value;
+}
+
+u8 max77888_restore_last_snapshot(u8 reg)
+{
+	return muic_reg_snapshot[reg];
+}
+/* WA for MUIC RESET */
 
 int max77888_read_reg(struct i2c_client *i2c, u8 reg, u8 *dest)
 {
@@ -97,6 +119,10 @@ int max77888_write_reg(struct i2c_client *i2c, u8 reg, u8 value)
 	int ret;
 
 	mutex_lock(&max77888->i2c_lock);
+/* WA for MUIC RESET */
+	if (i2c->addr == I2C_ADDR_MUIC)
+		max77888_reg_snapshot(reg, value);
+/* WA for MUIC RESET */
 	ret = i2c_smbus_write_byte_data(i2c, reg, value);
 	mutex_unlock(&max77888->i2c_lock);
 	if (ret < 0)
@@ -132,6 +158,10 @@ int max77888_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask)
 	if (ret >= 0) {
 		u8 old_val = ret & 0xff;
 		u8 new_val = (val & mask) | (old_val & (~mask));
+/* WA for MUIC RESET */
+		if (i2c->addr == I2C_ADDR_MUIC)
+			max77888_reg_snapshot(reg, new_val);
+/* WA for MUIC RESET */
 		ret = i2c_smbus_write_byte_data(i2c, reg, new_val);
 	}
 	mutex_unlock(&max77888->i2c_lock);
@@ -148,10 +178,17 @@ static int of_max77888_dt(struct device *dev, struct max77888_platform_data *pda
 		return -EINVAL;
 
 	pdata->irq_gpio = of_get_named_gpio(np_max77888, "max77888,irq-gpio", 0);
+	/* WA for MUIC RESET */
+	pdata->muic_reset_irq = of_get_named_gpio(np_max77888, "max77888,muic-reset-int", 0);
 	pdata->wakeup = of_property_read_bool(np_max77888, "max77888,wakeup");
 
 	pr_info("%s: irq-gpio: %u \n", __func__, pdata->irq_gpio);
 
+	return 0;
+}
+#else
+static int of_max77888_dt(struct device *dev, struct max77888_platform_data *pdata)
+{
 	return 0;
 }
 #endif /* CONFIG_OF */
@@ -185,7 +222,7 @@ static int max77888_i2c_probe(struct i2c_client *i2c,
 		ret = of_max77888_dt(&i2c->dev, pdata);
 		if (ret < 0){
 			dev_err(&i2c->dev, "Failed to get device of_node \n");
-			return ret;
+			goto err;
 		}
 
 		i2c->dev.platform_data = pdata;
@@ -208,6 +245,8 @@ static int max77888_i2c_probe(struct i2c_client *i2c,
 			max77888->irq_base = pdata->irq_base;
 
 		max77888->irq_gpio = pdata->irq_gpio;
+		/* WA for MUIC RESET */
+		max77888->muic_reset_irq = pdata->muic_reset_irq;
 		max77888->wakeup = pdata->wakeup;
 	} else {
 		ret = -EINVAL;
@@ -217,11 +256,11 @@ static int max77888_i2c_probe(struct i2c_client *i2c,
 
 	i2c_set_clientdata(i2c, max77888);
 
-	if (max77888_read_reg(i2c, MAX77888_PMIC_REG_PMICID2, &reg_data) < 0) {
-		pr_err("%s:%s device not found on this channel"
-			" (this is not an error)\n", MFD_DEV_NAME, __func__);
+	if (max77888_read_reg(i2c, MAX77888_PMIC_REG_PMIC_ID2, &reg_data) < 0) {
+		pr_err("%s:%s device not found on this channel (this is not an error)\n",
+			MFD_DEV_NAME, __func__);
 		ret = -ENODEV;
-		goto err;
+		goto err_w_lock;
 	} else {
 		/* print rev */
 		max77888->pmic_rev = (reg_data & 0x7);
@@ -259,6 +298,8 @@ err_mfd:
 err_irq_init:
 	i2c_unregister_device(max77888->muic);
 	i2c_unregister_device(max77888->haptic);
+err_w_lock:
+	mutex_destroy(&max77888->i2c_lock);
 err:
 	kfree(max77888);
 	return ret;
@@ -270,6 +311,7 @@ static int max77888_i2c_remove(struct i2c_client *i2c)
 
 	mfd_remove_devices(max77888->dev);
 	i2c_unregister_device(max77888->muic);
+	i2c_unregister_device(max77888->haptic);
 	kfree(max77888);
 
 	return 0;
@@ -295,8 +337,15 @@ static int max77888_suspend(struct device *dev)
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
 	struct max77888_dev *max77888 = i2c_get_clientdata(i2c);
 
+#if !defined(CONFIG_SEC_FACTORY)
+	if (max77888->pdata->muic_pdata->set_path_switch_suspend)
+		max77888->pdata->muic_pdata->set_path_switch_suspend(dev);
+#endif /* !CONFIG_SEC_FACTORY */
+
 	if (device_may_wakeup(dev))
 		enable_irq_wake(max77888->irq);
+
+	disable_irq(max77888->irq);
 
 	return 0;
 }
@@ -306,10 +355,21 @@ static int max77888_resume(struct device *dev)
 	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
 	struct max77888_dev *max77888 = i2c_get_clientdata(i2c);
 
+#if !defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
+	pr_info("%s:%s\n", MFD_DEV_NAME, __func__);
+#endif /* CONFIG_SAMSUNG_PRODUCT_SHIP */
+
+#if !defined(CONFIG_SEC_FACTORY)
+	if (max77888->pdata->muic_pdata->set_path_switch_resume)
+		max77888->pdata->muic_pdata->set_path_switch_resume(dev);
+#endif /* !CONFIG_SEC_FACTORY */
+
 	if (device_may_wakeup(dev))
 		disable_irq_wake(max77888->irq);
 
-	return max77888_irq_resume(max77888);
+	enable_irq(max77888->irq);
+
+	return 0;
 }
 #else
 #define max77888_suspend	NULL
@@ -319,10 +379,21 @@ static int max77888_resume(struct device *dev)
 #ifdef CONFIG_HIBERNATION
 
 u8 max77888_dumpaddr_pmic[] = {
+	MAX77888_LED_REG_IFLASH,
+	MAX77888_LED_REG_ITORCH,
+	MAX77888_LED_REG_ITORCHTORCHTIMER,
+	MAX77888_LED_REG_FLASH_TIMER,
+	MAX77888_LED_REG_FLASH_EN,
+	MAX77888_LED_REG_MAX_FLASH1,
+	MAX77888_LED_REG_MAX_FLASH2,
+	MAX77888_LED_REG_VOUT_CNTL,
+	MAX77888_LED_REG_VOUT_FLASH,
+	MAX77888_LED_REG_FLASH_INT_STATUS,
 	MAX77888_PMIC_REG_TOPSYS_INT_MASK,
 	MAX77888_PMIC_REG_MAINCTRL1,
 	MAX77888_PMIC_REG_LSCNFG,
 };
+
 u8 max77888_dumpaddr_muic[] = {
 	MAX77888_MUIC_REG_INTMASK1,
 	MAX77888_MUIC_REG_INTMASK2,
@@ -332,6 +403,24 @@ u8 max77888_dumpaddr_muic[] = {
 	MAX77888_MUIC_REG_CTRL2,
 	MAX77888_MUIC_REG_CTRL3,
 	MAX77888_MUIC_REG_CTRL4,
+};
+
+u8 max77888_dumpaddr_haptic[] = {
+	MAX77888_HAPTIC_REG_CONFIG1,
+	MAX77888_HAPTIC_REG_CONFIG2,
+	MAX77888_HAPTIC_REG_CONFIG_CHNL,
+	MAX77888_HAPTIC_REG_CONFG_CYC1,
+	MAX77888_HAPTIC_REG_CONFG_CYC2,
+	MAX77888_HAPTIC_REG_CONFIG_PER1,
+	MAX77888_HAPTIC_REG_CONFIG_PER2,
+	MAX77888_HAPTIC_REG_CONFIG_PER3,
+	MAX77888_HAPTIC_REG_CONFIG_PER4,
+	MAX77888_HAPTIC_REG_CONFIG_DUTY1,
+	MAX77888_HAPTIC_REG_CONFIG_DUTY2,
+	MAX77888_HAPTIC_REG_CONFIG_PWM1,
+	MAX77888_HAPTIC_REG_CONFIG_PWM2,
+	MAX77888_HAPTIC_REG_CONFIG_PWM3,
+	MAX77888_HAPTIC_REG_CONFIG_PWM4,
 };
 
 static int max77888_freeze(struct device *dev)
@@ -348,11 +437,9 @@ static int max77888_freeze(struct device *dev)
 		max77888_read_reg(i2c, max77888_dumpaddr_muic[i],
 				&max77888->reg_muic_dump[i]);
 
-#if 0
 	for (i = 0; i < ARRAY_SIZE(max77888_dumpaddr_haptic); i++)
 		max77888_read_reg(i2c, max77888_dumpaddr_haptic[i],
 				&max77888->reg_haptic_dump[i]);
-#endif
 
 	disable_irq(max77888->irq);
 
@@ -374,11 +461,11 @@ static int max77888_restore(struct device *dev)
 	for (i = 0; i < ARRAY_SIZE(max77888_dumpaddr_muic); i++)
 		max77888_write_reg(i2c, max77888_dumpaddr_muic[i],
 				max77888->reg_muic_dump[i]);
-#if 0
+
 	for (i = 0; i < ARRAY_SIZE(max77888_dumpaddr_haptic); i++)
 		max77888_write_reg(i2c, max77888_dumpaddr_haptic[i],
 				max77888->reg_haptic_dump[i]);
-#endif
+
 	return 0;
 }
 #endif

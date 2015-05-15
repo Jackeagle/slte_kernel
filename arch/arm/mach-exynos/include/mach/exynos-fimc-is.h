@@ -59,10 +59,13 @@ enum FIMC_IS_SCENARIO_ID {
 	FIMC_IS_SN_FRONT_VT1,
 	FIMC_IS_SN_FRONT_VT2,
 	FIMC_IS_SN_REAR_PREVIEW_FHD,
+	FIMC_IS_SN_REAR_PREVIEW_FHD_BNS_OFF,
 	FIMC_IS_SN_REAR_PREVIEW_WHD,
 	FIMC_IS_SN_REAR_PREVIEW_UHD,
 	FIMC_IS_SN_REAR_CAPTURE,
 	FIMC_IS_SN_REAR_CAMCORDING_FHD,
+	FIMC_IS_SN_REAR_CAMCORDING_FHD_BNS_OFF,
+	FIMC_IS_SN_REAR_CAMCORDING_WHD,
 	FIMC_IS_SN_REAR_CAMCORDING_UHD,
 	FIMC_IS_SN_DUAL_PREVIEW,
 	FIMC_IS_SN_DUAL_CAPTURE,
@@ -231,7 +234,11 @@ struct exynos_platform_fimc_is {
 	bool	use_two_spi_line;
 #endif
 	u32	use_sensor_dynamic_voltage_mode;
+#ifdef CONFIG_OIS_USE
 	bool use_ois;
+#endif /* CONFIG_OIS_USE */
+	bool use_ois_hsi2c;
+	bool use_module_check;
 };
 
 extern struct device *fimc_is_dev;

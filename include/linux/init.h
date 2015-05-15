@@ -319,6 +319,9 @@ void __init parse_early_options(char *cmdline);
 	static inline initcall_t __inittest(void)		\
 	{ return initfn; }					\
 	int init_module(void) __attribute__((alias(#initfn)));
+#ifdef CONFIG_DEFERRED_INITCALLS
+#define deferred_module_init(x)	module_init(x)
+#endif
 
 /* This is only required if you want to be unloadable. */
 #define module_exit(exitfn)					\

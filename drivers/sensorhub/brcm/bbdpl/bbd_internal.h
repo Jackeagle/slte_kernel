@@ -104,6 +104,10 @@ struct bbd_queue {
 
 #define BBD_SERIAL_SPI  0               /* stacked ssi-spi driver for 4773 */
 #define BBD_SERIAL_TTY  1               /* stacked tty driver for 477x */
+
+#define xSUPORT_MCU_HOST_WAKE            /* JK temporary patch for new HW */
+#define BBD_NEW_HW_REV  8               /* connnected mcu_req, mcu_resp from HW rev 8 */
+
 /*
  * bbd device structure
  */
@@ -121,6 +125,8 @@ struct bbd_device {
         int         sio_type;               /* 0 [default] SPI, 1 TTY */
         unsigned long jiffies_to_wake;
         int           tty_baud;
+
+        unsigned int hw_rev;   /* JK added temporary feature for old hw */
 };
 
 extern struct bbd_device *gpbbd_dev;

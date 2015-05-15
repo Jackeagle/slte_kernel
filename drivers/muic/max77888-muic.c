@@ -31,14 +31,21 @@
 #include <linux/mfd/max77888-private.h>
 
 /* MUIC header file */
-#include <linux/muic/max77888-muic.h>
 #include <linux/muic/muic.h>
+#include <linux/muic/max77888-muic.h>
 
 #if defined(CONFIG_MUIC_NOTIFIER)
 #include <linux/muic/muic_notifier.h>
 #endif /* CONFIG_MUIC_NOTIFIER */
 
+#if !defined(CONFIG_SEC_FACTORY)
+#if defined(CONFIG_MUIC_ADCMODE_SWITCH_WA)
+#include <linux/delay.h>
+#endif /* CONFIG_MUIC_ADCMODE_SWITCH_WA */
+#endif /* !CONFIG_SEC_FACTORY */
+
 extern struct muic_platform_data muic_pdata;
+static bool debug_en_vps = false;
 
 /* muic chip specific internal data structure */
 struct max77888_muic_data {
@@ -49,6 +56,7 @@ struct max77888_muic_data {
 	/* model dependant mfd platform data */
 	struct max77888_platform_data	*mfd_pdata;
 
+	int				irq_adc1k;
 	int				irq_adcerr;
 	int				irq_adc;
 	int				irq_chgtyp;
@@ -67,33 +75,22 @@ struct max77888_muic_data {
 
 	/* check is otg test for jig uart off + vb */
 	bool				is_otg_test;
+
+	bool				is_factory_start;
+
+	/* ignore adcerr for factory test */
+	bool				ignore_adcerr;
+
+	/* muic status value */
+	u8				status1;
+	u8				status2;
+
+	/* muic rustproof for inbattery */
+	bool				rustproof_inbat;
+
+	/* muic path status value (suspend/resume) for rustproof */
+	u8 path_status;
 };
-
-/* don't access this variable directly!! except get_switch_sel_value function.
- * you must get switch_sel value by using get_switch_sel function. */
-static int switch_sel;
-
-/* func : set_switch_sel
- * switch_sel value get from bootloader comand line
- * switch_sel data consist 8 bits (xxxxzzzz)
- * first 4bits(zzzz) mean path infomation.
- * next 4bits(xxxx) mean if pmic version info
- */
-static int set_switch_sel(char *str)
-{
-	get_option(&str, &switch_sel);
-	switch_sel = switch_sel & 0x0f;
-	pr_info("%s:%s switch_sel: 0x%x\n", MUIC_DEV_NAME, __func__,
-			switch_sel);
-
-	return switch_sel;
-}
-__setup("pmic_info=", set_switch_sel);
-
-static int get_switch_sel(void)
-{
-	return switch_sel;
-}
 
 struct max77888_muic_vps_data {
 	u8				adc1k;
@@ -125,7 +122,7 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.adc		= ADC_GND,
 		.vbvolt		= VB_LOW,
 		.chgdetrun	= CHGDETRUN_FALSE,
-		.chgtyp		= CHGTYP_NO_VOLTAGE,
+		.chgtyp		= CHGTYP_DONTCARE,
 		.control1	= CTRL1_USB,
 		.vps_name	= "OTG",
 		.attached_dev	= ATTACHED_DEV_OTG_MUIC,
@@ -140,6 +137,17 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.control1	= CTRL1_USB,
 		.vps_name	= "OTG charging pump (vbvolt)",
 		.attached_dev	= ATTACHED_DEV_OTG_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_CHARGING_CABLE,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_NO_VOLTAGE,
+		.control1	= CTRL1_USB,
+		.vps_name	= "Charging Cable",
+		.attached_dev	= ATTACHED_DEV_CHARGING_CABLE_MUIC,
 	},
 	{
 		.adc1k		= 0x00,
@@ -168,12 +176,25 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.adcerr		= 0x00,
 		.adc		= ADC_JIG_UART_OFF,
 		.vbvolt		= VB_HIGH,
-		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
 		.chgtyp		= CHGTYP_NO_VOLTAGE,
 		.control1	= CTRL1_UART,
 		.vps_name	= "Jig UART Off + VB",
 		.attached_dev	= ATTACHED_DEV_JIG_UART_OFF_VB_MUIC,
 	},
+#if defined(CONFIG_SEC_FACTORY)
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_JIG_UART_ON,
+		.vbvolt		= VB_LOW,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_NO_VOLTAGE,
+		.control1	= CTRL1_UART,
+		.vps_name	= "Jig UART On",
+		.attached_dev	= ATTACHED_DEV_JIG_UART_ON_MUIC,
+	},
+#endif /* CONFIG_SEC_FACTORY */
 	{
 		.adc1k		= 0x00,
 		.adcerr		= 0x00,
@@ -184,6 +205,17 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.control1	= CTRL1_OPEN,
 		.vps_name	= "TA",
 		.attached_dev	= ATTACHED_DEV_TA_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_OPEN,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_UNOFFICIAL_CHARGER,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "unofficial TA",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_TA_MUIC,
 	},
 	{
 		.adc1k		= 0x00,
@@ -210,11 +242,88 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 	{
 		.adc1k		= 0x00,
 		.adcerr		= 0x00,
+		.adc		= ADC_JIG_USB_OFF,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_NO_VOLTAGE,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Unofficial ID",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_ID_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_219,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_DEDICATED_CHARGER,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Unofficial ID + TA",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_ID_TA_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_219,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_CDP,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Unofficial ID + CDP",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_ID_CDP_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_219,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_UNOFFICIAL_CHARGER,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Unofficial ID + ANY TA",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_ID_ANY_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_219,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_USB,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Unofficial ID + USB",
+		.attached_dev	= ATTACHED_DEV_UNOFFICIAL_ID_USB_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_OPEN,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_DEDICATED_CHARGER,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "TA or AFC",
+		.attached_dev	= ATTACHED_DEV_TA_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_UNDEFINED,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "Undefined Charging",
+		.attached_dev	= ATTACHED_DEV_UNDEFINED_CHARGING_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
 		.adc		= ADC_DESKDOCK,
 		.vbvolt		= VB_LOW,
 		.chgdetrun	= CHGDETRUN_DONTCARE,
 		.chgtyp		= CHGTYP_NO_VOLTAGE,
-		.control1	= CTRL1_AUDIO,
+		.control1	= CTRL1_OPEN,
 		.vps_name	= "Deskdock",
 		.attached_dev	= ATTACHED_DEV_DESKDOCK_MUIC,
 	},
@@ -225,7 +334,7 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.vbvolt		= VB_HIGH,
 		.chgdetrun	= CHGDETRUN_DONTCARE,
 		.chgtyp		= CHGTYP_DONTCARE,
-		.control1	= CTRL1_AUDIO,
+		.control1	= CTRL1_OPEN,
 		.vps_name	= "Deskdock + VB",
 		.attached_dev	= ATTACHED_DEV_DESKDOCK_VB_MUIC,
 	},
@@ -273,6 +382,84 @@ static const struct max77888_muic_vps_data muic_vps_table[] = {
 		.vps_name	= "Smartdock + USB",
 		.attached_dev	= ATTACHED_DEV_SMARTDOCK_USB_MUIC,
 	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_AUDIODOCK,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_USB,
+		.vps_name	= "Audiodock",
+		.attached_dev	= ATTACHED_DEV_AUDIODOCK_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_HMT,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_USB,
+		.vps_name	= "HMT",
+		.attached_dev	= ATTACHED_DEV_HMT_MUIC,
+	},
+	/* Unsupported Device Type - Charging */
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_UNIVERSAL_MMDOCK,
+		.vbvolt		= VB_HIGH,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_USB,
+		.vps_name	= "Universal Multimedia dock",
+		.attached_dev	= ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_RESERVED_VZW,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "VZW Accessory",
+		.attached_dev	= ATTACHED_DEV_VZW_ACC_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_INCOMPATIBLE_VZW,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "VZW Incompatible",
+		.attached_dev	= ATTACHED_DEV_VZW_INCOMPATIBLE_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_USB_LANHUB,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_FALSE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_USB,
+		.vps_name	= "USB LANHUB",
+		.attached_dev	= ATTACHED_DEV_USB_LANHUB_MUIC,
+	},
+	{
+		.adc1k		= 0x00,
+		.adcerr		= 0x00,
+		.adc		= ADC_CEA936ATYPE2_CHG,
+		.vbvolt		= VB_DONTCARE,
+		.chgdetrun	= CHGDETRUN_DONTCARE,
+		.chgtyp		= CHGTYP_DONTCARE,
+		.control1	= CTRL1_OPEN,
+		.vps_name	= "TYPE2 Charger",
+		.attached_dev	= ATTACHED_DEV_TYPE2_CHG_MUIC,
+	},
 };
 
 static int muic_lookup_vps_table(muic_attached_dev_t new_dev)
@@ -304,7 +491,8 @@ static bool muic_check_support_dev(struct max77888_muic_data *muic_data,
 {
 	bool ret = muic_data->muic_support_list[attached_dev];
 
-	pr_info("%s:%s [%c]\n", MUIC_DEV_NAME, __func__, ret ? 'T':'F');
+	if (debug_en_vps)
+		pr_info("%s:%s [%c]\n", MUIC_DEV_NAME, __func__, ret ? 'T':'F');
 
 	return ret;
 }
@@ -421,7 +609,11 @@ static int com_to_uart_ap(struct max77888_muic_data *muic_data)
 	max77888_reg_ctrl1_t reg_val;
 	int ret = 0;
 
-	reg_val = CTRL1_UART;
+	if (muic_data->pdata->rustproof_on)
+		reg_val = CTRL1_OPEN;
+	else
+		reg_val = CTRL1_UART;
+
 	/* write control1 register */
 	ret = write_muic_ctrl_reg(muic_data, MAX77888_MUIC_REG_CTRL1,
 			reg_val);
@@ -437,7 +629,11 @@ static int com_to_uart_cp(struct max77888_muic_data *muic_data)
 	max77888_reg_ctrl1_t reg_val;
 	int ret = 0;
 
-	reg_val = CTRL1_UART_CP;
+	if (muic_data->pdata->rustproof_on)
+		reg_val = CTRL1_OPEN;
+	else
+		reg_val = CTRL1_UART_CP;
+
 	/* write control1 register */
 	ret = write_muic_ctrl_reg(muic_data, MAX77888_MUIC_REG_CTRL1,
 			reg_val);
@@ -447,25 +643,6 @@ static int com_to_uart_cp(struct max77888_muic_data *muic_data)
 
 	return ret;
 }
-
-/* TODO unused */
-#if defined(CONFIG_MUIC_MAX77888_SUPPROT_AUDIO)
-static int com_to_audio(struct max77888_muic_data *muic_data)
-{
-	max77888_reg_ctrl1_t reg_val;
-	int ret;
-
-	reg_val = CTRL1_AUDIO;
-	/* write control1 register */
-	ret = write_muic_ctrl_reg(muic_data, MAX77888_MUIC_REG_CTRL1,
-			reg_val);
-	if (ret)
-		pr_err("%s:%s write_muic_ctrl_reg err\n", MUIC_DEV_NAME,
-				__func__);
-
-	return ret;
-}
-#endif /* CONFIG_MUIC_MAX77888_SUPPROT_AUDIO */
 
 static int write_vps_regs(struct max77888_muic_data *muic_data,
 			muic_attached_dev_t new_dev)
@@ -483,6 +660,47 @@ static int write_vps_regs(struct max77888_muic_data *muic_data,
 	/* write control1 register */
 	ret = write_muic_ctrl_reg(muic_data, MAX77888_MUIC_REG_CTRL1,
 			tmp_vps->control1);
+
+	return ret;
+}
+
+/* muic uart path control function */
+static int switch_to_ap_uart(struct max77888_muic_data *muic_data,
+						muic_attached_dev_t new_dev)
+{
+	int ret = 0;
+
+	switch (new_dev) {
+	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
+		ret = com_to_uart_ap(muic_data);
+		break;
+	default:
+		pr_warn("%s:%s current attached is (%d) not Jig UART Off\n",
+			MUIC_DEV_NAME, __func__, muic_data->attached_dev);
+		break;
+	}
+
+	return ret;
+}
+
+static int switch_to_cp_uart(struct max77888_muic_data *muic_data,
+						muic_attached_dev_t new_dev)
+{
+	int ret = 0;
+
+	switch (new_dev) {
+	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
+		ret = com_to_uart_cp(muic_data);
+		break;
+	default:
+		pr_warn("%s:%s current attached is (%d) not Jig UART Off\n",
+			MUIC_DEV_NAME, __func__, muic_data->attached_dev);
+		break;
+	}
 
 	return ret;
 }
@@ -508,14 +726,12 @@ static int max77888_muic_enable_accdet(struct max77888_muic_data *muic_data)
 				CTRL2_ACCDET_MASK, true);
 }
 
-#if defined(CONFIG_TEMP_FUELGAUGE_TEST)
 static int max77888_muic_disable_accdet(struct max77888_muic_data *muic_data)
 {
 	return max77888_muic_update_reg(muic_data->i2c, MAX77888_MUIC_REG_CTRL2,
 				(MAX77888_DISABLE_BIT << CTRL2_ACCDET_SHIFT),
 				CTRL2_ACCDET_MASK, true);
 }
-#endif /* CONFIG_TEMP_FUELGAUGE_TEST */
 
 static u8 max77888_muic_get_adc_value(struct max77888_muic_data *muic_data)
 {
@@ -557,35 +773,6 @@ static ssize_t max77888_muic_show_uart_sel(struct device *dev,
 	return sprintf(buf, mode);
 }
 
-/* muic uart path control function */
-static int switch_to_ap_uart(struct max77888_muic_data *muic_data)
-{
-	int ret = 0;
-
-	if (muic_data->attached_dev != ATTACHED_DEV_JIG_UART_OFF_MUIC)
-		pr_warn("%s:%s current attached is (%d) not Jig UART Off\n",
-				MUIC_DEV_NAME, __func__,
-				muic_data->attached_dev);
-	else
-		ret = com_to_uart_ap(muic_data);
-
-	return ret;
-}
-
-static int switch_to_cp_uart(struct max77888_muic_data *muic_data)
-{
-	int ret = 0;
-
-	if (muic_data->attached_dev != ATTACHED_DEV_JIG_UART_OFF_MUIC)
-		pr_warn("%s:%s current attached is (%d) not Jig UART Off\n",
-				MUIC_DEV_NAME, __func__,
-				muic_data->attached_dev);
-	else
-		ret = com_to_uart_cp(muic_data);
-
-	return ret;
-}
-
 static ssize_t max77888_muic_set_uart_sel(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t count)
@@ -595,10 +782,10 @@ static ssize_t max77888_muic_set_uart_sel(struct device *dev,
 
 	if (!strncasecmp(buf, "AP", 2)) {
 		pdata->uart_path = MUIC_PATH_UART_AP;
-		switch_to_ap_uart(muic_data);
+		switch_to_ap_uart(muic_data, muic_data->attached_dev);
 	} else if (!strncasecmp(buf, "CP", 2)) {
 		pdata->uart_path = MUIC_PATH_UART_CP;
-		switch_to_cp_uart(muic_data);
+		switch_to_cp_uart(muic_data, muic_data->attached_dev);
 	} else {
 		pr_warn("%s:%s invalid value\n", MUIC_DEV_NAME, __func__);
 	}
@@ -649,6 +836,43 @@ static ssize_t max77888_muic_set_usb_sel(struct device *dev,
 
 	pr_info("%s:%s usb_path(%d)\n", MUIC_DEV_NAME, __func__,
 			pdata->usb_path);
+
+	return count;
+}
+
+static ssize_t max77888_muic_show_uart_en(struct device *dev,
+					   struct device_attribute *attr,
+					   char *buf)
+{
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+	struct muic_platform_data *pdata = muic_data->pdata;
+
+	if (!pdata->rustproof_on) {
+		pr_info("%s:%s UART ENABLE\n", MUIC_DEV_NAME, __func__);
+		return sprintf(buf, "1\n");
+	}
+
+	pr_info("%s:%s UART DISABLE", MUIC_DEV_NAME, __func__);
+	return sprintf(buf, "0\n");
+}
+
+static ssize_t max77888_muic_set_uart_en(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+	struct muic_platform_data *pdata = muic_data->pdata;
+
+	if (!strncasecmp(buf, "1", 1)) {
+		pdata->rustproof_on = false;
+	} else if (!strncasecmp(buf, "0", 1)) {
+		pdata->rustproof_on = true;
+	} else {
+		pr_warn("%s:%s invalid value\n", MUIC_DEV_NAME, __func__);
+	}
+
+	pr_info("%s:%s uart_en(%d)\n", MUIC_DEV_NAME, __func__,
+			!pdata->rustproof_on);
 
 	return count;
 }
@@ -708,40 +932,6 @@ static ssize_t max77888_muic_show_attached_dev(struct device *dev,
 	return sprintf(buf, "%s\n", tmp_vps->vps_name);
 }
 
-#if defined(CONFIG_MUIC_MAX77888_SUPPROT_AUDIO_FACTORY)
-static ssize_t max77888_muic_show_audio_path(struct device *dev,
-		struct device_attribute *attr, char *buf)
-{
-	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
-	int ret;
-	u8 val;
-
-	ret = max77888_read_reg(muic_data->i2c, MAX77888_MUIC_REG_CTRL1, &val);
-	if (ret) {
-		pr_err("%s:%s fail to read muic reg\n", MUIC_DEV_NAME, __func__);
-		return sprintf(buf, "UNKNOWN\n");
-	}
-
-	return sprintf(buf, "%x\n", val);
-}
-
-static ssize_t max77888_muic_set_audio_path(struct device *dev,
-				    struct device_attribute *attr,
-				    const char *buf, size_t count)
-{
-	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
-
-	if (!strncmp(buf, "0", 1))
-		com_to_open(muic_data);
-	else if (!strncmp(buf, "1", 1))
-		com_to_audio(muic_data);
-	else
-		pr_warn("%s:%s Wrong command\n", MUIC_DEV_NAME, __func__);
-
-	return count;
-}
-#endif /* CONFIG_MUIC_MAX77888_SUPPROT_AUDIO_FACTORY */
-
 static ssize_t max77888_muic_show_otg_test(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -761,7 +951,6 @@ static ssize_t max77888_muic_show_otg_test(struct device *dev,
 		return sprintf(buf, "%x\n", val);
 	} else
 		return ret;
-
 }
 
 static ssize_t max77888_muic_set_otg_test(struct device *dev,
@@ -809,6 +998,88 @@ err_accdet:
 	return ret;
 }
 
+static ssize_t max77888_muic_show_apo_factory(struct device *dev,
+					   struct device_attribute *attr,
+					   char *buf)
+{
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+	const char *mode;
+
+	/* true: Factory mode, false: not Factory mode */
+	if (muic_data->is_factory_start)
+		mode = "FACTORY_MODE";
+	else
+		mode = "NOT_FACTORY_MODE";
+
+	pr_info("%s:%s apo factory=%s\n", MUIC_DEV_NAME, __func__, mode);
+
+	return sprintf(buf, "%s\n", mode);
+}
+
+static ssize_t max77888_muic_set_apo_factory(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+#if defined(CONFIG_SEC_FACTORY)
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+#endif /* CONFIG_SEC_FACTORY */
+	const char *mode;
+
+	pr_info("%s:%s buf:%s\n", MUIC_DEV_NAME, __func__, buf);
+
+	/* "FACTORY_START": factory mode */
+	if (!strncmp(buf, "FACTORY_START", 13)) {
+#if defined(CONFIG_SEC_FACTORY)
+		muic_data->is_factory_start = true;
+#endif /* CONFIG_SEC_FACTORY */
+		mode = "FACTORY_MODE";
+	} else {
+		pr_warn("%s:%s Wrong command\n", MUIC_DEV_NAME, __func__);
+		return count;
+	}
+
+	pr_info("%s:%s apo factory=%s\n", MUIC_DEV_NAME, __func__, mode);
+
+	return count;
+}
+
+#if defined(CONFIG_SEC_FACTORY)
+static ssize_t max77888_muic_show_ignore_adcerr(struct device *dev,
+				   struct device_attribute *attr,
+				   char *buf)
+{
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+
+	pr_info("%s:%s ignore_adcerr[%c]", MUIC_DEV_NAME, __func__,
+				(muic_data->ignore_adcerr ? 'T' : 'F'));
+
+	if (muic_data->ignore_adcerr)
+		return sprintf(buf, "1\n");
+
+	return sprintf(buf, "0\n");
+}
+
+static ssize_t max77888_muic_set_ignore_adcerr(struct device *dev,
+					  struct device_attribute *attr,
+					  const char *buf, size_t count)
+{
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+
+	if (!strncasecmp(buf, "1", 1)) {
+		muic_data->ignore_adcerr = true;
+	} else if (!strncasecmp(buf, "0", 0)) {
+		muic_data->ignore_adcerr = false;
+	} else {
+		pr_warn("%s:%s invalid value\n", MUIC_DEV_NAME, __func__);
+	}
+
+	pr_info("%s:%s ignore adc_err(%d)\n", MUIC_DEV_NAME, __func__,
+			muic_data->ignore_adcerr);
+
+	return count;
+}
+#endif /* CONFIG_SEC_FACTORY */
+
 static void max77888_muic_set_adcdbset
 			(struct max77888_muic_data *muic_data, int value)
 {
@@ -834,36 +1105,265 @@ static void max77888_muic_set_adcdbset
 		pr_err("%s: fail to write reg\n", __func__);
 }
 
+/* WA for MUIC RESET */
+int _max77888_muic_reg_restore(struct i2c_client *i2c)
+{
+	const enum max77888_muic_reg reg_list[] = {
+		/* related with OTG test */
+		MAX77888_MUIC_REG_CDETCTRL1,
+		/* not updated in here */
+		//MAX77888_MUIC_REG_CDETCTRL2,
+		/* related with path */
+		MAX77888_MUIC_REG_CTRL1,
+		/* related with CPEn */
+		MAX77888_MUIC_REG_CTRL2,
+		/* related with JIGSET (FLED) */
+		//MAX77888_MUIC_REG_CTRL3,
+		/* related with ADC mode and ADCDbset */
+		MAX77888_MUIC_REG_CTRL4,
+	};
+	int i, ret = 0;
+	u8 value, intmask1, intmask2;
+
+	pr_info("func:%s, Re-write MUIC register\n", __func__);
+
+	/* INTMASK can be handled like below, but ... */
+	for (i = 0; i < ARRAY_SIZE(reg_list); i++) {
+		value = max77888_restore_last_snapshot(reg_list[i]);
+		max77888_write_reg(i2c, reg_list[i], value);
+	}
+
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_INTMASK1, &intmask1);
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_INTMASK2, &intmask2);
+	pr_info("func:%s, (before)intmask1 = 0x%x\n", __func__, intmask1);
+	pr_info("func:%s, (before)intmask2 = 0x%x\n", __func__, intmask2);
+
+	max77888_write_reg(i2c, MAX77888_MUIC_REG_INTMASK1, 0x0d);
+	max77888_write_reg(i2c, MAX77888_MUIC_REG_INTMASK2, 0x11);
+
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_INTMASK1, &intmask1);
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_INTMASK2, &intmask2);
+	pr_info("func:%s, (after)intmask1 = 0x%x\n", __func__, intmask1);
+	pr_info("func:%s, (after)intmask2 = 0x%x\n", __func__, intmask2);
+
+	if ((intmask1&0x0d) == 0x0d &&
+		(intmask2&0x11) == 0x11) {
+		ret = 0;
+	} else {
+		pr_info("func:%s, retry!\n", __func__);
+		ret = -1;
+	}
+
+	return ret;
+}
+/* WA for MUIC RESET */
+
 static DEVICE_ATTR(uart_sel, 0664, max77888_muic_show_uart_sel,
 		max77888_muic_set_uart_sel);
 static DEVICE_ATTR(usb_sel, 0664, max77888_muic_show_usb_sel,
 		max77888_muic_set_usb_sel);
+static DEVICE_ATTR(uart_en, 0660, max77888_muic_show_uart_en,
+		max77888_muic_set_uart_en);
 static DEVICE_ATTR(adc, S_IRUGO, max77888_muic_show_adc, NULL);
 static DEVICE_ATTR(usb_state, S_IRUGO, max77888_muic_show_usb_state, NULL);
 static DEVICE_ATTR(attached_dev, S_IRUGO, max77888_muic_show_attached_dev, NULL);
-#if defined(CONFIG_MUIC_MAX77888_SUPPROT_AUDIO_FACTORY)
-static DEVICE_ATTR(audio_path, 0664,
-		max77888_muic_show_audio_path, max77888_muic_set_audio_path);
-#endif /* CONFIG_MUIC_MAX77888_SUPPORT_AUDIO_FACTORY */
 static DEVICE_ATTR(otg_test, 0664,
 		max77888_muic_show_otg_test, max77888_muic_set_otg_test);
+static DEVICE_ATTR(apo_factory, 0664,
+		max77888_muic_show_apo_factory, max77888_muic_set_apo_factory);
+#if defined(CONFIG_SEC_FACTORY)
+static DEVICE_ATTR(ignore_adcerr, 0664,
+		max77888_muic_show_ignore_adcerr, max77888_muic_set_ignore_adcerr);
+#endif /* CONFIG_SEC_FACTORY */
 
 static struct attribute *max77888_muic_attributes[] = {
 	&dev_attr_uart_sel.attr,
 	&dev_attr_usb_sel.attr,
+	&dev_attr_uart_en.attr,
 	&dev_attr_adc.attr,
 	&dev_attr_usb_state.attr,
 	&dev_attr_attached_dev.attr,
-#if defined(CONFIG_MUIC_MAX77888_SUPPROT_AUDIO_FACTORY)
-	&dev_attr_audio_path.attr,
-#endif /* CONFIG_MUIC_MAX77888_SUPPORT_AUDIO_FACTORY */
 	&dev_attr_otg_test.attr,
+	&dev_attr_apo_factory.attr,
+#if defined(CONFIG_SEC_FACTORY)
+	&dev_attr_ignore_adcerr.attr,
+#endif /* CONFIG_SEC_FACTORY */
 	NULL
 };
 
 static const struct attribute_group max77888_muic_group = {
 	.attrs = max77888_muic_attributes,
 };
+
+void max77888_muic_read_register(struct i2c_client *i2c)
+{
+	const enum max77888_muic_reg regfile[] = {
+		MAX77888_MUIC_REG_ID,
+		MAX77888_MUIC_REG_STATUS1,
+		MAX77888_MUIC_REG_STATUS2,
+		MAX77888_MUIC_REG_INTMASK1,
+		MAX77888_MUIC_REG_INTMASK2,
+		MAX77888_MUIC_REG_CDETCTRL1,
+		MAX77888_MUIC_REG_CDETCTRL2,
+		MAX77888_MUIC_REG_CTRL1,
+		MAX77888_MUIC_REG_CTRL2,
+		MAX77888_MUIC_REG_CTRL3,
+		MAX77888_MUIC_REG_CTRL4,
+	};
+	u8 val;
+	int i;
+
+	pr_info("%s:%s read register--------------\n", MUIC_DEV_NAME, __func__);
+	for (i = 0; i < ARRAY_SIZE(regfile); i++) {
+		int ret = 0;
+		ret = max77888_read_reg(i2c, regfile[i], &val);
+		if (ret) {
+			pr_err("%s:%s fail to read muic reg(0x%02x), ret=%d\n",
+					MUIC_DEV_NAME, __func__, regfile[i], ret);
+			continue;
+		}
+
+		pr_info("%s:%s reg(0x%02x)=[0x%02x]\n", MUIC_DEV_NAME, __func__,
+				regfile[i], val);
+	}
+	pr_info("%s:%s end register---------------\n", MUIC_DEV_NAME, __func__);
+}
+
+static bool max77888_muic_check_dev_factory_charging(struct max77888_muic_data *muic_data)
+{
+	u8 adc = (muic_data->status1) & STATUS1_ADC_MASK;
+	u8 vbvolt = (muic_data->status2) & STATUS2_VBVOLT_MASK;
+
+	switch (adc) {
+	case ADC_JIG_USB_OFF:
+		if (vbvolt == VB_HIGH)
+			return true;
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+static u8 max77888_muic_get_adcmode(struct max77888_muic_data *muic_data)
+{
+	struct i2c_client *i2c = muic_data->i2c;
+	const u8 reg = MAX77888_MUIC_REG_CTRL4;
+	u8 val;
+	int ret = 0;
+
+	ret = max77888_read_reg(i2c, reg, &val);
+	if (ret)
+		pr_err("%s:%s fail to read reg[0x%02x], ret(%d)\n",
+				MUIC_DEV_NAME, __func__, reg, ret);
+	else {
+		val &= CTRL4_ADCMODE_MASK;
+		val >>= CTRL4_ADCMODE_SHIFT;
+	}
+
+	return val;
+}
+
+static int max77888_muic_set_adcmode(struct max77888_muic_data *muic_data,
+		const u8 val)
+{
+	struct i2c_client *i2c = muic_data->i2c;
+	const u8 reg = MAX77888_MUIC_REG_CTRL4;
+	const u8 mask = CTRL4_ADCMODE_MASK;
+	const u8 shift = CTRL4_ADCMODE_SHIFT;
+	int ret = 0;
+
+	ret = max77888_muic_update_reg(i2c, reg, (val << shift), mask, true);
+	if (ret)
+		pr_err("%s:%s fail to update reg[0x%02x], ret(%d)\n",
+				MUIC_DEV_NAME, __func__, reg, ret);
+
+	return ret;
+}
+
+static void max77888_muic_adcmode_switch(struct max77888_muic_data *muic_data,
+		const u8 val)
+{
+	const char *name;
+	u8 before_val;
+#if defined(CONFIG_MUIC_ADCMODE_SWITCH_WA)
+	u8 after_val;
+#endif /* CONFIG_MUIC_ADCMODE_SWITCH_WA */
+	int ret = 0;
+
+	switch (val) {
+	case MAX77888_MUIC_CTRL4_ADCMODE_ALWAYS_ON:
+		name = "Always ON";
+		break;
+	case MAX77888_MUIC_CTRL4_ADCMODE_ALWAYS_ON_1M_MON:
+		name = "Always ON + 1Mohm monitor";
+		break;
+	case MAX77888_MUIC_CTRL4_ADCMODE_ONE_SHOT:
+		name = "One Shot + Low lp Disconnect Detect";
+		break;
+	case MAX77888_MUIC_CTRL4_ADCMODE_2S_PULSE:
+		name = "2s Pulse + Low lp Disconnect Detect";
+		break;
+	default:
+		pr_warn("%s:%s wrong ADCMode val[0x%02x]\n", MUIC_DEV_NAME,
+				__func__, val);
+		return;
+	}
+
+	before_val = max77888_muic_get_adcmode(muic_data);
+	if (before_val == val) {
+		pr_info("%s:%s ADC Mode is already %s(%x), just return\n",
+				MUIC_DEV_NAME, __func__, name, before_val);
+
+		return;
+	}
+
+	ret = max77888_muic_set_adcmode(muic_data, val);
+	if (ret) {
+		pr_err("%s:%s fail to adcmode change to %s ret:%d\n",
+				MUIC_DEV_NAME, __func__, name, ret);
+		return;
+	}
+
+#if defined(CONFIG_MUIC_ADCMODE_SWITCH_WA)
+	after_val = max77888_muic_get_adcmode(muic_data);
+	if (after_val == val) {
+		pr_info("%s:%s ADC mode switch workaround(50ms delay)\n",
+				MUIC_DEV_NAME, __func__);
+		msleep(50);
+	}
+#endif /* CONFIG_MUIC_ADCMODE_SWITCH_WA */
+}
+
+static void max77888_muic_set_adcmode_always(struct max77888_muic_data *muic_data)
+{
+	const u8 val = MAX77888_MUIC_CTRL4_ADCMODE_ALWAYS_ON;
+
+	max77888_muic_adcmode_switch(muic_data, val);
+
+	return;
+}
+
+#if !defined(CONFIG_SEC_FACTORY)
+static void max77888_muic_set_adcmode_2s_pulse(struct max77888_muic_data *muic_data)
+{
+	const u8 val = MAX77888_MUIC_CTRL4_ADCMODE_2S_PULSE;
+
+	max77888_muic_adcmode_switch(muic_data, val);
+
+	return;
+}
+
+static void max77888_muic_set_adcmode_oneshot(struct max77888_muic_data *muic_data)
+{
+	const u8 val = MAX77888_MUIC_CTRL4_ADCMODE_ONE_SHOT;
+
+	max77888_muic_adcmode_switch(muic_data, val);
+
+	return;
+}
+#endif /* !CONFIG_SEC_FACTORY */
 
 static int max77888_muic_attach_uart_path(struct max77888_muic_data *muic_data,
 					muic_attached_dev_t new_dev)
@@ -874,9 +1374,9 @@ static int max77888_muic_attach_uart_path(struct max77888_muic_data *muic_data,
 	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
 
 	if (pdata->uart_path == MUIC_PATH_UART_AP) {
-		ret = write_vps_regs(muic_data, new_dev);
+		ret = switch_to_ap_uart(muic_data, new_dev);
 	} else if (pdata->uart_path == MUIC_PATH_UART_CP) {
-		ret = com_to_uart_cp(muic_data);
+		ret = switch_to_cp_uart(muic_data, new_dev);
 	}
 	else
 		pr_warn("%s:%s invalid uart_path\n", MUIC_DEV_NAME, __func__);
@@ -904,145 +1404,77 @@ static int max77888_muic_attach_usb_path(struct max77888_muic_data *muic_data,
 	return ret;
 }
 
-#if defined(CONFIG_MUIC_NOTIFIER)
-static int muic_notifier_detach_dev(struct max77888_muic_data *muic_data)
-{
-	pr_info("%s:%s (%d)\n", MUIC_DEV_NAME, __func__, muic_data->attached_dev);
-
-	muic_notifier_detach_attached_dev(muic_data->attached_dev);
-
-	muic_data->attached_dev = ATTACHED_DEV_NONE_MUIC;
-
-	return 0;
-}
-
-static int muic_notifier_attach_dev(struct max77888_muic_data *muic_data,
-			muic_attached_dev_t new_dev)
-{
-	pr_info("%s:%s from (%d) to (%d)\n", MUIC_DEV_NAME, __func__,
-			muic_data->attached_dev, new_dev);
-
-	muic_data->attached_dev = new_dev;
-
-	muic_notifier_attach_attached_dev(muic_data->attached_dev);
-
-	return 0;
-}
-
-static int muic_notifier_logically_detach_dev(struct max77888_muic_data *muic_data)
-{
-	pr_info("%s:%s (%d)\n", MUIC_DEV_NAME, __func__, muic_data->attached_dev);
-
-	muic_notifier_logically_detach_attached_dev(muic_data->attached_dev);
-
-	return 0;
-}
-
-static int muic_notifier_logically_attach_dev(struct max77888_muic_data *muic_data,
-			muic_attached_dev_t new_dev)
-{
-	pr_info("%s:%s from (%d) to (%d)\n", MUIC_DEV_NAME, __func__,
-			muic_data->attached_dev, new_dev);
-
-	muic_data->attached_dev = new_dev;
-
-	muic_notifier_logically_attach_attached_dev(muic_data->attached_dev);
-
-	return 0;
-}
-
-#endif /* CONFIG_MUIC_NOTIFIER */
-
-static muic_attached_dev_t check_jig_uart_off_vb_test_type
+static muic_attached_dev_t check_jig_uart_on_factory_test
 			(struct max77888_muic_data *muic_data,	muic_attached_dev_t new_dev)
 {
-	muic_attached_dev_t ret_ndev = new_dev;
+	muic_attached_dev_t ret_ndev;
 
-	if (muic_data->is_otg_test) {
-		if (muic_check_support_dev(muic_data, ATTACHED_DEV_OTG_MUIC))
-			ret_ndev = ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC;
-		else
-			pr_info("%s:%s Not support 'OTG'\n", MUIC_DEV_NAME, __func__);
-	} else {
-		ret_ndev = ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC;
-#if defined(CONFIG_TEMP_FUELGAUGE_TEST)
-		ret = max77888_muic_disable_accdet(muic_data);
-		if (ret) {
-			pr_err("%s:%s cannot change accdet\n", MUIC_DEV_NAME, __func__);
-			return ret;
-		}
-#endif /* CONFIG_TEMP_FUELGAUGE_TEST */
-	}
-	pr_info("%s:%s is_otg_test = %c\n", MUIC_DEV_NAME, __func__,
-			(muic_data->is_otg_test) ? 'T' : 'F');
+	if (muic_data->is_factory_start &&
+			muic_data->attached_dev == ATTACHED_DEV_JIG_UART_OFF_MUIC) {
+			ret_ndev = ATTACHED_DEV_JIG_UART_ON_MUIC;
+	} else
+		ret_ndev = ATTACHED_DEV_JIG_UART_OFF_MUIC;
+
+	pr_info("%s:%s is_factory_start = %c\n", MUIC_DEV_NAME, __func__,
+			(muic_data->is_factory_start) ? 'T' : 'F');
 
 	return ret_ndev;
-}
-
-static bool muic_check_dev_smartdock_logic_noti
-		(struct max77888_muic_data *muic_data, muic_attached_dev_t new_dev)
-{
-	muic_attached_dev_t attached_dev = muic_data->attached_dev;
-	bool ret = false;
-
-	switch (new_dev) {
-	case ATTACHED_DEV_SMARTDOCK_MUIC:
-		if ((attached_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC))
-			ret = true;
-		break;
-	case ATTACHED_DEV_SMARTDOCK_VB_MUIC:
-		if ((attached_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC))
-			ret = true;
-		break;
-	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
-		if ((attached_dev == ATTACHED_DEV_SMARTDOCK_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC))
-			ret = true;
-		break;
-	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
-		if ((attached_dev == ATTACHED_DEV_SMARTDOCK_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC) | \
-			(attached_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC))
-			ret = true;
-		break;
-	default:
-		break;
-	}
-
-	return ret;
 }
 
 static int max77888_muic_handle_detach(struct max77888_muic_data *muic_data)
 {
 	int ret = 0;
+	bool noti = true;
+	bool logically_noti = false;
 
 	if (muic_data->attached_dev == ATTACHED_DEV_NONE_MUIC) {
 		pr_info("%s:%s Duplicated(%d), just ignore\n", MUIC_DEV_NAME,
 				__func__, muic_data->attached_dev);
-		return ret;
+		goto out_without_noti;
 	}
 
 	/* Enable Factory Accessory Detection State Machine */
 	max77888_muic_enable_accdet(muic_data);
 
-#if defined(CONFIG_MUIC_NOTIFIER)
 	muic_lookup_vps_table(muic_data->attached_dev);
 
 	switch (muic_data->attached_dev) {
 	case ATTACHED_DEV_OTG_MUIC:
+	case ATTACHED_DEV_USB_LANHUB_MUIC:
+	case ATTACHED_DEV_CHARGING_CABLE_MUIC:
+	case ATTACHED_DEV_HMT_MUIC:
+	case ATTACHED_DEV_USB_MUIC:
 		/* Enable Charger Detection */
 		max77888_muic_enable_chgdet(muic_data);
+		break;
+	case ATTACHED_DEV_UNOFFICIAL_ID_MUIC:
+		goto out_without_noti;
+	case ATTACHED_DEV_SMARTDOCK_MUIC:
+		goto out_without_noti;
+	case ATTACHED_DEV_SMARTDOCK_VB_MUIC:
+		noti = false;
+		logically_noti = true;
+		break;
+	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
+		logically_noti = true;
 		break;
 	default:
 		break;
 	}
-	muic_notifier_detach_dev(muic_data);
+
+#if defined(CONFIG_MUIC_NOTIFIER)
+	if (noti)
+		muic_notifier_detach_attached_dev(muic_data->attached_dev);
+
+	if (logically_noti)
+		muic_notifier_logically_detach_attached_dev(ATTACHED_DEV_SMARTDOCK_VB_MUIC);
 #endif /* CONFIG_MUIC_NOTIFIER */
 
+out_without_noti:
 	ret = com_to_open(muic_data);
+
+	muic_data->attached_dev = ATTACHED_DEV_NONE_MUIC;
 
 	return ret;
 }
@@ -1050,83 +1482,85 @@ static int max77888_muic_handle_detach(struct max77888_muic_data *muic_data)
 static int max77888_muic_logically_detach(struct max77888_muic_data *muic_data,
 						muic_attached_dev_t new_dev)
 {
-	bool force_path_open = true;
-	bool logically_notify = false;
 	bool noti = true;
+	bool logically_notify = false;
+	bool force_path_open = true;
+	bool enable_accdet = true;
 	int ret = 0;
+
+	if (max77888_muic_check_dev_factory_charging(muic_data))
+		enable_accdet = false;
 
 	switch (muic_data->attached_dev) {
 	case ATTACHED_DEV_USB_MUIC:
 	case ATTACHED_DEV_CDP_MUIC:
+		break;
 	case ATTACHED_DEV_OTG_MUIC:
-	case ATTACHED_DEV_TA_MUIC:
+		if (new_dev == ATTACHED_DEV_USB_LANHUB_MUIC)
+			goto out;
+	case ATTACHED_DEV_USB_LANHUB_MUIC:
+		if (new_dev == ATTACHED_DEV_OTG_MUIC)
+			goto out;
+	case ATTACHED_DEV_CHARGING_CABLE_MUIC:
+	case ATTACHED_DEV_HMT_MUIC:
+	case ATTACHED_DEV_UNDEFINED_CHARGING_MUIC:
 	case ATTACHED_DEV_JIG_USB_ON_MUIC:
 	case ATTACHED_DEV_MHL_MUIC:
+	case ATTACHED_DEV_AUDIODOCK_MUIC:
+	case ATTACHED_DEV_UNSUPPORTED_ID_VB_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_TA_MUIC:
 		break;
+	case ATTACHED_DEV_UNOFFICIAL_ID_TA_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_USB_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_CDP_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_ANY_MUIC:
+		break;
+	case ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC:
+		break;
+	case ATTACHED_DEV_UNOFFICIAL_ID_MUIC:
+		goto out;
 	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
-		if (new_dev == ATTACHED_DEV_JIG_UART_OFF_VB_MUIC)
+		if (new_dev == ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC ||
+			new_dev == ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC ||
+			new_dev == ATTACHED_DEV_JIG_UART_ON_MUIC)
 			force_path_open = false;
 		break;
-	case ATTACHED_DEV_JIG_UART_OFF_VB_MUIC:
 	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
 	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
 		if (new_dev == ATTACHED_DEV_JIG_UART_OFF_MUIC)
 			force_path_open = false;
 		break;
+	case ATTACHED_DEV_JIG_UART_ON_MUIC:
 	case ATTACHED_DEV_UNKNOWN_MUIC:
 		if (new_dev == ATTACHED_DEV_JIG_UART_OFF_MUIC)
 			force_path_open = false;
 		break;
 	case ATTACHED_DEV_DESKDOCK_MUIC:
-		if (new_dev == ATTACHED_DEV_DESKDOCK_VB_MUIC) {
+		if (new_dev == ATTACHED_DEV_DESKDOCK_VB_MUIC)
 			goto out;
-		}
 		break;
 	case ATTACHED_DEV_DESKDOCK_VB_MUIC:
-		if (new_dev == ATTACHED_DEV_DESKDOCK_MUIC) {
-			logically_notify = true;
-			force_path_open = false;
-		}
-		break;
-	case ATTACHED_DEV_SMARTDOCK_MUIC:
-		if (new_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC) {
-			noti = false;
-			force_path_open = false;
-		}
-		if ((new_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC)) {
-			logically_notify = true;
-			force_path_open = false;
-		}
+		if (new_dev == ATTACHED_DEV_DESKDOCK_MUIC)
+			goto out;
 		break;
 	case ATTACHED_DEV_SMARTDOCK_VB_MUIC:
-		if (new_dev == ATTACHED_DEV_SMARTDOCK_MUIC) {
-			noti = false;
-			force_path_open = false;
-		}
-		if ((new_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC)) {
-			logically_notify = true;
-			force_path_open = false;
-		}
-		break;
-	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
-		if ((new_dev == ATTACHED_DEV_SMARTDOCK_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC)) {
-			logically_notify = true;
-			force_path_open = false;
-		}
+		if ((new_dev == ATTACHED_DEV_SMARTDOCK_USB_MUIC) ||
+				(new_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC))
+			goto out;
+
+		logically_notify = true;
 		break;
 	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
-		if ((new_dev == ATTACHED_DEV_SMARTDOCK_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC) | \
-			(new_dev == ATTACHED_DEV_SMARTDOCK_TA_MUIC)) {
+	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
+		if (new_dev != ATTACHED_DEV_SMARTDOCK_VB_MUIC)
 			logically_notify = true;
-			force_path_open = false;
-		}
+		break;
+	case ATTACHED_DEV_SMARTDOCK_MUIC:
+		goto out;
+	case ATTACHED_DEV_TA_MUIC:
 		break;
 	case ATTACHED_DEV_NONE_MUIC:
+		force_path_open = false;
 		goto out;
 	default:
 		pr_warn("%s:%s try to attach without logically detach\n",
@@ -1138,28 +1572,30 @@ static int max77888_muic_logically_detach(struct max77888_muic_data *muic_data,
 			__func__, muic_data->attached_dev, new_dev);
 
 #if defined(CONFIG_MUIC_NOTIFIER)
-	if (noti) {
-		if (logically_notify)
-			muic_notifier_logically_detach_dev(muic_data);
-		else
-			muic_notifier_detach_dev(muic_data);
-	}
+	if (noti)
+		muic_notifier_detach_attached_dev(muic_data->attached_dev);
+
+	if (logically_notify)
+		muic_notifier_logically_detach_attached_dev(ATTACHED_DEV_SMARTDOCK_VB_MUIC);
 #endif /* CONFIG_MUIC_NOTIFIER */
 
-	if (force_path_open) {
-		ret = com_to_open(muic_data);
-	}
-
 out:
+	if (enable_accdet)
+		max77888_muic_enable_accdet(muic_data);
+
+	if (force_path_open)
+		ret = com_to_open(muic_data);
+
 	return ret;
 }
 
 static int max77888_muic_handle_attach(struct max77888_muic_data *muic_data,
-					muic_attached_dev_t new_dev)
+		muic_attached_dev_t new_dev)
 {
 	bool logically_notify = false;
-	bool noti = true;
+	bool noti_smartdock = false;
 	int ret = 0;
+
 
 	if (new_dev == muic_data->attached_dev) {
 		pr_info("%s:%s Duplicated(%d), just ignore\n", MUIC_DEV_NAME,
@@ -1174,65 +1610,77 @@ static int max77888_muic_handle_attach(struct max77888_muic_data *muic_data,
 
 	switch (new_dev) {
 	case ATTACHED_DEV_OTG_MUIC:
+	case ATTACHED_DEV_USB_LANHUB_MUIC:
+	case ATTACHED_DEV_CHARGING_CABLE_MUIC:
+	case ATTACHED_DEV_HMT_MUIC:
 		ret = write_vps_regs(muic_data, new_dev);
 		/* Disable Charger Detection */
 		max77888_muic_disable_chgdet(muic_data);
 		break;
 	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
 		ret = max77888_muic_attach_uart_path(muic_data, new_dev);
 		break;
-	case ATTACHED_DEV_JIG_UART_OFF_VB_MUIC:
-#if defined(CONFIG_MUIC_WR_VB_ATTACH_BEFORE_ADC_ATTACHED)
-		ret = write_vps_regs(muic_data, new_dev);
-#endif /* CONFIG_MUIC_WR_VB_ATTACH_BEFORE_ADC_ATTACHED */
-		new_dev = check_jig_uart_off_vb_test_type(muic_data, new_dev);
+	case ATTACHED_DEV_JIG_UART_ON_MUIC:
+		new_dev = check_jig_uart_on_factory_test(muic_data, new_dev);
+		if (new_dev != ATTACHED_DEV_JIG_UART_ON_MUIC)
+			goto out;
 		break;
 	case ATTACHED_DEV_TA_MUIC:
+	case ATTACHED_DEV_UNDEFINED_CHARGING_MUIC:
+		ret = write_vps_regs(muic_data, new_dev);
+		break;
+	case ATTACHED_DEV_UNOFFICIAL_TA_MUIC:
+		ret = write_vps_regs(muic_data, new_dev);
+		break;
+	case ATTACHED_DEV_UNOFFICIAL_ID_TA_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_ANY_MUIC:
 		ret = write_vps_regs(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_JIG_USB_ON_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_USB_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_CDP_MUIC:
 	case ATTACHED_DEV_USB_MUIC:
 	case ATTACHED_DEV_CDP_MUIC:
 		ret = max77888_muic_attach_usb_path(muic_data, new_dev);
 		break;
+	case ATTACHED_DEV_UNOFFICIAL_ID_MUIC:
+		max77888_muic_disable_accdet(muic_data);
+		goto out_without_noti;
 	case ATTACHED_DEV_MHL_MUIC:
 		ret = write_vps_regs(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_DESKDOCK_MUIC:
 		if (muic_data->attached_dev == ATTACHED_DEV_DESKDOCK_VB_MUIC)
 			logically_notify = true;
-		else
-			ret = write_vps_regs(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_DESKDOCK_VB_MUIC:
 		if (muic_data->attached_dev == ATTACHED_DEV_DESKDOCK_MUIC)
 			logically_notify = true;
-		else
-			ret = write_vps_regs(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_SMARTDOCK_MUIC:
-		if (muic_data->attached_dev == ATTACHED_DEV_SMARTDOCK_VB_MUIC)
-			noti = false;
-		else if (muic_check_dev_smartdock_logic_noti(muic_data, new_dev))
-			logically_notify = true;
 		ret = write_vps_regs(muic_data, new_dev);
-		break;
+		goto out_without_noti;
 	case ATTACHED_DEV_SMARTDOCK_VB_MUIC:
-		if (muic_data->attached_dev == ATTACHED_DEV_SMARTDOCK_MUIC)
-			noti = false;
-		else if (muic_check_dev_smartdock_logic_noti(muic_data, new_dev))
-			logically_notify = true;
+		logically_notify = true;
 		ret = write_vps_regs(muic_data, new_dev);
 		break;
 	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
-		if (muic_check_dev_smartdock_logic_noti(muic_data, new_dev))
-			logically_notify = true;
+	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
+		if (muic_data->attached_dev != ATTACHED_DEV_SMARTDOCK_VB_MUIC)
+			noti_smartdock = true;
 		ret = write_vps_regs(muic_data, new_dev);
 		break;
-	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
-		if (muic_check_dev_smartdock_logic_noti(muic_data, new_dev))
-			logically_notify = true;
+	case ATTACHED_DEV_AUDIODOCK_MUIC:
 		ret = write_vps_regs(muic_data, new_dev);
+		break;
+	case ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC:
+		ret = write_vps_regs(muic_data, new_dev);
+		break;
+	case ATTACHED_DEV_UNSUPPORTED_ID_VB_MUIC:
+		ret = write_muic_ctrl_reg(muic_data, MAX77888_MUIC_REG_CTRL1,
+					CTRL1_OPEN);
 		break;
 	default:
 		pr_warn("%s:%s unsupported dev(%d)\n", MUIC_DEV_NAME, __func__,
@@ -1242,14 +1690,17 @@ static int max77888_muic_handle_attach(struct max77888_muic_data *muic_data,
 	}
 
 #if defined(CONFIG_MUIC_NOTIFIER)
-	if (noti) {
-		if (logically_notify)
-			ret = muic_notifier_logically_attach_dev(muic_data, new_dev);
-		else
-			ret = muic_notifier_attach_dev(muic_data, new_dev);
-	}
+	if (noti_smartdock)
+		muic_notifier_logically_attach_attached_dev(ATTACHED_DEV_SMARTDOCK_VB_MUIC);
+
+	if (logically_notify)
+		muic_notifier_logically_attach_attached_dev(new_dev);
+	else
+		muic_notifier_attach_attached_dev(new_dev);
 #endif /* CONFIG_MUIC_NOTIFIER */
 
+out_without_noti:
+	muic_data->attached_dev = new_dev;
 out:
 	return ret;
 }
@@ -1264,13 +1715,41 @@ static bool muic_check_vps_adc
 		goto out;
 	}
 
+	if (tmp_vps->adc == ADC_219) {
+		switch(adc) {
+		case ADC_CEA936ATYPE1_CHG:
+		case ADC_JIG_USB_OFF:
+			ret = true;
+			goto out;
+			break;
+		default:
+			break;
+		}
+	}
+
+	if (tmp_vps->adc == ADC_UNDEFINED) {
+		switch(adc) {
+		case ADC_SEND_END ... ADC_REMOTE_S12:
+		case ADC_UART_CABLE:
+		case ADC_AUDIOMODE_W_REMOTE:
+			ret = true;
+			goto out;
+			break;
+		default:
+			break;
+		}
+	}
+
 	if (tmp_vps->adc == ADC_DONTCARE)
 		ret = true;
 
 out:
-	pr_info("%s:%s vps(%s) adc(0x%02x) ret(%c)\n", MUIC_DEV_NAME, __func__,
-						tmp_vps->vps_name, adc,
-						ret ? 'T' : 'F');
+	if (debug_en_vps) {
+		pr_info("%s:%s vps(%s) adc(0x%02x) ret(%c)\n",
+				MUIC_DEV_NAME, __func__, tmp_vps->vps_name,
+				adc, ret ? 'T' : 'F');
+	}
+
 	return ret;
 }
 
@@ -1288,9 +1767,12 @@ static bool muic_check_vps_vbvolt
 		ret = true;
 
 out:
-	pr_info("%s:%s vps(%s) vbvolt(0x%02x) ret(%c)\n", MUIC_DEV_NAME, __func__,
-						tmp_vps->vps_name, vbvolt,
-						ret ? 'T' : 'F');
+	if (debug_en_vps) {
+		pr_info("%s:%s vps(%s) vbvolt(0x%02x) ret(%c)\n",
+				MUIC_DEV_NAME, __func__, tmp_vps->vps_name,
+				vbvolt, ret ? 'T' : 'F');
+	}
+
 	return ret;
 }
 
@@ -1308,9 +1790,12 @@ static bool muic_check_vps_chgdetrun
 		ret = true;
 
 out:
-	pr_info("%s:%s vps(%s) chgdetrun(0x%02x) ret(%c)\n", MUIC_DEV_NAME, __func__,
-						tmp_vps->vps_name, chgdetrun,
-						ret ? 'T' : 'F');
+	if (debug_en_vps) {
+		pr_info("%s:%s vps(%s) chgdetrun(0x%02x) ret(%c)\n",
+				MUIC_DEV_NAME, __func__, tmp_vps->vps_name,
+				chgdetrun, ret ? 'T' : 'F');
+	}
+
 	return ret;
 }
 
@@ -1322,6 +1807,17 @@ static bool muic_check_vps_chgtyp
 	if (tmp_vps->chgtyp == chgtyp) {
 		ret = true;
 		goto out;
+	}
+
+	if (tmp_vps->chgtyp == CHGTYP_UNOFFICIAL_CHARGER) {
+		switch (chgtyp) {
+		case CHGTYP_500MA:
+		case CHGTYP_1A:
+			ret = true;
+			goto out;
+		default:
+			break;
+		}
 	}
 
 	if (tmp_vps->chgtyp == CHGTYP_ANY) {
@@ -1342,11 +1838,101 @@ static bool muic_check_vps_chgtyp
 		ret = true;
 
 out:
-	pr_info("%s:%s vps(%s) chgtyp(0x%02x) ret(%c)\n", MUIC_DEV_NAME, __func__,
-						tmp_vps->vps_name, chgtyp,
-						ret ? 'T' : 'F');
+	if (debug_en_vps) {
+		pr_info("%s:%s vps(%s) chgtyp(0x%02x) ret(%c)\n",
+				MUIC_DEV_NAME, __func__, tmp_vps->vps_name,
+				chgtyp, ret ? 'T' : 'F');
+	}
+
 	return ret;
 }
+
+static bool muic_check_otg_test(struct max77888_muic_data *muic_data)
+{
+	bool ret = false;
+
+	if (muic_data->is_otg_test) {
+		if (muic_check_support_dev(muic_data, ATTACHED_DEV_OTG_MUIC))
+			ret = true;
+		else
+			pr_info("%s:%s Not support 'OTG'\n", MUIC_DEV_NAME, __func__);
+	}
+
+	pr_info("%s:%s [%c]\n", MUIC_DEV_NAME, __func__, ret ? 'T':'F');
+
+	return ret;
+}
+
+static muic_attached_dev_t muic_get_new_dev
+	(struct max77888_muic_data *muic_data, muic_attached_dev_t new_dev)
+{
+	muic_attached_dev_t tmp_dev = new_dev;
+
+	if (new_dev == ATTACHED_DEV_JIG_UART_OFF_VB_MUIC) {
+		if(muic_check_otg_test(muic_data))
+			tmp_dev = ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC;
+		else
+			tmp_dev = ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC;
+
+		pr_info("%s:%s new_dev(%d), is_otg_test[%c]\n", MUIC_DEV_NAME,
+			__func__, tmp_dev, muic_data->is_otg_test ? 'T' : 'F');
+	}
+
+	return tmp_dev;
+}
+
+static muic_attached_dev_t muic_check_lanhub
+	(struct max77888_muic_data *muic_data, muic_attached_dev_t new_dev)
+{
+	muic_attached_dev_t tmp_dev = new_dev;
+
+	if (new_dev == ATTACHED_DEV_USB_MUIC) {
+	    if (muic_data->attached_dev == ATTACHED_DEV_USB_LANHUB_MUIC)
+			tmp_dev = ATTACHED_DEV_USB_LANHUB_MUIC;
+			pr_info("%s:%s Wrong recognize, Duplicated Lanhub",
+				MUIC_DEV_NAME,__func__);
+	}
+
+	return tmp_dev;
+}
+
+#if !defined(CONFIG_SEC_FACTORY)
+static bool is_need_muic_adcmode_continuous(muic_attached_dev_t new_dev)
+{
+	bool ret = false;
+
+	switch (new_dev) {
+	case ATTACHED_DEV_OTG_MUIC:
+	case ATTACHED_DEV_USB_LANHUB_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_VB_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
+		ret = true;
+		break;
+	default:
+		break;
+	}
+
+	pr_info("%s:%s (%d)%c\n", MUIC_DEV_NAME, __func__, new_dev,
+			ret ? 'T' : 'F');
+
+	return ret;
+}
+
+static bool is_need_muic_adcmode_2s_pulse(struct max77888_muic_data *muic_data)
+{
+	u8 adc = muic_data->status1 & STATUS1_ADC_MASK;
+	bool ret = false;
+
+	if (adc == ADC_JIG_UART_OFF)
+		ret = true;
+
+	pr_info("%s:%s ADC:0x%x (%c)\n", MUIC_DEV_NAME, __func__, adc, ret ? 'T' : 'F');
+
+	return ret;
+}
+#endif /* !CONFIG_SEC_FACTORY */
 
 static void max77888_muic_detect_dev(struct max77888_muic_data *muic_data, int irq)
 {
@@ -1369,6 +1955,10 @@ static void max77888_muic_detect_dev(struct max77888_muic_data *muic_data, int i
 	pr_info("%s:%s STATUS1:0x%02x, 2:0x%02x\n", MUIC_DEV_NAME, __func__,
 			status[0], status[1]);
 
+	/* attached status */
+	muic_data->status1 = status[0];
+	muic_data->status2 = status[1];
+
 	adc1k = status[0] & STATUS1_ADC1K_MASK;
 	adcerr = status[0] & STATUS1_ADCERR_MASK;
 	adc = status[0] & STATUS1_ADC_MASK;
@@ -1376,9 +1966,9 @@ static void max77888_muic_detect_dev(struct max77888_muic_data *muic_data, int i
 	chgdetrun = status[1] & STATUS2_CHGDETRUN_MASK;
 	chgtyp = status[1] & STATUS2_CHGTYP_MASK;
 
-	pr_info("%s:%s adc1k:0x%x adcerr:0x%x adc:0x%x vb:0x%x chgdetrun:0x%x chgtyp:0x%x\n",
-			MUIC_DEV_NAME, __func__, adc1k, adcerr,
-			adc, vbvolt, chgdetrun, chgtyp);
+	pr_info("%s:%s adc1k:0x%x adcerr:0x%x[%c] adc:0x%x vb:0x%x chgdetrun:0x%x"
+		" chgtyp:0x%x\n", MUIC_DEV_NAME, __func__, adc1k, adcerr,
+		(muic_data->ignore_adcerr ? 'T' : 'F'), adc, vbvolt, chgdetrun, chgtyp);
 
 	/* Workaround for Factory mode.
 	 * Abandon adc interrupt of approximately +-100K range
@@ -1387,8 +1977,10 @@ static void max77888_muic_detect_dev(struct max77888_muic_data *muic_data, int i
 	if (muic_data->attached_dev == ATTACHED_DEV_JIG_UART_OFF_MUIC) {
 		if ((adc == (ADC_JIG_UART_OFF + 1)) ||
 				(adc == (ADC_JIG_UART_OFF - 1))) {
-			pr_warn("%s:%s abandon ADC\n", MUIC_DEV_NAME, __func__);
-			return;
+			if (!muic_data->is_factory_start || adc != ADC_JIG_UART_ON) {
+				pr_warn("%s:%s abandon ADC\n", MUIC_DEV_NAME, __func__);
+				return;
+			}
 		}
 	}
 
@@ -1413,28 +2005,92 @@ static void max77888_muic_detect_dev(struct max77888_muic_data *muic_data, int i
 		if (!(muic_check_vps_chgtyp(tmp_vps, chgtyp)))
 			continue;
 
-		if (!(muic_check_support_dev(muic_data, tmp_vps->attached_dev)))
+		if (!(muic_check_support_dev(muic_data, tmp_vps->attached_dev))) {
+			if (vbvolt == VB_HIGH) {
+				new_dev = ATTACHED_DEV_UNSUPPORTED_ID_VB_MUIC;
+				intr = MUIC_INTR_ATTACH;
+				pr_info("%s:%s unsupported ID + VB\n", MUIC_DEV_NAME, __func__);
+			}
 			break;
+		}
 
 		pr_info("%s:%s vps table match found at i(%d), %s\n",
 				MUIC_DEV_NAME, __func__, i, tmp_vps->vps_name);
 
 		new_dev = tmp_vps->attached_dev;
 
+		/* check a muic device type - JIG_UART_OFF_VB */
+		new_dev = muic_get_new_dev(muic_data, new_dev);
+
+		/* check a muic device type -
+			Sometimes, The Muic recognize a lanhub as an usb.*/
+		new_dev = muic_check_lanhub(muic_data, new_dev);
+
 		intr = MUIC_INTR_ATTACH;
 		break;
 	}
 
+	pr_info("%s:%s %d->%d\n", MUIC_DEV_NAME, __func__, muic_data->attached_dev,
+							new_dev);
+
+#if !defined(CONFIG_SEC_FACTORY)
+	if (is_need_muic_adcmode_continuous(new_dev)) {
+		/* ADC Mode switch to the Continuous Mode */
+		max77888_muic_set_adcmode_always(muic_data);
+	} else if (is_need_muic_adcmode_2s_pulse(muic_data)) {
+		/* ADC Mode switch to the 2s Pulse Mode */
+		max77888_muic_set_adcmode_2s_pulse(muic_data);
+	} else {
+		/* ADC Mode restore to the One Shot Mode */
+		max77888_muic_set_adcmode_oneshot(muic_data);
+	}
+#endif /* CONFIG_SEC_FACTORY */
+
 	if (intr == MUIC_INTR_ATTACH) {
 		pr_info("%s:%s ATTACHED\n", MUIC_DEV_NAME, __func__);
-		max77888_muic_handle_attach(muic_data, new_dev);
+		ret = max77888_muic_handle_attach(muic_data, new_dev);
+		if (ret)
+			pr_err("%s:%s cannot handle attach(%d)\n", MUIC_DEV_NAME,
+								__func__, ret);
 	} else {
 		pr_info("%s:%s DETACHED\n", MUIC_DEV_NAME, __func__);
-		max77888_muic_handle_detach(muic_data);
+		ret = max77888_muic_handle_detach(muic_data);
+		if (ret)
+			pr_err("%s:%s cannot handle detach(%d)\n", MUIC_DEV_NAME,
+								__func__, ret);
 	}
 
 	return;
 }
+
+#if !defined(CONFIG_SEC_FACTORY)
+void max77888_muic_set_path_suspend(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+	int ret;
+
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_CTRL1, &muic_pdata.path_status);
+	ret = max77888_muic_update_reg(i2c, MAX77888_MUIC_REG_CTRL1, CTRL1_OPEN,
+					0xff, true);
+	if (ret)
+		pr_warn("%s:%s cannot back 'muic control1 register' up [%d]\n",
+				MUIC_DEV_NAME, __func__, ret);
+	return;
+}
+
+void max77888_muic_set_path_resume(struct device *dev)
+{
+	struct i2c_client *i2c = container_of(dev, struct i2c_client, dev);
+	int ret;
+
+	ret = max77888_muic_update_reg(i2c, MAX77888_MUIC_REG_CTRL1,
+					muic_pdata.path_status, 0xff, true);
+	if (ret)
+		pr_warn("%s:%s cannot recover the muic control1 register [%d]\n",
+				MUIC_DEV_NAME, __func__, ret);
+	return;
+}
+#endif /* CONFIG_SEC_FACTORY */
 
 static irqreturn_t max77888_muic_irq(int irq, void *data)
 {
@@ -1473,6 +2129,9 @@ static int max77888_muic_irq_init(struct max77888_muic_data *muic_data)
 		int irq_base = muic_data->mfd_pdata->irq_base;
 
 		/* request MUIC IRQ */
+		muic_data->irq_adc1k = irq_base + MAX77888_MUIC_IRQ_INT1_ADC1K;
+		REQUEST_IRQ(muic_data->irq_adc1k, muic_data, "muic-adc1k");
+
 		muic_data->irq_adcerr = irq_base + MAX77888_MUIC_IRQ_INT1_ADCERR;
 		REQUEST_IRQ(muic_data->irq_adcerr, muic_data, "muic-adcerr");
 
@@ -1484,13 +2143,13 @@ static int max77888_muic_irq_init(struct max77888_muic_data *muic_data)
 
 		muic_data->irq_vbvolt = irq_base + MAX77888_MUIC_IRQ_INT2_VBVOLT;
 		REQUEST_IRQ(muic_data->irq_vbvolt, muic_data, "muic-vbvolt");
+
 	}
 
-	pr_info("%s:%s adcerr(%d), adc(%d), chgtyp(%d), vbvolt(%d)\n",
-			MUIC_DEV_NAME, __func__, muic_data->irq_adcerr,
-			muic_data->irq_adc, muic_data->irq_chgtyp,
-			muic_data->irq_vbvolt);
-
+	pr_info("%s:%s adc1k(%d), adcerr(%d), adc(%d), chgtyp(%d), vbvolt(%d)\n",
+			MUIC_DEV_NAME, __func__, muic_data->irq_adc1k,
+			muic_data->irq_adcerr, muic_data->irq_adc,
+			muic_data->irq_chgtyp, muic_data->irq_vbvolt);
 	return ret;
 }
 
@@ -1512,6 +2171,7 @@ static void max77888_muic_free_irqs(struct max77888_muic_data *muic_data)
 	FREE_IRQ(muic_data->irq_chgtyp, muic_data, "muic-chgtyp");
 	FREE_IRQ(muic_data->irq_adc, muic_data, "muic-adc");
 	FREE_IRQ(muic_data->irq_adcerr, muic_data, "muic-adcerr");
+	FREE_IRQ(muic_data->irq_adc1k, muic_data, "muic-adc1k");
 }
 
 #define CHECK_GPIO(_gpio, _name)					\
@@ -1533,6 +2193,7 @@ static void max77888_muic_init_detect(struct max77888_muic_data *muic_data)
 	muic_data->is_muic_ready = true;
 
 	max77888_muic_detect_dev(muic_data, -1);
+
 	mutex_unlock(&muic_data->muic_mutex);
 }
 
@@ -1547,6 +2208,11 @@ static int of_max77888_muic_dt(struct max77888_muic_data *muic_data)
 	np_muic = of_find_node_by_path("/muic");
 	if (np_muic == NULL)
 		return -EINVAL;
+
+	muic_data->rustproof_inbat = of_property_read_bool(np_muic,
+						"muic,rustproof_inbattery");
+	pr_info("%s:%s muic support rustproof_inbattery path switching [%c]\n",
+		MUIC_DEV_NAME, __func__, (muic_data->rustproof_inbat ? 'T' : 'F'));
 
 	prop_num = of_property_count_strings(np_muic, "muic,support-list");
 	if (prop_num < 0) {
@@ -1590,14 +2256,118 @@ err:
 }
 #endif /* CONFIG_OF */
 
+static void max77888_muic_clear_interrupt(struct max77888_muic_data *muic_data)
+{
+	struct i2c_client *i2c = muic_data->i2c;
+	u8 interrupt1, interrupt2;
+	int ret;
+
+	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
+
+	ret = max77888_read_reg(i2c, MAX77888_MUIC_REG_INT1, &interrupt1);
+	if (ret)
+		pr_err("%s:%s fail to read muic INT1 reg(%d)\n", MUIC_DEV_NAME, __func__, ret);
+
+	ret = max77888_read_reg(i2c, MAX77888_MUIC_REG_INT2, &interrupt2);
+	if (ret)
+		pr_err("%s:%s fail to read muic INT2 reg(%d)\n", MUIC_DEV_NAME, __func__, ret);
+
+	pr_info("%s:%s CLEAR!! INT1:0x%02x, 2:0x%02x\n", MUIC_DEV_NAME,
+				__func__, interrupt1, interrupt2);
+}
+
+/* WA for MUIC RESET */
+/* Default value from Bootloader */
+static void max77888_store_init_reg_status(struct max77888_muic_data *muic_data)
+{
+	const enum max77888_muic_reg reg_list[] = {
+		/* related with OTG test */
+		MAX77888_MUIC_REG_CDETCTRL1,
+		/* not updated in here */
+		//MAX77888_MUIC_REG_CDETCTRL2,
+		/* related with path */
+		MAX77888_MUIC_REG_CTRL1,
+		/* related with CPEn */
+		MAX77888_MUIC_REG_CTRL2,
+		/* related with JIGSET (FLED) */
+		//MAX77888_MUIC_REG_CTRL3,
+		/* related with ADC mode and ADCDbset */
+		MAX77888_MUIC_REG_CTRL4,
+	};
+	int i;
+	u8 value;
+
+	pr_info("func:%s\n", __func__);
+
+	for (i = 0; i < ARRAY_SIZE(reg_list); i++) {
+		max77888_read_reg(muic_data->i2c, reg_list[i], &value);
+		max77888_write_reg(muic_data->i2c, reg_list[i], value);
+		pr_info("func:%s, reg 0x%02x, val 0x%02x\n", __func__, reg_list[i], value);
+	}
+}
+
+void max77888_muic_reg_restore(struct work_struct *work)
+{
+	struct max77888_dev *max77888 =
+		container_of(work, struct max77888_dev, muic_reset_dwork.work);
+
+	if (_max77888_muic_reg_restore(max77888->muic) < 0) {
+		schedule_delayed_work(&max77888->muic_reset_dwork, HZ);
+	}
+}
+/* WA for MUIC RESET */
+
+#if defined(CONFIG_LEDS_MAX77888)
+/*
+* func: max77888_muic_set_jigset
+* arg: Manual control
+* (bit[1:0] 00=Auto detection, 01=Output Low, 10(or 11)=Hi-Impedance)
+* return: only 0 success
+*/
+int max77888_muic_set_jigset(struct i2c_client *i2c, int reg_value)
+{
+	u8 cntl3_val;
+	int ret;
+
+	pr_info("%s reg_value(0x%2x)", __func__, reg_value);
+
+	if( i2c==NULL ) {
+		pr_err("%s : muic i2c is null", __func__);
+		return 0;
+	}
+
+	ret = max77888_update_reg(i2c, MAX77888_MUIC_REG_CTRL3,
+			reg_value << CTRL3_JIGSET_SHIFT, CTRL3_JIGSET_MASK);
+	if (ret) {
+		pr_err("%s: fail to update muic CTRL3 reg(%d)\n",
+			__func__, ret);
+	}
+	max77888_read_reg(i2c, MAX77888_MUIC_REG_CTRL3, &cntl3_val);
+	pr_info("%s: CNTL3(0x0E : 0x%02x)\n", __func__, cntl3_val);
+
+	return ret;
+}
+#endif
+
 static int max77888_muic_init_regs(struct max77888_muic_data *muic_data)
 {
 	int ret;
 
 	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
 
+	max77888_muic_clear_interrupt(muic_data);
+
 	/* Set ADC debounce time: 25ms */
 	max77888_muic_set_adcdbset(muic_data, 2);
+
+#if defined(CONFIG_SEC_FACTORY)
+	/* ADC Mode switch to the Continuous Mode */
+	max77888_muic_set_adcmode_always(muic_data);
+#endif /* CONFIG_SEC_FACTORY */
+
+/* WA for MUIC RESET */
+	max77888_store_init_reg_status(muic_data);
+/* WA for MUIC RESET */
 
 	ret = max77888_muic_irq_init(muic_data);
 	if (ret < 0) {
@@ -1634,10 +2404,17 @@ static int max77888_muic_probe(struct platform_device *pdev)
 #if defined(CONFIG_OF)
 	ret = of_max77888_muic_dt(muic_data);
 	if (ret < 0) {
-		pr_err("%s:%s not found muic dt! ret[%d]\n",
-				MUIC_DEV_NAME, __func__, ret);
+		pr_err("%s:%s not found muic dt! ret[%d]\n", MUIC_DEV_NAME, __func__, ret);
 	}
 #endif /* CONFIG_OF */
+
+#if !defined(CONFIG_SEC_FACTORY)
+	if (muic_data->rustproof_inbat) {
+		muic_pdata.set_path_switch_suspend = max77888_muic_set_path_suspend;
+		muic_pdata.set_path_switch_resume = max77888_muic_set_path_resume;
+	}
+	mfd_pdata->muic_pdata = &muic_pdata;
+#endif /* !CONFIG_SEC_FACTORY */
 
 	muic_data->dev = &pdev->dev;
 	mutex_init(&muic_data->muic_mutex);
@@ -1646,6 +2423,9 @@ static int max77888_muic_probe(struct platform_device *pdev)
 	muic_data->pdata = &muic_pdata;
 	muic_data->attached_dev = ATTACHED_DEV_UNKNOWN_MUIC;
 	muic_data->is_muic_ready = false;
+	muic_data->is_otg_test = false;
+	muic_data->is_factory_start = false;
+	muic_data->ignore_adcerr = false;
 
 	platform_set_drvdata(pdev, muic_data);
 
@@ -1751,14 +2531,11 @@ void max77888_muic_shutdown(struct device *dev)
 	pr_info("%s:%s max77888->i2c_lock.count.counter=%d\n", MUIC_DEV_NAME,
 		__func__, max77888->i2c_lock.count.counter);
 
-	pr_info("%s:%s JIGSet: auto detection\n", MUIC_DEV_NAME, __func__);
-	val = (MAX77888_DISABLE_BIT << CTRL3_JIGSET_SHIFT) | \
-		(MAX77888_DISABLE_BIT << CTRL3_BOOTSET_SHIFT);
-
-	ret = max77888_muic_update_reg(i2c, MAX77888_MUIC_REG_CTRL3, val,
-			CTRL3_JIGSET_MASK | CTRL3_BOOTSET_MASK, true);
+	ret = max77888_read_reg(i2c, MAX77888_MUIC_REG_CTRL3, &val);
 	if (ret < 0)
 		pr_err("%s:%s fail to update reg\n", MUIC_DEV_NAME, __func__);
+
+	pr_info("%s:%s CTRL3: 0x%02x\n", MUIC_DEV_NAME, __func__, val);
 
 out_cleanup:
 	if (muic_data->pdata && muic_data->pdata->cleanup_switch_dev_cb)
@@ -1771,11 +2548,75 @@ out:
 	pr_info("%s:%s -\n", MUIC_DEV_NAME, __func__);
 }
 
+#if defined(CONFIG_PM)
+static int max77888_muic_suspend(struct device *dev)
+{
+#if !defined(CONFIG_SEC_FACTORY)
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+	struct i2c_client *i2c = muic_data->i2c;
+
+	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
+
+	if (muic_data->rustproof_inbat) {
+		int ret;
+		max77888_read_reg(i2c, MAX77888_MUIC_REG_CTRL1,
+					&muic_data->path_status);
+		ret = max77888_muic_update_reg(i2c, MAX77888_MUIC_REG_CTRL1,
+						CTRL1_OPEN, 0xff, true);
+		if (ret)
+			pr_warn("%s:%s cannot back 'muic ctrl1 reg' up [%d]\n",
+					MUIC_DEV_NAME, __func__, ret);
+	} else {
+		pr_info("%s:%s not support rustproof_inbat[%c]\n",
+				MUIC_DEV_NAME, __func__,
+				muic_data->rustproof_inbat ? 'T' : 'F');
+	}
+#endif /* !CONFIG_SEC_FACTORY */
+
+	return 0;
+}
+
+static int max77888_muic_resume(struct device *dev)
+{
+#if !defined(CONFIG_SEC_FACTORY)
+	struct max77888_muic_data *muic_data = dev_get_drvdata(dev);
+	struct i2c_client *i2c = muic_data->i2c;
+
+	pr_info("%s:%s\n", MUIC_DEV_NAME, __func__);
+
+	if (muic_data->rustproof_inbat) {
+		int ret;
+		ret = max77888_muic_update_reg(i2c, MAX77888_MUIC_REG_CTRL1,
+					muic_data->path_status, 0xff, true);
+		if (ret)
+			pr_warn("%s:%s cannot recover the muic ctrl1 reg[%d]\n",
+					MUIC_DEV_NAME, __func__, ret);
+	} else {
+		pr_info("%s:%s not support rustproof_inbat[%c]\n",
+				MUIC_DEV_NAME, __func__,
+				muic_data->rustproof_inbat ? 'T' : 'F');
+	}
+#endif /* !CONFIG_SEC_FACTORY */
+
+	return 0;
+}
+#endif /* CONFIG_PM */
+
+#if defined(CONFIG_PM)
+const struct dev_pm_ops max77888_muic_pm = {
+	.suspend = max77888_muic_suspend,
+	.resume = max77888_muic_resume,
+};
+#endif /* CONFIG_PM */
+
 static struct platform_driver max77888_muic_driver = {
 	.driver		= {
 		.name	= MUIC_DEV_NAME,
 		.owner	= THIS_MODULE,
 		.shutdown = max77888_muic_shutdown,
+#if defined(CONFIG_PM)
+		.pm	= &max77888_muic_pm,
+#endif /* CONFIG_PM */
 	},
 	.probe		= max77888_muic_probe,
 	.remove		= max77888_muic_remove,
@@ -1796,5 +2637,5 @@ static void __exit max77888_muic_exit(void)
 module_exit(max77888_muic_exit);
 
 MODULE_DESCRIPTION("Maxim MAX77888 MUIC driver");
-MODULE_AUTHOR("SeoYoung Jeong <seo0.jeong@samsung.com>");
+MODULE_AUTHOR("<seo0.jeong@samsung.com>");
 MODULE_LICENSE("GPL");

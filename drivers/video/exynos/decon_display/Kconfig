@@ -6,6 +6,11 @@ menuconfig EXYNOS_DECON
 	select S5P_DEV_MIPI_DSIM0
 	depends on FB
 
+config USE_VSYNC_SKIP
+	bool "Vsync Skip Enable"
+	depends on EXYNOS_DECON
+	default n
+
 config EXYNOS_DECON_DISPLAY
 	bool "Samsung DECON Framebuffer driver"
 	depends on EXYNOS_DECON
@@ -49,6 +54,16 @@ config FB_I80_SW_TRIGGER
 config FB_WINDOW_UPDATE
 	bool "DECON window update mode"
 	depends on FB_I80_COMMAND_MODE && EXYNOS_DECON
+	default n
+
+config FB_WINDOW_UPDATE_EN
+	bool "DECON window update mode enable"
+	depends on FB_I80_COMMAND_MODE && EXYNOS_DECON && FB_WINDOW_UPDATE
+	default n
+
+config FB_DSU
+	bool "DECON DSU mode"
+	depends on FB_I80_COMMAND_MODE && EXYNOS_DECON && FB_WINDOW_UPDATE
 	default n
 
 config FB_HIBERNATION_DISPLAY

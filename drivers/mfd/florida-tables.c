@@ -340,11 +340,11 @@ static const struct regmap_irq florida_irqs[ARIZONA_NUM_IRQ] = {
 		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ1_EINT1
 	},
 
-	[ARIZONA_IRQ_SPK_SHUTDOWN_WARN] = {
-		.reg_offset = 2, .mask = ARIZONA_SPK_SHUTDOWN_WARN_EINT1
+	[ARIZONA_IRQ_SPK_OVERHEAT_WARN] = {
+		.reg_offset = 2, .mask = ARIZONA_SPK_OVERHEAT_WARN_EINT1
 	},
-	[ARIZONA_IRQ_SPK_SHUTDOWN] = {
-		.reg_offset = 2, .mask = ARIZONA_SPK_SHUTDOWN_EINT1
+	[ARIZONA_IRQ_SPK_OVERHEAT] = {
+		.reg_offset = 2, .mask = ARIZONA_SPK_OVERHEAT_EINT1
 	},
 	[ARIZONA_IRQ_HPDET] = {
 		.reg_offset = 2, .mask = ARIZONA_HPDET_EINT1
@@ -416,15 +416,27 @@ static const struct regmap_irq florida_irqs[ARIZONA_NUM_IRQ] = {
 	[ARIZONA_IRQ_ISRC2_CFG_ERR] = {
 		.reg_offset = 3, .mask = ARIZONA_ISRC2_CFG_ERR_EINT1
 	},
+	[ARIZONA_IRQ_HP3R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP3R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP3L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP3L_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP2R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP2R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP2L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP2L_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP1R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP1R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP1L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP1L_DONE_EINT1
+	},
 
 	[ARIZONA_IRQ_BOOT_DONE] = {
 		.reg_offset = 4, .mask = ARIZONA_BOOT_DONE_EINT1
-	},
-	[ARIZONA_IRQ_DCS_DAC_DONE] = {
-		.reg_offset = 4, .mask = ARIZONA_DCS_DAC_DONE_EINT1
-	},
-	[ARIZONA_IRQ_DCS_HP_DONE] = {
-		.reg_offset = 4, .mask = ARIZONA_DCS_HP_DONE_EINT1
 	},
 	[ARIZONA_IRQ_FLL2_CLOCK_OK] = {
 		.reg_offset = 4, .mask = ARIZONA_FLL2_CLOCK_OK_EINT1
@@ -444,6 +456,209 @@ const struct regmap_irq_chip florida_irq = {
 	.num_irqs = ARRAY_SIZE(florida_irqs),
 };
 EXPORT_SYMBOL_GPL(florida_irq);
+
+static const struct regmap_irq florida_revd_irqs[ARIZONA_NUM_IRQ] = {
+	[ARIZONA_IRQ_GP4] = { .reg_offset = 0, .mask = ARIZONA_GP4_EINT1 },
+	[ARIZONA_IRQ_GP3] = { .reg_offset = 0, .mask = ARIZONA_GP3_EINT1 },
+	[ARIZONA_IRQ_GP2] = { .reg_offset = 0, .mask = ARIZONA_GP2_EINT1 },
+	[ARIZONA_IRQ_GP1] = { .reg_offset = 0, .mask = ARIZONA_GP1_EINT1 },
+
+	[ARIZONA_IRQ_DSP4_RAM_RDY] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP4_RAM_RDY_EINT1
+	},
+	[ARIZONA_IRQ_DSP3_RAM_RDY] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP3_RAM_RDY_EINT1
+	},
+	[ARIZONA_IRQ_DSP2_RAM_RDY] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP2_RAM_RDY_EINT1
+	},
+	[ARIZONA_IRQ_DSP1_RAM_RDY] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP1_RAM_RDY_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ8] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ8_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ7] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ7_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ6] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ6_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ5] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ5_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ4] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ4_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ3] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ3_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ2] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ2_EINT1
+	},
+	[ARIZONA_IRQ_DSP_IRQ1] = {
+		.reg_offset = 1, .mask = ARIZONA_DSP_IRQ1_EINT1
+	},
+
+	[ARIZONA_IRQ_SPK_OVERHEAT_WARN] = {
+		.reg_offset = 2, .mask = ARIZONA_SPK_OVERHEAT_WARN_EINT1
+	},
+	[ARIZONA_IRQ_SPK_OVERHEAT] = {
+		.reg_offset = 2, .mask = ARIZONA_SPK_OVERHEAT_EINT1
+	},
+	[ARIZONA_IRQ_HPDET] = {
+		.reg_offset = 2, .mask = ARIZONA_HPDET_EINT1
+	},
+	[ARIZONA_IRQ_MICDET] = {
+		.reg_offset = 2, .mask = ARIZONA_MICDET_EINT1
+	},
+	[ARIZONA_IRQ_WSEQ_DONE] = {
+		.reg_offset = 2, .mask = ARIZONA_WSEQ_DONE_EINT1
+	},
+	[ARIZONA_IRQ_DRC2_SIG_DET] = {
+		.reg_offset = 2, .mask = ARIZONA_DRC2_SIG_DET_EINT1
+	},
+	[ARIZONA_IRQ_DRC1_SIG_DET] = {
+		.reg_offset = 2, .mask = ARIZONA_DRC1_SIG_DET_EINT1
+	},
+	[ARIZONA_IRQ_ASRC2_LOCK] = {
+		.reg_offset = 2, .mask = ARIZONA_ASRC2_LOCK_EINT1
+	},
+	[ARIZONA_IRQ_ASRC1_LOCK] = {
+		.reg_offset = 2, .mask = ARIZONA_ASRC1_LOCK_EINT1
+	},
+	[ARIZONA_IRQ_UNDERCLOCKED] = {
+		.reg_offset = 2, .mask = ARIZONA_UNDERCLOCKED_EINT1
+	},
+	[ARIZONA_IRQ_OVERCLOCKED] = {
+		.reg_offset = 2, .mask = ARIZONA_OVERCLOCKED_EINT1
+	},
+	[ARIZONA_IRQ_FLL2_LOCK] = {
+		.reg_offset = 2, .mask = ARIZONA_FLL2_LOCK_EINT1
+	},
+	[ARIZONA_IRQ_FLL1_LOCK] = {
+		.reg_offset = 2, .mask = ARIZONA_FLL1_LOCK_EINT1
+	},
+	[ARIZONA_IRQ_CLKGEN_ERR] = {
+		.reg_offset = 2, .mask = ARIZONA_CLKGEN_ERR_EINT1
+	},
+	[ARIZONA_IRQ_CLKGEN_ERR_ASYNC] = {
+		.reg_offset = 2, .mask = ARIZONA_CLKGEN_ERR_ASYNC_EINT1
+	},
+
+	[ARIZONA_IRQ_CTRLIF_ERR] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_CTRLIF_ERR_EINT1
+	},
+	[ARIZONA_IRQ_MIXER_DROPPED_SAMPLES] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_MIXER_DROPPED_SAMPLE_EINT1
+	},
+	[ARIZONA_IRQ_ASYNC_CLK_ENA_LOW] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_ASYNC_CLK_ENA_LOW_EINT1
+	},
+	[ARIZONA_IRQ_SYSCLK_ENA_LOW] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_SYSCLK_ENA_LOW_EINT1
+	},
+	[ARIZONA_IRQ_ISRC1_CFG_ERR] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_ISRC1_CFG_ERR_EINT1
+	},
+	[ARIZONA_IRQ_ISRC2_CFG_ERR] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_ISRC2_CFG_ERR_EINT1
+	},
+	[ARIZONA_IRQ_ISRC3_CFG_ERR] = {
+		.reg_offset = 3, .mask = ARIZONA_V2_ISRC3_CFG_ERR_EINT1
+	},
+	[ARIZONA_IRQ_HP3R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP3R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP3L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP3L_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP2R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP2R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP2L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP2L_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP1R_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP1R_DONE_EINT1
+	},
+	[ARIZONA_IRQ_HP1L_DONE] = {
+		.reg_offset = 3, .mask = ARIZONA_HP1L_DONE_EINT1
+	},
+
+	[ARIZONA_IRQ_BOOT_DONE] = {
+		.reg_offset = 4, .mask = ARIZONA_BOOT_DONE_EINT1
+	},
+	[ARIZONA_IRQ_ASRC_CFG_ERR] = {
+		.reg_offset = 4, .mask = ARIZONA_V2_ASRC_CFG_ERR_EINT1
+	},
+	[ARIZONA_IRQ_FLL2_CLOCK_OK] = {
+		.reg_offset = 4, .mask = ARIZONA_FLL2_CLOCK_OK_EINT1
+	},
+	[ARIZONA_IRQ_FLL1_CLOCK_OK] = {
+		.reg_offset = 4, .mask = ARIZONA_FLL1_CLOCK_OK_EINT1
+	},
+
+	[ARIZONA_IRQ_DSP_SHARED_WR_COLL] = {
+		.reg_offset = 5, .mask = ARIZONA_DSP_SHARED_WR_COLL_EINT1
+	},
+	[ARIZONA_IRQ_SPK_SHUTDOWN] = {
+		.reg_offset = 5, .mask = ARIZONA_SPK_SHUTDOWN_EINT1
+	},
+	[ARIZONA_IRQ_SPK1R_SHORT] = {
+		.reg_offset = 5, .mask = ARIZONA_SPK1R_SHORT_EINT1
+	},
+	[ARIZONA_IRQ_SPK1L_SHORT] = {
+		.reg_offset = 5, .mask = ARIZONA_SPK1L_SHORT_EINT1
+	},
+	[ARIZONA_IRQ_HP3R_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP3R_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP3R_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP3R_SC_POS_EINT1
+	},
+	[ARIZONA_IRQ_HP3L_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP3L_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP3L_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP3L_SC_POS_EINT1
+	},
+	[ARIZONA_IRQ_HP2R_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP2R_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP2R_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP2R_SC_POS_EINT1
+	},
+	[ARIZONA_IRQ_HP2L_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP2L_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP2L_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP2L_SC_POS_EINT1
+	},
+	[ARIZONA_IRQ_HP1R_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP1R_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP1R_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP1R_SC_POS_EINT1
+	},
+	[ARIZONA_IRQ_HP1L_SC_NEG] = {
+		.reg_offset = 5, .mask = ARIZONA_HP1L_SC_NEG_EINT1
+	},
+	[ARIZONA_IRQ_HP1L_SC_POS] = {
+		.reg_offset = 5, .mask = ARIZONA_HP1L_SC_POS_EINT1
+	},
+};
+
+const struct regmap_irq_chip florida_revd_irq = {
+	.name = "florida IRQ",
+	.status_base = ARIZONA_INTERRUPT_STATUS_1,
+	.mask_base = ARIZONA_INTERRUPT_STATUS_1_MASK,
+	.ack_base = ARIZONA_INTERRUPT_STATUS_1,
+	.num_regs = 6,
+	.irqs = florida_revd_irqs,
+	.num_irqs = ARRAY_SIZE(florida_revd_irqs),
+};
+EXPORT_SYMBOL_GPL(florida_revd_irq);
 
 static const struct reg_default florida_reg_default[] = {
 	{ 0x00000008, 0x0019 },    /* R8     - Ctrl IF SPI CFG 1 */
@@ -551,7 +766,6 @@ static const struct reg_default florida_reg_default[] = {
 	{ 0x000002A7, 0x372C },    /* R679   - Mic Detect Level 2 */
 	{ 0x000002A8, 0x1422 },    /* R680   - Mic Detect Level 3 */
 	{ 0x000002A9, 0x300A },    /* R681   - Mic Detect Level 4 */
-	{ 0x000002AB, 0x0000 },    /* R683   - Mic Detect 4 */
 	{ 0x000002C3, 0x0000 },    /* R707   - Mic noise mix control 1 */
 	{ 0x000002CB, 0x0000 },    /* R715   - Isolation control */
 	{ 0x000002D3, 0x0000 },    /* R723   - Jack detect analogue */
@@ -1309,12 +1523,14 @@ static const struct reg_default florida_reg_default[] = {
 	{ 0x00000D0A, 0xFFFF },    /* R3338  - Interrupt Status 3 Mask */
 	{ 0x00000D0B, 0xFFFF },    /* R3339  - Interrupt Status 4 Mask */
 	{ 0x00000D0C, 0xFEFF },    /* R3340  - Interrupt Status 5 Mask */
+	{ 0x00000D0D, 0xFFFF },    /* R3341  - Interrupt Status 6 Mask */
 	{ 0x00000D0F, 0x0000 },    /* R3343  - Interrupt Control */
 	{ 0x00000D18, 0xFFFF },    /* R3352  - IRQ2 Status 1 Mask */
 	{ 0x00000D19, 0xFFFF },    /* R3353  - IRQ2 Status 2 Mask */
 	{ 0x00000D1A, 0xFFFF },    /* R3354  - IRQ2 Status 3 Mask */
 	{ 0x00000D1B, 0xFFFF },    /* R3355  - IRQ2 Status 4 Mask */
 	{ 0x00000D1C, 0xFFFF },    /* R3356  - IRQ2 Status 5 Mask */
+	{ 0x00000D1D, 0xFFFF },    /* R3357  - IRQ2 Status 6 Mask */
 	{ 0x00000D1F, 0x0000 },    /* R3359  - IRQ2 Control */
 	{ 0x00000D53, 0xFFFF },    /* R3411  - AOD IRQ Mask IRQ1 */
 	{ 0x00000D54, 0xFFFF },    /* R3412  - AOD IRQ Mask IRQ2 */
@@ -1615,14 +1831,9 @@ static const struct reg_default florida_reg_default[] = {
 	{ 0x00000FC3, 0x0000 },    /* R4035  - ANC Coefficient */
 	{ 0x00000FC4, 0x0000 },    /* R4036  - ANC Coefficient */
 	{ 0x00001100, 0x0010 },    /* R4352  - DSP1 Control 1 */
-	{ 0x00001101, 0x0000 },    /* R4353  - DSP1 Clocking 1 */
 	{ 0x00001200, 0x0010 },    /* R4608  - DSP2 Control 1 */
-	{ 0x00001201, 0x0000 },    /* R4609  - DSP2 Clocking 1 */
 	{ 0x00001300, 0x0010 },    /* R4864  - DSP3 Control 1 */
-	{ 0x00001301, 0x0000 },    /* R4865  - DSP3 Clocking 1 */
 	{ 0x00001400, 0x0010 },    /* R5120  - DSP4 Control 1 */
-	{ 0x00001401, 0x0000 },    /* R5121  - DSP4 Clocking 1 */
-	{ 0x00001404, 0x0000 },    /* R5124  - DSP4 Status 1 */
 };
 
 static bool florida_is_rev_b_adsp_memory(unsigned int reg)
@@ -1717,6 +1928,8 @@ static bool florida_readable_register(struct device *dev, unsigned int reg)
 	case ARIZONA_ALWAYS_ON_TRIGGERS_SEQUENCE_SELECT_5:
 	case ARIZONA_ALWAYS_ON_TRIGGERS_SEQUENCE_SELECT_6:
 	case ARIZONA_COMFORT_NOISE_GENERATOR:
+	case ARIZONA_HP_DETECT_CALIBRATION_1:
+	case ARIZONA_HP_DETECT_CALIBRATION_2:
 	case ARIZONA_HAPTICS_CONTROL_1:
 	case ARIZONA_HAPTICS_CONTROL_2:
 	case ARIZONA_HAPTICS_PHASE_1_INTENSITY:
@@ -1797,6 +2010,7 @@ static bool florida_readable_register(struct device *dev, unsigned int reg)
 	case ARIZONA_ACCESSORY_DETECT_MODE_1:
 	case ARIZONA_HEADPHONE_DETECT_1:
 	case ARIZONA_HEADPHONE_DETECT_2:
+	case ARIZONA_HEADPHONE_DETECT_3:
 	case ARIZONA_MICD_CLAMP_CONTROL:
 	case ARIZONA_MIC_DETECT_1:
 	case ARIZONA_MIC_DETECT_2:
@@ -1908,6 +2122,7 @@ static bool florida_readable_register(struct device *dev, unsigned int reg)
 	case ARIZONA_HP1_SHORT_CIRCUIT_CTRL:
 	case ARIZONA_HP2_SHORT_CIRCUIT_CTRL:
 	case ARIZONA_HP3_SHORT_CIRCUIT_CTRL:
+	case ARIZONA_HP_TEST_CTRL_1:
 	case ARIZONA_SPK_CTRL_3:
 	case ARIZONA_AIF1_BCLK_CTRL:
 	case ARIZONA_AIF1_TX_PIN_CTRL:
@@ -2542,22 +2757,26 @@ static bool florida_readable_register(struct device *dev, unsigned int reg)
 	case ARIZONA_INTERRUPT_STATUS_3:
 	case ARIZONA_INTERRUPT_STATUS_4:
 	case ARIZONA_INTERRUPT_STATUS_5:
+	case ARIZONA_INTERRUPT_STATUS_6:
 	case ARIZONA_INTERRUPT_STATUS_1_MASK:
 	case ARIZONA_INTERRUPT_STATUS_2_MASK:
 	case ARIZONA_INTERRUPT_STATUS_3_MASK:
 	case ARIZONA_INTERRUPT_STATUS_4_MASK:
 	case ARIZONA_INTERRUPT_STATUS_5_MASK:
+	case ARIZONA_INTERRUPT_STATUS_6_MASK:
 	case ARIZONA_INTERRUPT_CONTROL:
 	case ARIZONA_IRQ2_STATUS_1:
 	case ARIZONA_IRQ2_STATUS_2:
 	case ARIZONA_IRQ2_STATUS_3:
 	case ARIZONA_IRQ2_STATUS_4:
 	case ARIZONA_IRQ2_STATUS_5:
+	case ARIZONA_IRQ2_STATUS_6:
 	case ARIZONA_IRQ2_STATUS_1_MASK:
 	case ARIZONA_IRQ2_STATUS_2_MASK:
 	case ARIZONA_IRQ2_STATUS_3_MASK:
 	case ARIZONA_IRQ2_STATUS_4_MASK:
 	case ARIZONA_IRQ2_STATUS_5_MASK:
+	case ARIZONA_IRQ2_STATUS_6_MASK:
 	case ARIZONA_IRQ2_CONTROL:
 	case ARIZONA_INTERRUPT_RAW_STATUS_2:
 	case ARIZONA_INTERRUPT_RAW_STATUS_3:
@@ -2566,6 +2785,7 @@ static bool florida_readable_register(struct device *dev, unsigned int reg)
 	case ARIZONA_INTERRUPT_RAW_STATUS_6:
 	case ARIZONA_INTERRUPT_RAW_STATUS_7:
 	case ARIZONA_INTERRUPT_RAW_STATUS_8:
+	case ARIZONA_INTERRUPT_RAW_STATUS_9:
 	case ARIZONA_IRQ_PIN_STATUS:
 	case ARIZONA_AOD_WKUP_AND_TRIG:
 	case ARIZONA_AOD_IRQ1:
@@ -2831,6 +3051,8 @@ static bool florida_volatile_register(struct device *dev, unsigned int reg)
 	switch (reg) {
 	case ARIZONA_SOFTWARE_RESET:
 	case ARIZONA_DEVICE_REVISION:
+	case ARIZONA_HP_DETECT_CALIBRATION_1:
+	case ARIZONA_HP_DETECT_CALIBRATION_2:
 	case ARIZONA_HAPTICS_STATUS:
 	case ARIZONA_SAMPLE_RATE_1_STATUS:
 	case ARIZONA_SAMPLE_RATE_2_STATUS:
@@ -2839,7 +3061,14 @@ static bool florida_volatile_register(struct device *dev, unsigned int reg)
 	case ARIZONA_ASYNC_SAMPLE_RATE_2_STATUS:
 	case ARIZONA_MIC_DETECT_3:
 	case ARIZONA_MIC_DETECT_4:
+	case ARIZONA_HP_CTRL_1L:
+	case ARIZONA_HP_CTRL_1R:
+	case ARIZONA_HP_CTRL_2L:
+	case ARIZONA_HP_CTRL_2R:
+	case ARIZONA_HP_CTRL_3L:
+	case ARIZONA_HP_CTRL_3R:
 	case ARIZONA_HEADPHONE_DETECT_2:
+	case ARIZONA_HEADPHONE_DETECT_3:
 	case ARIZONA_INPUT_ENABLES_STATUS:
 	case ARIZONA_OUTPUT_STATUS_1:
 	case ARIZONA_RAW_OUTPUT_STATUS_1:
@@ -2849,6 +3078,7 @@ static bool florida_volatile_register(struct device *dev, unsigned int reg)
 	case ARIZONA_ADC_VCO_CAL_7:
 	case ARIZONA_ADC_VCO_CAL_8:
 	case ARIZONA_ADC_VCO_CAL_9:
+	case ARIZONA_HP_TEST_CTRL_1:
 	case ARIZONA_SLIMBUS_RX_PORT_STATUS:
 	case ARIZONA_SLIMBUS_TX_PORT_STATUS:
 	case ARIZONA_INTERRUPT_STATUS_1:
@@ -2856,11 +3086,13 @@ static bool florida_volatile_register(struct device *dev, unsigned int reg)
 	case ARIZONA_INTERRUPT_STATUS_3:
 	case ARIZONA_INTERRUPT_STATUS_4:
 	case ARIZONA_INTERRUPT_STATUS_5:
+	case ARIZONA_INTERRUPT_STATUS_6:
 	case ARIZONA_IRQ2_STATUS_1:
 	case ARIZONA_IRQ2_STATUS_2:
 	case ARIZONA_IRQ2_STATUS_3:
 	case ARIZONA_IRQ2_STATUS_4:
 	case ARIZONA_IRQ2_STATUS_5:
+	case ARIZONA_IRQ2_STATUS_6:
 	case ARIZONA_INTERRUPT_RAW_STATUS_2:
 	case ARIZONA_INTERRUPT_RAW_STATUS_3:
 	case ARIZONA_INTERRUPT_RAW_STATUS_4:
@@ -2868,6 +3100,7 @@ static bool florida_volatile_register(struct device *dev, unsigned int reg)
 	case ARIZONA_INTERRUPT_RAW_STATUS_6:
 	case ARIZONA_INTERRUPT_RAW_STATUS_7:
 	case ARIZONA_INTERRUPT_RAW_STATUS_8:
+	case ARIZONA_INTERRUPT_RAW_STATUS_9:
 	case ARIZONA_IRQ_PIN_STATUS:
 	case ARIZONA_AOD_WKUP_AND_TRIG:
 	case ARIZONA_AOD_IRQ1:

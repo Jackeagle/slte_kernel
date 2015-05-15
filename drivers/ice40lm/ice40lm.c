@@ -49,7 +49,9 @@
 #define IRDA_TEST_CODE_SIZE	144
 #define IRDA_TEST_CODE_ADDR	0x00
 #define READ_LENGTH		8
-#define MAGIC_FROM_US_TO_NO	26
+
+#define US_TO_PATTERN		1000000
+#define MIN_FREQ		20000
 
 /* K 3G FW has a limitation of data register : 1000 */
 enum {
@@ -345,7 +347,7 @@ static int ice40lm_set_data(struct ice4_fpga_data *data, int *arg, int count)
 #endif
 	/* remove the frequency data from the data length */
 	int irdata_size = irdata_arg_size - nr_repeat_frame;
-	int temp = 0;
+	int temp = 0, converting_factor;
 
 	/* calculate total length for i2c transferring */
 	data->i2c_len = irdata_arg_size * 2 + offset;
@@ -364,7 +366,7 @@ static int ice40lm_set_data(struct ice4_fpga_data *data, int *arg, int count)
 	data->i2c_block_transfer.data[2] = (arg[0] >> 16) & 0xFF;
 	data->i2c_block_transfer.data[3] = (arg[0] >>  8) & 0xFF;
 	data->i2c_block_transfer.data[4] = (arg[0] >>  0) & 0xFF;
-
+	converting_factor = US_TO_PATTERN / arg[0];
 	/* i2c address will be stored separatedly */
 	offset--;
 
@@ -373,7 +375,7 @@ static int ice40lm_set_data(struct ice4_fpga_data *data, int *arg, int count)
 #ifdef DEBUG
 		pr_info("[%s] %d array value : %x\n", __func__, i, arg[i]);
 #endif
-		arg[i + 1] = (arg[i + 1] / MAGIC_FROM_US_TO_NO);
+		arg[i + 1] = (arg[i + 1] / converting_factor);
 		data->i2c_block_transfer.data[i * 2 + offset] = arg[i+1] >> 8;
 		data->i2c_block_transfer.data[i * 2 + offset + 1] = arg[i+1] & 0xFF;
 	}
@@ -476,7 +478,7 @@ static ssize_t ir_send_store(struct device *dev, struct device_attribute *attr,
 		pr_info("FAIL is possible?\n");
 
 	err = ir_send_data_to_device(data);
-	if (err != 0) {
+	if (err != 0 && arr_data[0] > MIN_FREQ) {
 		pr_info("%s: IR SEND might fail, retry!\n", __func__);
 
 		err = ir_send_data_to_device(data);
@@ -736,8 +738,12 @@ static int ice40lm_gpio_setting(void)
 	ret += gpio_request_one(g_pdata->irda_irq, GPIOF_IN, "FPGA_IRDA_IRQ");
 	ret += gpio_request_one(g_pdata->spi_en_rstn, GPIOF_OUT_INIT_LOW, "FPGA_SPI_EN");
 
-	if (power_type == PWR_LDO)
-		ret += gpio_request_one(g_pdata->ir_en, GPIOF_OUT_INIT_LOW, "FPGA_IR_EN");
+	if (power_type == PWR_LDO) {
+		if (g_pdata->spi_en_rstn != g_pdata->ir_en)
+			ret += gpio_request_one(g_pdata->ir_en, GPIOF_OUT_INIT_LOW, "FPGA_IR_EN");
+		else
+			pr_info("%s: skip duplicated gpio request\n", __func__);
+	}
 
 /* i2c-gpio drv already request below pins */
 	gpio_free(g_pdata->spi_si_sda);

@@ -12,16 +12,16 @@ DEVICE_ATTR(gpu_min_clock, 0444, gpu_min_clock_show, NULL);
 DEVICE_ATTR(gpu_max_clock, 0444, gpu_max_clock_show, NULL);
 DEVICE_ATTR(gpu_busy, 0444, gpu_busy_show, NULL);
 DEVICE_ATTR(gpu_voltage, 0444, gpu_vol_show, NULL);
-DEVICE_ATTR(gpu_clock, 0666, gpu_freq_show, gpu_freq_write);
+DEVICE_ATTR(gpu_clock, 0444, gpu_freq_show, gpu_freq_write);
 DEVICE_ATTR(gpu_freq_table, 0444, gpu_freq_table_show, NULL);
-DEVICE_ATTR(gpu_governor, 0666, gpu_governor_show, gpu_governor_write);
+DEVICE_ATTR(gpu_governor, 0644, gpu_governor_show, gpu_governor_write);
 DEVICE_ATTR(gpu_available_governor, 0444, gpu_available_governor_show, NULL);
 DEVICE_ATTR(gpu_cores_config, 0444, gpu_cores_config_show, NULL);
 DEVICE_ATTR(gpu_tmu, 0444, gpu_tmu_show, NULL);
 DEVICE_ATTR(gpu_model, 0444, gpu_model_show, NULL);
 DEVICE_ATTR(gpu_version, 0444, gpu_version_show, NULL);
 DEVICE_ATTR(gpu_mem, 0444, gpu_mem_show, NULL);
-DEVICE_ATTR(fps, 0666, fps_show, fps_write);
+DEVICE_ATTR(fps, 0644, fps_show, fps_write);
   
 /* The below function will generate sysfs during initialization stage. */
 int gpu_sysfs_create_sysfs_files(struct device *dev)

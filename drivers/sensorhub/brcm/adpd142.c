@@ -281,7 +281,9 @@ struct adpd142_data {
 	int osc_trim_addr26_value;
 	int osc_trim_addr28_value;
 	int osc_trim_addr29_value;
+	int dual_hrm;
 	u8 osc_trim_open_enable;
+	u8 skip_i2c_msleep;
 };
 
 /**
@@ -1476,13 +1478,13 @@ static int adpd_power_enable(struct adpd142_data *data, int en)
 	struct regulator *regulator_vdd_1p8;
 
 	regulator_vdd_1p8 = regulator_get(NULL, data->vdd_1p8);
-	if (IS_ERR(regulator_vdd_1p8)) {
+	if (IS_ERR(regulator_vdd_1p8) || regulator_vdd_1p8 == NULL) {
 		pr_err("%s - vdd_1p8 regulator_get fail\n", __func__);
 		return -ENODEV;
 	}
 
 	regulator_led_3p3 = regulator_get(NULL, data->led_3p3);
-	if (IS_ERR(regulator_led_3p3)) {
+	if (IS_ERR(regulator_led_3p3) || regulator_led_3p3 == NULL) {
 		pr_err("%s - led_3p3 regulator_get fail\n", __func__);
 		regulator_put(regulator_vdd_1p8);
 		return -ENODEV;
@@ -1573,6 +1575,10 @@ static int adpd_parse_dt(struct adpd142_data *data, struct device *dev)
 	if (of_property_read_string(this_node, "adpd142,led_3p3",
 		&data->led_3p3) < 0)
 		pr_err("%s - get led_3p3 error\n", __func__);
+
+	if (of_property_read_u32(this_node, "adpd142,dual-hrm",
+		&data->dual_hrm))
+		data->dual_hrm = 0;
 
 	return 0;
 err_int_gpio_direction_input:
@@ -2092,7 +2098,8 @@ adpd142_i2c_read(struct adpd142_data *pst_adpd, u8 reg_addr, int len,
 	do {
 		err = i2c_transfer(pst_adpd->client->adapter, msgs, 2);
 		if (err != 2)
-			msleep_interruptible(I2C_RETRY_DELAY);
+			if (!(pst_adpd->dual_hrm && pst_adpd->skip_i2c_msleep))
+				msleep_interruptible(I2C_RETRY_DELAY);
 	} while ((err != 2) && (++tries < I2C_RETRIES));
 
 	if (err != 2) {
@@ -2138,7 +2145,8 @@ adpd142_i2c_write(struct adpd142_data *pst_adpd, u8 reg_addr, int len,
 	do {
 		err = i2c_transfer(pst_adpd->client->adapter, msgs, 1);
 		if (err != 1)
-			msleep_interruptible(I2C_RETRY_DELAY);
+			if (!(pst_adpd->dual_hrm && pst_adpd->skip_i2c_msleep))
+				msleep_interruptible(I2C_RETRY_DELAY);
 	} while ((err != 1) && (++tries < I2C_RETRIES));
 
 	if (err != 1) {
@@ -2423,6 +2431,7 @@ adpd_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	mutex_init(&pst_adpd->mutex);
 
+	pst_adpd->skip_i2c_msleep = 1;
 	pst_adpd->client = client;
 	pst_adpd->ptr_config = pdata;
 	pst_adpd->read = adpd142_i2c_read;
@@ -2467,6 +2476,7 @@ adpd_i2c_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto hrm_sensor_register_failed;
 	}
 
+	pst_adpd->skip_i2c_msleep = 0;
 	pr_info("%s success\n", __func__);
 
 	goto done;
@@ -2474,10 +2484,11 @@ hrm_sensor_register_failed:
 exit_adpd142_init:
 exit_chipid_verification:
 	mutex_destroy(&pst_adpd->mutex);
+	adpd_power_enable(pst_adpd, 0);
 err_regulator_enable:
 adpd_parse_dt_err:
-exit_mem_allocate_failed:
 	kfree(pst_adpd);
+exit_mem_allocate_failed:
 exit_check_functionality_failed:
 	dev_err(&client->dev, "%s: Driver Init failed\n", ADPD_DEV_NAME);
 	pr_err("%s failed\n", __func__);

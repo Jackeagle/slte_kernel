@@ -291,7 +291,7 @@ int hevc_init_hw(struct hevc_dev *dev)
 	/* 3. Release reset signal to the RISC */
 	hevc_write_reg(0x1, HEVC_RISC_ON);
 
-	hevc_debug(2, "@^@^@ Will now wait for completion of firmware transfer.\n");
+	hevc_debug(2, "Will now wait for completion of firmware transfer.\n");
 
 
 	if (hevc_wait_for_done_dev(dev, HEVC_R2H_CMD_FW_STATUS_RET)) {
@@ -441,6 +441,8 @@ int hevc_wakeup(struct hevc_dev *dev)
 	/* 0. HEVC reset */
 	hevc_debug(2, "HEVC reset...\n");
 
+	hevc_set_clock_parent(dev);
+	hevc_set_power_flag();
 	hevc_clock_on();
 
 	ret = hevc_reset(dev);
@@ -457,15 +459,23 @@ int hevc_wakeup(struct hevc_dev *dev)
 	hevc_clear_cmds(dev);
 
 	hevc_clean_dev_int_flags(dev);
-	/* 3. Initialize firmware */
-	ret = hevc_wakeup_cmd(dev);
+
+	/* 3. Release reset signal to the RISC */
+	hevc_write_reg(0x1, HEVC_RISC_ON);
+
+	if (hevc_wait_for_done_dev(dev, HEVC_R2H_CMD_FW_STATUS_RET)) {
+		hevc_err("Failed to load firmware.\n");
+		hevc_clean_dev_int_flags(dev);
+		ret = -EIO;
+		goto err_hevc_wakeup;
+	}
+
+	/* 4. Initialize firmware */
+	ret= hevc_wakeup_cmd(dev);
 	if (ret) {
 		hevc_err("Failed to send command to HEVC - timeout.\n");
 		goto err_hevc_wakeup;
 	}
-
-	/* 4. Release reset signal to the RISC */
-	hevc_write_reg(0x1, HEVC_RISC_ON);
 
 	hevc_debug(2, "Ok, now will write a command to wakeup the system\n");
 	if (hevc_wait_for_done_dev(dev, HEVC_R2H_CMD_WAKEUP_RET)) {

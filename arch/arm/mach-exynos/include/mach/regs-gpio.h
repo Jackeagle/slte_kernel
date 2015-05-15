@@ -38,5 +38,7 @@
 #define S5P_EINT_PEND(x)		(EXYNOS4_EINT40PEND + ((x) * 0x4))
 
 #define EXYNOS543x_EINT_PEND(b, x)	((b) + 0xA00 + (((x) >> 3) * 4))
+#define EXYNOS5433_EINT_PEND1(b, x)	((b) + 0x1A04 + (((x) >> 3) * 4 + \
+					((x) < 12 ? 0 : 4)))
 
 #endif /* __ASM_ARCH_REGS_GPIO_H */

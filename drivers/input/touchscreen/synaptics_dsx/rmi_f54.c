@@ -1696,6 +1696,8 @@ static ssize_t debug_address_show(struct device *dev,
 			rmi4_data->f12.ctrl11_addr, 0xFF);
 	DEBUG_PRNT_SCREEN(debug_buffer, buffer_temp, DEBUG_STR_LEN, "#F12_2D_CTRL15(threshold)\t 0x%04x, 0x%02x\n",
 			rmi4_data->f12.ctrl15_addr, 0xFF);
+	DEBUG_PRNT_SCREEN(debug_buffer, buffer_temp, DEBUG_STR_LEN, "#F12_2D_CTRL23(obj_type)\t 0x%04x, 0x%02x\n",
+			rmi4_data->f12.ctrl23_addr, rmi4_data->f12.obj_report_enable);
 	DEBUG_PRNT_SCREEN(debug_buffer, buffer_temp, DEBUG_STR_LEN, "#F12_2D_CTRL26(glove)\t 0x%04x, 0x%02x\n",
 			rmi4_data->f12.ctrl26_addr, rmi4_data->f12.feature_enable);
 	DEBUG_PRNT_SCREEN(debug_buffer, buffer_temp, DEBUG_STR_LEN, "#F12_2D_CTRL28(report)\t 0x%04x, 0x%02x\n",
@@ -2439,6 +2441,7 @@ static void run_rawcap_read(void *dev_data)
 	struct factory_data *data = f54->factory_data;
 
 	unsigned char cmd_state = CMD_STATUS_RUNNING;
+	unsigned char no_sleep = 0;
 	int retry = DO_PREPATION_RETRY_COUNT;
 
 	set_default_result(data);
@@ -2453,6 +2456,32 @@ static void run_rawcap_read(void *dev_data)
 	}
 
 	do {
+		retval = rmi4_data->i2c_read(rmi4_data,
+		rmi4_data->f01_ctrl_base_addr, &no_sleep, sizeof(no_sleep));
+		if (retval <= 0) {
+			tsp_debug_err(true, &rmi4_data->i2c_client->dev,
+				"%s: fail to read no_sleep[ret:%d]\n",
+				__func__, retval);
+			snprintf(data->cmd_buff, CMD_RESULT_STR_LEN,
+				"%s", "Error read of f01_ctrl00");
+			cmd_state = CMD_STATUS_FAIL;
+			goto out;
+		}
+
+		no_sleep |= NO_SLEEP_ON;
+
+		retval = rmi4_data->i2c_write(rmi4_data,
+			rmi4_data->f01_ctrl_base_addr, &no_sleep, sizeof(no_sleep));
+		if (retval <= 0) {
+			tsp_debug_err(true, &rmi4_data->i2c_client->dev,
+				"%s: fail to write no_sleep[ret:%d]\n",
+				__func__, retval);
+			snprintf(data->cmd_buff, CMD_RESULT_STR_LEN,
+				"%s", "Error write to f01_ctrl00");
+			cmd_state = CMD_STATUS_FAIL;
+			goto out;
+		}
+
 		retval = do_preparation(rmi4_data);
 		if (retval >= 0)
 			break;
@@ -3016,10 +3045,13 @@ static void glove_mode(void *dev_data)
 		goto out;
 	}
 
-	if (data->cmd_param[0])
+	if (data->cmd_param[0]){
 		rmi4_data->f12.feature_enable |= GLOVE_DETECTION_EN;
-	else
+		rmi4_data->f12.obj_report_enable |= OBJ_TYPE_GLOVE;
+	} else {
 		rmi4_data->f12.feature_enable &= ~(GLOVE_DETECTION_EN);
+		rmi4_data->f12.obj_report_enable &= ~(OBJ_TYPE_GLOVE);
+	}
 
 	retval = synaptics_rmi4_glove_mode_enables(rmi4_data);
 	if (retval < 0) {
@@ -3060,9 +3092,11 @@ static void fast_glove_mode(void *dev_data)
 
 	if (data->cmd_param[0]) {
 		rmi4_data->f12.feature_enable |= FAST_GLOVE_DECTION_EN | GLOVE_DETECTION_EN;
+		rmi4_data->f12.obj_report_enable |= OBJ_TYPE_GLOVE;
 		rmi4_data->fast_glove_state = true;
 	} else {
 		rmi4_data->f12.feature_enable &= ~(FAST_GLOVE_DECTION_EN);
+		rmi4_data->f12.obj_report_enable |= OBJ_TYPE_GLOVE;
 		rmi4_data->fast_glove_state = false;
 	}
 
@@ -5429,8 +5463,8 @@ static int synaptics_rmi4_init_factory_mode(struct synaptics_rmi4_data *rmi4_dat
 	mutex_init(&factory_data->cmd_lock);
 	factory_data->cmd_is_running = false;
 
-	if (rmi4_data->board->device_type)
-		sprintf(fac_dir_name, "tsp_%s", rmi4_data->board->device_type);
+	if (rmi4_data->board->device_num > DEFAULT_DEVICE_NUM)
+		sprintf(fac_dir_name, "tsp%d", rmi4_data->board->device_num);
 	else
 		sprintf(fac_dir_name, "tsp");
 

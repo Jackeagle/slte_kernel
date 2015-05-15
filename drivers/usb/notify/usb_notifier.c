@@ -178,6 +178,8 @@ static int usb_handle_notification(struct notifier_block *nb,
 	switch (attached_dev) {
 	case ATTACHED_DEV_USB_MUIC:
 	case ATTACHED_DEV_CDP_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_USB_MUIC:
+	case ATTACHED_DEV_UNOFFICIAL_ID_CDP_MUIC:
 	case ATTACHED_DEV_JIG_USB_OFF_MUIC:
 	case ATTACHED_DEV_JIG_USB_ON_MUIC:
 		if( action == MUIC_NOTIFY_CMD_DETACH)
@@ -188,6 +190,7 @@ static int usb_handle_notification(struct notifier_block *nb,
 			pr_err("usb notifier: %s - ACTION Error!\n", __func__);
 		break;
 	case ATTACHED_DEV_OTG_MUIC:
+	case ATTACHED_DEV_USB_LANHUB_MUIC:
 	case ATTACHED_DEV_HMT_MUIC:
 		if( action == MUIC_NOTIFY_CMD_DETACH)
 			send_otg_notify(o_notify, NOTIFY_EVENT_HOST, 0);
@@ -231,6 +234,14 @@ static int usb_handle_notification(struct notifier_block *nb,
 		else
 			pr_err("usb notifier: %s - ACTION Error!\n", __func__);
 		break;
+	case ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC:
+		if( action == MUIC_NOTIFY_CMD_DETACH)
+			send_otg_notify(o_notify, NOTIFY_EVENT_MMDOCK, 0);
+		else if ( action == MUIC_NOTIFY_CMD_ATTACH )
+			send_otg_notify(o_notify, NOTIFY_EVENT_MMDOCK, 1);
+		else
+			pr_err("usb notifier: %s - ACTION Error!\n", __func__);
+		break;
 	default:
 		break;
 	}
@@ -269,6 +280,46 @@ static int otg_accessory_power(bool enable)
 			POWER_SUPPLY_PROP_CHARGE_OTG_CONTROL, val);
 
 	pr_info("usb notifier: otg accessory power = %d\n", on);
+	return 0;
+}
+
+static int set_online(int event, int state)
+{
+	union power_supply_propval val;
+	struct device_node *np_charger = NULL;
+	char *charger_name;
+
+	np_charger = of_find_node_by_name(NULL, "battery");
+	if (!np_charger) {
+		pr_err("%s: failed to get the battery device node\n", __func__);
+		return 0;
+	} else {
+		if (!of_property_read_string(np_charger, "battery,charger_name",
+					(char const **)&charger_name)) {
+			pr_info("usb_notifier: %s: charger_name = %s\n", __func__,
+					charger_name);
+		} else {
+			pr_err("%s: failed to get the charger name\n", __func__);
+			return 0;
+		}
+	}
+
+	if (state)
+		val.intval = POWER_SUPPLY_TYPE_SMART_OTG;
+	else
+		val.intval = POWER_SUPPLY_TYPE_SMART_NOTG;
+
+	psy_do_property(charger_name, set,
+			POWER_SUPPLY_PROP_ONLINE, val);
+
+	if (event == NOTIFY_EVENT_SMTD_EXT_CURRENT) {
+		pr_info("usb_notifier: request smartdock charging current = %s\n",
+			state ? "1000mA" : "1700mA");
+	} else if (event == NOTIFY_EVENT_MMD_EXT_CURRENT) {
+		pr_info("usb_notifier: request mmdock charging current = %s\n",
+			state ? "900mA" : "1400mA");
+	}
+
 	return 0;
 }
 
@@ -322,6 +373,7 @@ static struct otg_notify dwc_lsi_notify = {
 	.set_peripheral	= exynos_set_peripheral,
 	.vbus_detect_gpio = -1,
 	.is_wakelock = 1,
+	.set_battcall = set_online,
 };
 
 static int usb_notifier_probe(struct platform_device *pdev)

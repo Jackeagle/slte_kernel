@@ -5,26 +5,54 @@
 
 #include "fimc-is-fan53555.h"
 
-static const int vout_table[][2] = {
-	{0, FAN53555_VOUT_1P00}, /* defualt voltage */
-	{1, FAN53555_VOUT_0P88},
-	{2, FAN53555_VOUT_0P90},
-	{3, FAN53555_VOUT_0P93},
-	{4, FAN53555_VOUT_0P95},
-	{5, FAN53555_VOUT_0P98},
-	{6, FAN53555_VOUT_1P00},
+/**
+ * FAN53555 Vout Tables
+ */
+static const struct fan53555_vout vout_tables[] = {
+	{0, FAN53555_VOUT_1P00, "1.00"}, /* defualt voltage */
+	{1, FAN53555_VOUT_0P88, "0.88"},
+	{2, FAN53555_VOUT_0P90, "0.90"},
+	{3, FAN53555_VOUT_0P93, "0.93"},
+	{4, FAN53555_VOUT_0P95, "0.95"},
+	{5, FAN53555_VOUT_0P98, "0.98"},
+	{6, FAN53555_VOUT_1P00, "1.00"},
 };
 
+/**
+ * fan53555_get_vout_val: get i2c register value to set vout of dcdc regulator.
+ */
 int fan53555_get_vout_val(int sel)
 {
-	int i, vout = vout_table[0][1];
+	int i, vout = vout_tables[0].val;
 
 	if (sel < 0)
 		pr_err("%s: error, invalid sel %d\n", __func__, sel);
 
-	for (i = 0; ARRAY_SIZE(vout_table); i++) {
-		if (vout_table[i][0] == sel) {
-			return vout_table[i][1];
+	for (i = 0; ARRAY_SIZE(vout_tables); i++) {
+		if (vout_tables[i].sel == sel) {
+			return vout_tables[i].val;
+		}
+	}
+
+	pr_err("%s: warning, default voltage selected. sel %d\n", __func__, sel);
+
+	return vout;
+}
+
+/**
+ * fan53555_get_vout_name: get voltage name of vout as string.
+ */
+ const char *fan53555_get_vout_str(int sel)
+{
+	const char *vout = vout_tables[0].vout;
+	int i;
+
+	if (sel < 0)
+		pr_err("%s: error, invalid sel %d\n", __func__, sel);
+
+	for (i = 0; ARRAY_SIZE(vout_tables); i++) {
+		if (vout_tables[i].sel == sel) {
+			return vout_tables[i].vout;
 		}
 	}
 
@@ -58,6 +86,9 @@ int fan53555_enable_vsel0(struct i2c_client *client, int on_off)
 	return ret;
 }
 
+/**
+ * fan53555_set_vsel0_vout: set dcdc vout with i2c register value.
+ */
 int fan53555_set_vsel0_vout(struct i2c_client *client, int vout)
 {
 	int ret;

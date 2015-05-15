@@ -1162,6 +1162,8 @@ int fimc_is_group_process_start(struct fimc_is_groupmgr *groupmgr,
 				fimc_is_sensor_g_framerate(sensor),
 				group->async_shots,
 				shot_resource);
+
+		memset(&group->intent_ctl, 0, sizeof(struct camera2_ctl));
 	}
 
 	sema_init(&group->smp_shot, shot_resource);

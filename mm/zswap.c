@@ -42,6 +42,9 @@
 #include <linux/writeback.h>
 #include <linux/pagemap.h>
 
+/* Debugging code for zswap kernel panic */
+#include <linux/mm.h>
+
 /*********************************
 * statistics
 **********************************/
@@ -883,6 +886,16 @@ static int zswap_frontswap_store(unsigned type, pgoff_t offset,
 
 	/* update stats */
 	atomic_inc(&zswap_stored_pages);
+
+	/* Debugging code for zswap kernel panic */
+	{
+	/* check whether page is file page */
+		if (!PageAnon(page) && !PageSwapCache(page)) {
+			struct address_space *mapping = page_file_mapping(page);
+			printk(KERN_ALERT
+				"BUG: file page is swapped out (mapping = %p)\n", mapping);
+		}
+	}
 
 	return 0;
 

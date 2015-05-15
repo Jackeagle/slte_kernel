@@ -17,6 +17,7 @@
 /include/ "exynos5430-pinctrl.dtsi"
 / {
 	compatible = "samsung,exynos5430";
+	cpu_vendor_model_name = "Samsung EXYNOS5430";
 
 	interrupt-parent = <&gic>;
 
@@ -2005,6 +2006,11 @@
 		status = "ok";
 	};
 
+	eax: eax {
+		compatible = "samsung,exynos-amixer";
+		status = "ok";
+	};
+
 	i2s0: i2s@11440000 {
 		compatible = "samsung,i2s-v5";
 		reg = <0x11440000 0x100>;
@@ -2020,6 +2026,7 @@
 		samsung,supports-secdai;
 		samsung,supports-tdm;
 		samsung,supports-low-rfs;
+		samsung,amixer = <4>;
 		samsung,lpass-subip;
 		samsung,tx-iommu;
 		samsung,tx-buf = <0x40000000>;

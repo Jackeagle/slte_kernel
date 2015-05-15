@@ -35,7 +35,6 @@
 #include <linux/mmc/host.h>
 #include <linux/mmc/mmc.h>
 #include <linux/mmc/sd.h>
-#include <linux/stlog.h>
 
 #include "core.h"
 #include "bus.h"
@@ -45,6 +44,12 @@
 #include "mmc_ops.h"
 #include "sd_ops.h"
 #include "sdio_ops.h"
+
+#ifdef CONFIG_MMC_SUPPORT_STLOG
+#include <linux/stlog.h>
+#else
+#define ST_LOG(fmt,...)
+#endif
 
 /* If the device is not responding */
 #define MMC_CORE_TIMEOUT_MS	(10 * 60 * 1000) /* 10 minute timeout */
@@ -2720,6 +2725,11 @@ int mmc_detect_card_removed(struct mmc_host *host)
 
 	if (!card)
 		return 1;
+
+	/* Check : SDcard is removed physically */
+	if (host->card && mmc_card_sd(host->card) &&
+			host->ops->get_cd && host->ops->get_cd(host) == 0)
+		mmc_card_set_removed(host->card);
 
 	ret = mmc_card_removed(card);
 	/*

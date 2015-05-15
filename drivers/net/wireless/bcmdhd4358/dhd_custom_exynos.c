@@ -1,7 +1,7 @@
 /*
  * Platform Dependent file for Samsung Exynos
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_custom_exynos.c 491188 2014-07-15 08:11:24Z $
+ * $Id: dhd_custom_exynos.c 524307 2015-01-06 12:49:17Z $
  */
 #include <linux/device.h>
 #include <linux/gpio.h>
@@ -46,225 +46,121 @@
 #include <linux/platform_device.h>
 #include <linux/wlan_plat.h>
 
+#if defined(CONFIG_64BIT)
+#include <asm/gpio.h>
+#else
 #include <mach/gpio.h>
+#endif /* CONFIG_64BIT */
 #include <mach/irqs.h>
 #include <linux/sec_sysfs.h>
 
 #include <plat/gpio-cfg.h>
 
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
-
-#define WLAN_STATIC_SCAN_BUF0		5
-#define WLAN_STATIC_SCAN_BUF1		6
-#define WLAN_STATIC_DHD_INFO_BUF	7
-#define WLAN_SCAN_BUF_SIZE		(64 * 1024)
-#define WLAN_DHD_INFO_BUF_SIZE	(16 * 1024)
-#define PREALLOC_WLAN_SEC_NUM		4
-#define PREALLOC_WLAN_BUF_NUM		160
-#define PREALLOC_WLAN_SECTION_HEADER	24
-
-#define WLAN_SECTION_SIZE_0	(PREALLOC_WLAN_BUF_NUM * 128)
-#define WLAN_SECTION_SIZE_1	(PREALLOC_WLAN_BUF_NUM * 128)
-#define WLAN_SECTION_SIZE_2	(PREALLOC_WLAN_BUF_NUM * 512)
-#define WLAN_SECTION_SIZE_3	(PREALLOC_WLAN_BUF_NUM * 1024)
-
-#define DHD_SKB_HDRSIZE			336
-#define DHD_SKB_1PAGE_BUFSIZE	((PAGE_SIZE*1)-DHD_SKB_HDRSIZE)
-#define DHD_SKB_2PAGE_BUFSIZE	((PAGE_SIZE*2)-DHD_SKB_HDRSIZE)
-#define DHD_SKB_4PAGE_BUFSIZE	((PAGE_SIZE*4)-DHD_SKB_HDRSIZE)
-
-#define WLAN_SKB_BUF_NUM	17
-
-static struct sk_buff *wlan_static_skb[WLAN_SKB_BUF_NUM];
-
-struct wlan_mem_prealloc {
-	void *mem_ptr;
-	unsigned long size;
-};
-
-static struct wlan_mem_prealloc wlan_mem_array[PREALLOC_WLAN_SEC_NUM] = {
-	{NULL, (WLAN_SECTION_SIZE_0 + PREALLOC_WLAN_SECTION_HEADER)},
-	{NULL, (WLAN_SECTION_SIZE_1 + PREALLOC_WLAN_SECTION_HEADER)},
-	{NULL, (WLAN_SECTION_SIZE_2 + PREALLOC_WLAN_SECTION_HEADER)},
-	{NULL, (WLAN_SECTION_SIZE_3 + PREALLOC_WLAN_SECTION_HEADER)}
-};
-
-void *wlan_static_scan_buf0;
-void *wlan_static_scan_buf1;
-void *wlan_static_dhd_info_buf;
-
-static void *dhd_wlan_mem_prealloc(int section, unsigned long size)
-{
-	if (section == PREALLOC_WLAN_SEC_NUM)
-		return wlan_static_skb;
-
-	if (section == WLAN_STATIC_SCAN_BUF0)
-		return wlan_static_scan_buf0;
-
-	if (section == WLAN_STATIC_SCAN_BUF1)
-		return wlan_static_scan_buf1;
-
-	if (section == WLAN_STATIC_DHD_INFO_BUF) {
-		if (size > WLAN_DHD_INFO_BUF_SIZE) {
-			pr_err("request DHD_INFO size(%lu) is bigger than"
-				" static size(%d).\n", size,
-				WLAN_DHD_INFO_BUF_SIZE);
-			return NULL;
-		}
-		return wlan_static_dhd_info_buf;
-	}
-
-	if ((section < 0) || (section > PREALLOC_WLAN_SEC_NUM))
-		return NULL;
-
-	if (wlan_mem_array[section].size < size)
-		return NULL;
-
-	return wlan_mem_array[section].mem_ptr;
-}
-
-static int dhd_init_wlan_mem(void)
-{
-	int i;
-	int j;
-
-	for (i = 0; i < 8; i++) {
-		wlan_static_skb[i] = dev_alloc_skb(DHD_SKB_1PAGE_BUFSIZE);
-		if (!wlan_static_skb[i])
-			goto err_skb_alloc;
-	}
-
-	for (; i < 16; i++) {
-		wlan_static_skb[i] = dev_alloc_skb(DHD_SKB_2PAGE_BUFSIZE);
-		if (!wlan_static_skb[i])
-			goto err_skb_alloc;
-	}
-
-	wlan_static_skb[i] = dev_alloc_skb(DHD_SKB_4PAGE_BUFSIZE);
-	if (!wlan_static_skb[i])
-		goto err_skb_alloc;
-
-	for (i = 0; i < PREALLOC_WLAN_SEC_NUM; i++) {
-		wlan_mem_array[i].mem_ptr =
-			kmalloc(wlan_mem_array[i].size, GFP_KERNEL);
-
-		if (!wlan_mem_array[i].mem_ptr)
-			goto err_mem_alloc;
-	}
-
-	wlan_static_scan_buf0 = kmalloc(WLAN_SCAN_BUF_SIZE, GFP_KERNEL);
-	if (!wlan_static_scan_buf0)
-		goto err_mem_alloc;
-
-	wlan_static_scan_buf1 = kmalloc(WLAN_SCAN_BUF_SIZE, GFP_KERNEL);
-	if (!wlan_static_scan_buf1)
-		goto err_mem_alloc;
-
-	wlan_static_dhd_info_buf = kmalloc(WLAN_DHD_INFO_BUF_SIZE, GFP_KERNEL);
-	if (!wlan_static_dhd_info_buf)
-		goto err_mem_alloc;
-
-	pr_err("%s: WIFI MEM Allocated\n", __FUNCTION__);
-	return 0;
-
-err_mem_alloc:
-	pr_err("Failed to mem_alloc for WLAN\n");
-	if (wlan_static_scan_buf0)
-		kfree(wlan_static_scan_buf0);
-	if (wlan_static_scan_buf1)
-		kfree(wlan_static_scan_buf1);
-	if (wlan_static_dhd_info_buf)
-		kfree(wlan_static_dhd_info_buf);
-
-	for (j = 0; j < i; j++)
-		kfree(wlan_mem_array[j].mem_ptr);
-
-	i = WLAN_SKB_BUF_NUM;
-
-err_skb_alloc:
-	pr_err("Failed to skb_alloc for WLAN\n");
-	for (j = 0; j < i; j++)
-		dev_kfree_skb(wlan_static_skb[j]);
-
-	return -ENOMEM;
-}
+extern int dhd_init_wlan_mem(void);
+extern void *dhd_wlan_mem_prealloc(int section, unsigned long size);
 #endif /* CONFIG_BROADCOM_WIFI_RESERVED_MEM */
 
+#define WIFI_TURNON_DELAY	200
 static struct device *wlan_dev;
 static int wlan_pwr_on = -1;
-#if 0
-static int wlan_host_wake_irq = 0;
-#endif
+int wlan_host_wake_irq = 0;
+EXPORT_SYMBOL(wlan_host_wake_irq);
 
-#ifdef CONFIG_MACH_UNIVERSAL5433
+#if defined(CONFIG_MACH_UNIVERSAL5433)
 extern void exynos_pcie_poweron(void);
 extern void exynos_pcie_poweroff(void);
 extern int check_rev(void);
-#endif /* EXYNOS5433_PCIE_WAR */
+#endif /* CONFIG_MACH_UINVERSAL5433 */
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+extern void exynos_pcie_poweron(int);
+extern void exynos_pcie_poweroff(int);
+#endif /* CONFIG_MACH_UNIVERSAL7420 */
 
-static int dhd_wlan_power(int onoff)
+#if defined(CONFIG_ARGOS)
+extern int argos_irq_affinity_setup_label(unsigned int irq, const char *label,
+	struct cpumask *affinity_cpu_mask,
+	struct cpumask *default_cpu_mask);
+#endif /* CONFIG_ARGOS */
+
+static int
+dhd_wlan_power(int onoff)
 {
 	printk(KERN_INFO"------------------------------------------------");
 	printk(KERN_INFO"------------------------------------------------\n");
 	printk(KERN_INFO"%s Enter: power %s\n", __FUNCTION__, onoff ? "on" : "off");
 
-#ifdef CONFIG_MACH_UNIVERSAL5433
-	if (!onoff)
+#if defined(CONFIG_MACH_UNIVERSAL5433) || defined(CONFIG_MACH_UNIVERSAL7420)
+	if (!onoff) {
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+		exynos_pcie_poweroff(1);
+#else
 		exynos_pcie_poweroff();
-#endif
+#endif /* CONFIG_MACH_UNIVERSAL7420 */
+	}
 
-#ifdef CONFIG_MACH_UNIVERSAL5433
+#if defined(CONFIG_MACH_UNIVERSAL5433)
+	/* Old revision chip can't control WL_REG_ON */
 	if (check_rev()) {
+#endif /* CONFIG_MACH_UINVERSAL5433 */
 		if (gpio_direction_output(wlan_pwr_on, onoff)) {
 			printk(KERN_ERR "%s failed to control WLAN_REG_ON to %s\n",
-					__FUNCTION__, onoff ? "HIGH" : "LOW");
+				__FUNCTION__, onoff ? "HIGH" : "LOW");
 			return -EIO;
 		}
+#if defined(CONFIG_MACH_UNIVERSAL5433)
+	}
+#endif /* CONFIG_MACH_UINVERSAL5433 */
+
+	if (onoff) {
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+		exynos_pcie_poweron(1);
+#else
+		exynos_pcie_poweron();
+#endif /* CONFIG_MACH_UNIVERSAL7420 */
 	}
 #else
 	if (gpio_direction_output(wlan_pwr_on, onoff)) {
 		printk(KERN_ERR "%s failed to control WLAN_REG_ON to %s\n",
-				__FUNCTION__, onoff ? "HIGH" : "LOW");
+			__FUNCTION__, onoff ? "HIGH" : "LOW");
 		return -EIO;
 	}
-#endif 
-
-#ifdef CONFIG_MACH_UNIVERSAL5433
-	if (onoff)
-		exynos_pcie_poweron();
-#endif
+#endif /* CONFIG_MACH_UNIVERSAL5433 || CONFIG_MACH_UNIVERSAL7420 */
 
 	return 0;
 }
 
-static int dhd_wlan_reset(int onoff)
+static int
+dhd_wlan_reset(int onoff)
 {
 	return 0;
 }
 
+#ifndef CONFIG_BCMDHD_PCIE
 extern void (*notify_func_callback)(void *dev_id, int state);
 extern void *mmc_host_dev;
 
-static int dhd_wlan_set_carddetect(int val)
+static int
+dhd_wlan_set_carddetect(int val)
 {
-#if 0
 	pr_err("%s: notify_func=%p, mmc_host_dev=%p, val=%d\n",
 		__FUNCTION__, notify_func_callback, mmc_host_dev, val);
 
-	if (notify_func_callback)
+	if (notify_func_callback) {
 		notify_func_callback(mmc_host_dev, val);
-	else
+	} else {
 		pr_warning("%s: Nobody to notify\n", __FUNCTION__);
-#endif
+	}
+
 	return 0;
 }
+#endif /* !CONFIG_BCMDHD_PCIE */
 
-int __init dhd_wlan_init_gpio(void)
+int __init
+dhd_wlan_init_gpio(void)
 {
 	const char *wlan_node = "samsung,brcm-wlan";
-#if 0
 	unsigned int wlan_host_wake_up = -1;
-#endif
 	struct device_node *root_node = NULL;
 
 	wlan_dev = sec_device_create(NULL, "wlan");
@@ -287,20 +183,18 @@ int __init dhd_wlan_init_gpio(void)
 		WARN(1, "fail to request gpio(WLAN_REG_ON)\n");
 		return -ENODEV;
 	}
+#ifdef CONFIG_BCMDHD_PCIE
+	gpio_direction_output(wlan_pwr_on, 1);
+#else
 	gpio_direction_output(wlan_pwr_on, 0);
+#endif /* CONFIG_BCMDHD_PCIE */
 	gpio_export(wlan_pwr_on, 1);
 	gpio_export_link(wlan_dev, "WLAN_REG_ON", wlan_pwr_on);
-	gpio_direction_output(wlan_pwr_on, 1);
-	msleep(200);
+	msleep(WIFI_TURNON_DELAY);
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+	exynos_pcie_poweron(1);
+#endif /* CONFIG_MACH_UNIVERSAL7420 */
 
-	if (gpio_get_value(wlan_pwr_on)){
-		printk(KERN_INFO "%s: WL_REG_ON: [%d]\n",
-				__FUNCTION__, gpio_get_value(wlan_pwr_on));
-		printk(KERN_INFO "%s: wlan_pwr_on: [%d]\n",
-				__FUNCTION__, wlan_pwr_on);
-	}
-
-#if 0
 	/* ========== WLAN_HOST_WAKE ============ */
 	wlan_host_wake_up = of_get_gpio(root_node, 1);
 	if (!gpio_is_valid(wlan_host_wake_up)) {
@@ -317,31 +211,51 @@ int __init dhd_wlan_init_gpio(void)
 	gpio_export_link(wlan_dev, "WLAN_HOST_WAKE", wlan_host_wake_up);
 
 	wlan_host_wake_irq = gpio_to_irq(wlan_host_wake_up);
-#endif
 
 	return 0;
 }
 
-void interrupt_set_cpucore(int set)
+#if defined(CONFIG_ARGOS)
+#if defined(CONFIG_BCMDHD_PCIE)
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+#define ARGOS_IRQ_NUMBER 237
+#else
+#define ARGOS_IRQ_NUMBER 277
+#endif /* CONFIG_MACH_UNIVERSAL7420 */
+#endif /* CONFIG_BCMDHD_PCIE */
+
+void
+set_cpucore_for_interrupt(cpumask_var_t default_cpu_mask,
+	cpumask_var_t affinity_cpu_mask) {
+#if defined(CONIG_BCMDHD_PCIE)
+	argos_irq_affinity_setup_label(ARGOS_IRQ_NUMBER,
+		"WIFI", affinity_cpu_mask, default_cpu_mask);
+#endif /* CONFIG_BCMDHD_PCIE */
+}
+#endif /* CONFIG_ARGOS */
+
+void
+interrupt_set_cpucore(int set)
 {
 	printk(KERN_INFO "%s: set: %d\n", __FUNCTION__, set);
-	if (set)
-	{
+	if (set) {
 #if defined(CONFIG_MACH_UNIVERSAL5422)
 		irq_set_affinity(EXYNOS5_IRQ_HSMMC1, cpumask_of(DPC_CPUCORE));
 		irq_set_affinity(EXYNOS_IRQ_EINT16_31, cpumask_of(DPC_CPUCORE));
-#elif defined(CONFIG_MACH_UNIVERSAL5430)
+#endif /* CONFIG_MACH_UNIVERSAL5422 */
+#if defined(CONFIG_MACH_UNIVERSAL5430)
 		irq_set_affinity(IRQ_SPI(226), cpumask_of(DPC_CPUCORE));
 		irq_set_affinity(IRQ_SPI(2), cpumask_of(DPC_CPUCORE));
-#endif
+#endif /* CONFIG_MACH_UNIVERSAL5430 */
 	} else {
 #if defined(CONFIG_MACH_UNIVERSAL5422)
 		irq_set_affinity(EXYNOS5_IRQ_HSMMC1, cpumask_of(PRIMARY_CPUCORE));
 		irq_set_affinity(EXYNOS_IRQ_EINT16_31, cpumask_of(PRIMARY_CPUCORE));
-#elif defined(CONFIG_MACH_UNIVERSAL5430)
+#endif /* CONFIG_MACH_UNIVERSAL5422 */
+#if defined(CONFIG_MACH_UNIVERSAL5430)
 		irq_set_affinity(IRQ_SPI(226), cpumask_of(PRIMARY_CPUCORE));
 		irq_set_affinity(IRQ_SPI(2), cpumask_of(PRIMARY_CPUCORE));
-#endif
+#endif /* CONFIG_MACH_UNIVERSAL5430 */
 	}
 }
 
@@ -349,43 +263,57 @@ struct resource dhd_wlan_resources = {
 	.name	= "bcmdhd_wlan_irq",
 	.start	= 0,
 	.end	= 0,
-	.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_HIGHLEVEL |
-	IORESOURCE_IRQ_SHAREABLE,
+	.flags	= IORESOURCE_IRQ | IORESOURCE_IRQ_SHAREABLE |
+#ifdef CONFIG_BCMDHD_PCIE
+	IORESOURCE_IRQ_HIGHEDGE,
+#else
+	IORESOURCE_IRQ_HIGHLEVEL,
+#endif /* CONFIG_BCMDHD_PCIE */
 };
 EXPORT_SYMBOL(dhd_wlan_resources);
 
 struct wifi_platform_data dhd_wlan_control = {
 	.set_power	= dhd_wlan_power,
 	.set_reset	= dhd_wlan_reset,
+#ifndef CONFIG_BCMDHD_PCIE
 	.set_carddetect	= dhd_wlan_set_carddetect,
+#endif /* !CONFIG_BCMDHD_PCIE */
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
 	.mem_prealloc	= dhd_wlan_mem_prealloc,
-#endif
+#endif /* CONFIG_BROADCOM_WIFI_RESERVED_MEM */
 };
 EXPORT_SYMBOL(dhd_wlan_control);
 
-int __init dhd_wlan_init(void)
+int __init
+dhd_wlan_init(void)
 {
 	int ret;
 
-	printk(KERN_INFO "%s: start\n", __FUNCTION__);
+	printk(KERN_INFO "%s: START.......\n", __FUNCTION__);
 	ret = dhd_wlan_init_gpio();
 	if (ret < 0) {
 		printk(KERN_ERR "%s: failed to initiate GPIO, ret=%d\n",
 			__FUNCTION__, ret);
-		return ret;
+		goto fail;
 	}
 
-#if 0
 	dhd_wlan_resources.start = wlan_host_wake_irq;
 	dhd_wlan_resources.end = wlan_host_wake_irq;
-#endif
 
 #ifdef CONFIG_BROADCOM_WIFI_RESERVED_MEM
-	dhd_init_wlan_mem();
-#endif
+	ret = dhd_init_wlan_mem();
+	if (ret < 0) {
+		printk(KERN_ERR "%s: failed to alloc reserved memory,"
+			" ret=%d\n", __FUNCTION__, ret);
+	}
+#endif /* CONFIG_BROADCOM_WIFI_RESERVED_MEM */
 
+fail:
 	return ret;
 }
 
+#if defined(CONFIG_MACH_UNIVERSAL7420)
+late_initcall(dhd_wlan_init);
+#else
 device_initcall(dhd_wlan_init);
+#endif /* CONFIG_MACH_UNIVERSAL7420 */

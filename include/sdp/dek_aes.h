@@ -8,7 +8,7 @@
 
 struct crypto_blkcipher *dek_aes_key_setup(unsigned char *key, int len);
 void dek_aes_key_free(struct crypto_blkcipher *sdp_tfm);
-void dek_aes_encrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len);
-void dek_aes_decrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len);
+int dek_aes_encrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len);
+int dek_aes_decrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len);
 
 #endif

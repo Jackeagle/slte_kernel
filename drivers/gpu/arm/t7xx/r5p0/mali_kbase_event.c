@@ -23,10 +23,9 @@
 STATIC struct base_jd_udata kbase_event_process(struct kbase_context *kctx, struct kbase_jd_atom *katom)
 {
 	struct base_jd_udata data;
-
 #if SLSI_INTEGRATION
 	pgd_t *pgd;
-	struct mm_struct *mm = katom->kctx->process_mm;
+	struct mm_struct *mm;
 #endif
 
 	KBASE_DEBUG_ASSERT(kctx != NULL);
@@ -34,12 +33,20 @@ STATIC struct base_jd_udata kbase_event_process(struct kbase_context *kctx, stru
 	KBASE_DEBUG_ASSERT(katom->status == KBASE_JD_ATOM_STATE_COMPLETED);
 
 #if SLSI_INTEGRATION
-	if (!kctx || !katom || (katom->status != KBASE_JD_ATOM_STATE_COMPLETED)) {
+	memset(data.blob, 0, sizeof(data.blob));
+
+	if (!kctx || !katom) {
+		printk("kctx: 0x%p, katom: 0x%p\n", kctx, katom);
+		return data;
+	}
+
+	if (katom->status != KBASE_JD_ATOM_STATE_COMPLETED) {
 		printk("Abnormal situation\n");
 		printk("kctx: 0x%p, katom: 0x%p, katom->status: 0x%x\n", kctx, katom, katom->status);
 		return data;
 	}
 
+	mm  = katom->kctx->process_mm;
 	pgd = pgd_offset(mm, (unsigned long)&katom->completed);
 	if (pgd_none(*pgd) || pgd_bad(*pgd)) {
 		printk("Abnormal katom\n");
@@ -197,6 +204,7 @@ void kbase_event_cleanup(struct kbase_context *kctx)
 	 */
 	while (!list_empty(&kctx->event_list)) {
 		struct base_jd_event_v2 event;
+
 		kbase_event_dequeue(kctx, &event);
 	}
 }

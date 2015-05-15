@@ -90,6 +90,7 @@ struct fimc_is_group {
 	u32				async_shots;
 	u32				sync_shots;
 	struct camera2_ctl		fast_ctl;
+	struct camera2_ctl		intent_ctl;
 
 	u32				id; /* group id */
 	u32				instance; /* device instance */
@@ -172,6 +173,6 @@ int fimc_is_gframe_cancel(struct fimc_is_groupmgr *groupmgr,
 #define PROGRAM_COUNT(count) (group->pcount = count)
 
 #define GET_GROUP_FRAMEMGR(group) \
-	(((group) && (group)->leader.vctx) ? (&(group)->leader.vctx->q_src.framemgr) : NULL)
+	(((group) && (group)->leader.vctx) ? (&(group)->leader.vctx->q_src->framemgr) : NULL)
 
 #endif

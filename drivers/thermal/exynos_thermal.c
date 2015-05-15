@@ -144,7 +144,7 @@ static struct notifier_block exynos_cpufreq_nb = {
 };
 
 /* For ePOP protection, handle additional thermal condition from MIF notification.*/
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 #define MIF_THERMAL_THRESHOLD				4		/* MR4 state 4: 85~ degree */
 #define MIF_THERMAL_SWTRIP_THRESHOLD_TEMP	100		/* TMU junctino temp 100~ degree */
 #define PM_QOS_CPU_FREQ_DEFAULT_VALUE		INT_MAX
@@ -477,7 +477,7 @@ static void exynos_check_mif_noti_state(int temp)
 static void exynos_check_gpu_noti_state(int temp)
 {
 	enum gpu_noti_state_t cur_state;
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 	enum gpu_noti_state_t mif_thermal_gpu_state = GPU_NORMAL;
 #endif
 
@@ -497,19 +497,25 @@ static void exynos_check_gpu_noti_state(int temp)
 	else
 		cur_state = GPU_COLD;
 
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 	switch (mif_thermal_state) {
 	case MIF_NORMAL:
 		mif_thermal_gpu_state = GPU_NORMAL;
 		break;
 	case MIF_THROTTLING1:
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
 		mif_thermal_gpu_state = GPU_THROTTLING3;
+#else
+		mif_thermal_gpu_state = GPU_THROTTLING4;
+#endif
 		break;
 	case MIF_THROTTLING2:
-		mif_thermal_gpu_state = GPU_THROTTLING4;
-		break;
 	case MIF_TRIPPING:
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
 		mif_thermal_gpu_state = GPU_THROTTLING4;
+#else
+		mif_thermal_gpu_state = GPU_TRIPPING;
+#endif
 		break;
 	}
 
@@ -673,10 +679,10 @@ static void exynos_report_trigger(void)
 		else
 			th_zone->therm_dev->passive_delay = PASSIVE_INTERVAL;
 	}
+	mutex_unlock(&th_zone->therm_dev->lock);
 
 	snprintf(data, sizeof(data), "%u", i);
 	kobject_uevent_env(&th_zone->therm_dev->device.kobj, KOBJ_CHANGE, envp);
-	mutex_unlock(&th_zone->therm_dev->lock);
 }
 
 /* Register with the in-kernel thermal management */
@@ -978,13 +984,25 @@ static int exynos_tmu_read(struct exynos_tmu_data *data)
 	}
 	temp = max(max, gpu_temp);
 
+#ifdef CONFIG_SOC_EXYNOS5433
+	if (alltemp[3] > 80 && alltemp[3] < 86 && max < 101) {
+		max = 98;
+		if (alltemp[2] < 96)
+			gpu_temp = 98;
+	}
+	else if (alltemp[3] > 85) {
+		max = 112;
+		gpu_temp = 112;
+	}
+#endif
+
 #ifdef CONFIG_EXYNOS_SWTRIP
 	if (max >= SWTRIP_TEMP)
 		swtrip_counter++;
 	else
 		swtrip_counter = 0;
 
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 	if (swtrip_counter >= SWTRIP_NOISE_COUNT || (mif_thermal_state >= MIF_THROTTLING2 && (temp > MIF_THERMAL_SWTRIP_THRESHOLD_TEMP))) {
 		pr_err("[TMU] SW trip for protecting NAND: MIF_STATE(%d), temp(%d)\n", mif_thermal_state, temp);
 		mif_thermal_state = MIF_TRIPPING;
@@ -1225,7 +1243,7 @@ static struct notifier_block exynos_pm_dstop_nb = {
 };
 #endif
 
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 static int __ref exynos_mif_thermal_cpu_hotplug(enum mif_thermal_state_t cur_state)
 {
 	int ret = 0;
@@ -1962,7 +1980,7 @@ static int exynos5_tmu_cpufreq_notifier(struct notifier_block *notifier, unsigne
 		ipa_sensor_conf.private_data = exynos_sensor_conf.private_data;
 		ipa_register_thermal_sensor(&ipa_sensor_conf);
 #endif
-#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ)
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 		exynos5_mif_thermal_add_notifier(&exynos_mif_thermal_nb);
 		pm_qos_add_request(&exynos_mif_thermal_big_max_qos, PM_QOS_CPU_FREQ_MAX, PM_QOS_CPU_FREQ_DEFAULT_VALUE);
 		pm_qos_add_request(&exynos_mif_thermal_little_max_qos, PM_QOS_KFC_FREQ_MAX, PM_QOS_CPU_FREQ_DEFAULT_VALUE);

@@ -43,7 +43,9 @@
 #if defined(CONFIG_OIS_USE)
 #include "fimc-is-device-ois.h"
 #endif
-
+#ifdef CONFIG_COMPANION_USE
+#include "fimc-is-companion-dt.h"
+#endif
 extern int fimc_is_comp_video_probe(void *data);
 
 int fimc_is_companion_wait(struct fimc_is_device_companion *device)
@@ -230,10 +232,10 @@ static int fimc_is_companion_gpio_on(struct fimc_is_device_companion *device)
 	int ret = 0;
 	struct exynos_platform_fimc_is_sensor *pdata;
 #if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
-	struct fimc_is_core *core;
 	struct fimc_is_from_info *sysfs_finfo;
 	struct exynos_sensor_pin (*pin_ctrls)[2][GPIO_CTRL_MAX];
 #endif
+	struct fimc_is_core *core;
 
 	BUG_ON(!device);
 	BUG_ON(!device->pdev);
@@ -242,8 +244,8 @@ static int fimc_is_companion_gpio_on(struct fimc_is_device_companion *device)
 	pdata = device->pdata;
 #if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	pin_ctrls = pdata->pin_ctrls;
-	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 #endif
+	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 
 	if (test_bit(FIMC_IS_COMPANION_GPIO_ON, &device->state)) {
 		err("%s : already gpio on", __func__);
@@ -255,6 +257,8 @@ static int fimc_is_companion_gpio_on(struct fimc_is_device_companion *device)
 		ret = -EINVAL;
 		goto p_err;
 	}
+
+	core->running_rear_camera = true;
 
 #if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	if(core->use_sensor_dynamic_voltage_mode) {
@@ -299,6 +303,7 @@ static int fimc_is_companion_gpio_off(struct fimc_is_device_companion *device)
 {
 	int ret = 0;
 	struct exynos_platform_fimc_is_sensor *pdata;
+	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 
 	BUG_ON(!device);
 	BUG_ON(!device->pdev);
@@ -326,6 +331,8 @@ static int fimc_is_companion_gpio_off(struct fimc_is_device_companion *device)
 	clear_bit(FIMC_IS_COMPANION_GPIO_ON, &device->state);
 
 p_err:
+	core->running_rear_camera = false;
+
 	return ret;
 }
 
@@ -339,8 +346,10 @@ int fimc_is_companion_open(struct fimc_is_device_companion *device)
 	static char companion_fw_name[100];
 	static char master_setf_name[100];
 	static char mode_setf_name[100];
+#if !defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
 	static char fw_name[100];
 	static char setf_name[100];
+#endif
 
 	BUG_ON(!device);
 
@@ -354,18 +363,20 @@ int fimc_is_companion_open(struct fimc_is_device_companion *device)
 	}
 
 	device->companion_status = FIMC_IS_COMPANION_OPENNING;
+	core->running_rear_camera = true;
 #if defined(CONFIG_PM_RUNTIME)
 	pm_runtime_get_sync(&device->pdev->dev);
 #else
 	fimc_is_companion_runtime_resume(&device->pdev->dev);
 #endif
-	ret = fimc_is_sec_fw_sel(core, &device->pdev->dev, fw_name, setf_name, 0);
+#if !defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
+	ret = fimc_is_sec_fw_sel(core, &device->pdev->dev, fw_name, setf_name, false);
 	if (ret < 0) {
 		err("failed to select firmware (%d)", ret);
 		goto p_err_pm;
 	}
-
-	ret = fimc_is_sec_concord_fw_sel(core, &device->pdev->dev, companion_fw_name, master_setf_name, mode_setf_name, 0);
+#endif
+	ret = fimc_is_sec_concord_fw_sel(core, &device->pdev->dev, companion_fw_name, master_setf_name, mode_setf_name);
 
 	/* TODO: loading firmware */
 	fimc_is_s_int_comb_isp(core, false, INTMR2_INTMCIS22);
@@ -418,18 +429,25 @@ int fimc_is_companion_open(struct fimc_is_device_companion *device)
 
 #if defined(CONFIG_OIS_USE)
 	if(core->use_ois) {
-		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
-			PINCFG_PACK(PINCFG_TYPE_FUNC, 1));
-		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
-			PINCFG_PACK(PINCFG_TYPE_FUNC, 1));
+		if (!core->use_ois_hsi2c) {
+			pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
+				PINCFG_PACK(PINCFG_TYPE_FUNC, 1));
+			pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
+				PINCFG_PACK(PINCFG_TYPE_FUNC, 1));
+		}
 
-		fimc_is_ois_fw_update(core);
-		fimc_is_ois_enable(core);
+		if (!core->ois_ver_read) {
+			fimc_is_ois_check_fw(core);
+		}
 
-		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
-			PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
-		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
-			PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
+		fimc_is_ois_exif_data(core);
+
+		if (!core->use_ois_hsi2c) {
+			pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
+				PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
+			pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
+				PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
+		}
 	}
 #endif
 
@@ -453,9 +471,13 @@ int fimc_is_companion_close(struct fimc_is_device_companion *device)
 	int ret = 0;
 #if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	u32 timeout;
-	struct fimc_is_core *core;
-	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 #endif
+	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
+	if (!core) {
+		err("core is NULL");
+		return -EINVAL;
+	}
+
 	BUG_ON(!device);
 
 	if (!test_bit(FIMC_IS_COMPANION_OPEN, &device->state)) {
@@ -488,6 +510,7 @@ int fimc_is_companion_close(struct fimc_is_device_companion *device)
 	clear_bit(FIMC_IS_COMPANION_OPEN, &device->state);
 
 p_err:
+	core->running_rear_camera = false;
 	device->companion_status = FIMC_IS_COMPANION_IDLE;
 	info("[COMP:D] %s(%d)\n", __func__, ret);
 	return ret;
@@ -547,6 +570,9 @@ static int fimc_is_companion_probe(struct platform_device *pdev)
 	platform_set_drvdata(pdev, device);
 	device_init_wakeup(&pdev->dev, true);
 	core->companion = device;
+#ifdef CONFIG_OIS_USE
+	core->pin_ois_en = device->pdata->pin_ois_en;
+#endif
 
 	/* init state */
 	clear_bit(FIMC_IS_COMPANION_OPEN, &device->state);
@@ -652,10 +678,6 @@ int fimc_is_companion_runtime_suspend(struct device *dev)
 		goto p_err;
 	}
 
-#ifdef CONFIG_AF_HOST_CONTROL
-	core->is_camera_run = false;
-#endif
-
 p_err:
 	info("[COMP:D] %s(%d)\n", __func__, ret);
 err_dev_null:
@@ -702,10 +724,6 @@ int fimc_is_companion_runtime_resume(struct device *dev)
 		err("fimc_is_companion_iclk_on is fail(%d)", ret);
 		goto p_err;
 	}
-#ifdef CONFIG_AF_HOST_CONTROL
-	core->is_camera_run = true;
-#endif
-
 p_err:
 	info("[COMP:D] %s(%d)\n", __func__, ret);
 	return ret;

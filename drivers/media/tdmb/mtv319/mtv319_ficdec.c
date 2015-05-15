@@ -1630,7 +1630,7 @@ S32 Get_FIG1_EXT0(U8 fic_cmd, U8 Char_Set)
 {
 	U16 Eid;
 	U8 label[17];
-	U8 i = 0;
+	S8 i = 0;
 	U8 temp1, temp2;
 
 	while (fig_data.byte_cnt < fig_data.length) {
@@ -1663,11 +1663,11 @@ S32 Get_FIG1_EXT0(U8 fic_cmd, U8 Char_Set)
 /* Program Service Label */
 S32 Get_FIG1_EXT1(U8 fic_cmd, U8 Char_Set)
 {
-U32 sid;
-U8 label[17];
-U8 cnt;
-U8 i;
-U8 temp1, temp2;
+	U32 sid;
+	U8 label[17];
+	U8 cnt;
+	S8 i;
+	U8 temp1, temp2;
 
 while (fig_data.byte_cnt < fig_data.length) {
 	Get_Bytes(1, &temp1);
@@ -1733,7 +1733,7 @@ S32 Get_FIG1_EXT4(U8 fic_cmd, U8 Char_Set)
 	U8 SCidS;
 	U32 sid;
 	U8 label[17];
-	U8 i = 0, k = 0;
+	S8 i = 0, k = 0;
 	U8 temp1, temp2, temp3, temp4;
 
 	while (fig_data.byte_cnt < fig_data.length) {
@@ -1785,11 +1785,11 @@ S32 Get_FIG1_EXT4(U8 fic_cmd, U8 Char_Set)
 /* Data Service Label */
 S32 Get_FIG1_EXT5(U8 fic_cmd, U8 Char_Set)
 {
-U32 sid;
-U8 label[17];
-U8 cnt;
-U8 i;
-U8 temp1, temp2, temp3, temp4;
+	U32 sid;
+	U8 label[17];
+	U8 cnt;
+	S8 i;
+	U8 temp1, temp2, temp3, temp4;
 
 while (fig_data.byte_cnt < fig_data.length) {
 	Get_Bytes(1, &temp1);

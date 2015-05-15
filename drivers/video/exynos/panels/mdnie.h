@@ -1,15 +1,9 @@
 #ifndef __MDNIE_H__
 #define __MDNIE_H__
 
-#define END_SEQ	0xffff
-
 #define MDNIE_LITE
 
-#if defined(MDNIE_LITE)
 typedef u8 mdnie_t;
-#else
-typedef u16 mdnie_t;
-#endif
 
 enum MODE {
 	DYNAMIC,
@@ -57,68 +51,55 @@ enum HBM {
 	HBM_ON_TEXT,
 	HBM_MAX,
 };
+#ifdef CONFIG_LCD_HMT
+enum hmt_mode {
+	HMT_MDNIE_OFF,
+	HMT_MDNIE_ON,
+	HMT_3000K = HMT_MDNIE_ON,
+	HMT_4000K,
+	HMT_6400K,
+	HMT_7500K,
+	HMT_MDNIE_MAX,
+};
+#endif
 
 enum MDNIE_CMD {
-#if defined(MDNIE_LITE)
-	LEVEL1_KEY_UNLOCK,
+	LEVEL_KEY_UNLOCK,
 	MDNIE_CMD1,
 	MDNIE_CMD2,
-	LEVEL1_KEY_LOCK,
+	LEVEL_KEY_LOCK,
 	MDNIE_CMD_MAX,
-#else
-	MDNIE_CMD1,
-	MDNIE_CMD2 = MDNIE_CMD1,
-	MDNIE_CMD_MAX,
-#endif
 };
 
-struct mdnie_command {
-	mdnie_t *sequence;
-	unsigned int size;
+struct mdnie_seq_info {
+	mdnie_t *cmd;
+	unsigned int len;
 	unsigned int sleep;
 };
 
 struct mdnie_table {
 	char *name;
-	struct mdnie_command tune[MDNIE_CMD_MAX];
+	struct mdnie_seq_info seq[MDNIE_CMD_MAX];
 };
 
-#if defined(MDNIE_LITE)
 #define MDNIE_SET(id)	\
 {							\
 	.name		= #id,				\
-	.tune		= {				\
-		{	.sequence = LEVEL1_UNLOCK, .size = ARRAY_SIZE(LEVEL1_UNLOCK),	.sleep = 0,},	\
-		{	.sequence = id##_1, .size = ARRAY_SIZE(id##_1),			.sleep = 0,},	\
-		{	.sequence = id##_2, .size = ARRAY_SIZE(id##_2),			.sleep = 0,},	\
-		{	.sequence = LEVEL1_LOCK, .size = ARRAY_SIZE(LEVEL1_LOCK),	.sleep = 0,},	\
+	.seq		= {				\
+		{	.cmd = LEVEL_UNLOCK,	.len = ARRAY_SIZE(LEVEL_UNLOCK),	.sleep = 0,},	\
+		{	.cmd = id##_1,		.len = ARRAY_SIZE(id##_1),		.sleep = 0,},	\
+		{	.cmd = id##_2,		.len = ARRAY_SIZE(id##_2),		.sleep = 0,},	\
+		{	.cmd = LEVEL_LOCK,	.len = ARRAY_SIZE(LEVEL_LOCK),		.sleep = 0,},	\
 	}	\
 }
 
 struct mdnie_ops {
-	int (*write)(void *data, struct mdnie_command *seq, u32 len);
+	int (*write)(void *data, struct mdnie_seq_info *seq, u32 len);
 	int (*read)(void *data, u8 addr, mdnie_t *buf, u32 len);
 };
 
-typedef int (*mdnie_w)(void *devdata, struct mdnie_command *seq, u32 len);
+typedef int (*mdnie_w)(void *devdata, struct mdnie_seq_info *seq, u32 len);
 typedef int (*mdnie_r)(void *devdata, u8 addr, u8 *buf, u32 len);
-#else
-#define MDNIE_SET(id)	\
-{							\
-	.name		= #id,				\
-	.tune		= {				\
-		{	.sequence = id, .size = ARRAY_SIZE(id), .sleep = 0,},	\
-	}	\
-}
-
-struct mdnie_ops {
-	int (*write)(unsigned int a, unsigned int v);
-	int (*read)(unsigned int a);
-};
-
-typedef int (*mdnie_w)(unsigned int a, unsigned int v);
-typedef int (*mdnie_r)(unsigned int a);
-#endif
 
 struct mdnie_info {
 	struct clk		*bus_clk;
@@ -134,7 +115,9 @@ struct mdnie_info {
 	enum MODE		mode;
 	enum BYPASS		bypass;
 	enum HBM		hbm;
-
+#ifdef CONFIG_LCD_HMT
+	enum hmt_mode	hmt_mode;
+#endif
 	unsigned int		tuning;
 	unsigned int		accessibility;
 	unsigned int		color_correction;

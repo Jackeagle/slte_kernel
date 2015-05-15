@@ -33,9 +33,17 @@
 
 extern int dex_log_level;
 
-#define dex_dbg(fmt, args...)					\
+#define dex_info(fmt, args...)					\
 	do {							\
 		if (dex_log_level >= 6)				\
+			printk(KERN_INFO "[INFO: %s] "		\
+			fmt, __func__, ##args);			\
+	} while (0)
+
+
+#define dex_dbg(fmt, args...)					\
+	do {							\
+		if (dex_log_level >= 7)				\
 			printk(KERN_DEBUG "[DEBUG: %s] "		\
 			fmt, __func__, ##args);			\
 	} while (0)
@@ -55,6 +63,7 @@ extern int dex_log_level;
 	} while (0)
 
 #define DEX_DRIVER_NAME		"decon-tv"
+#define DEV_DECON_TV		7
 #define DEX_MAX_WINDOWS		5
 #define DEX_BACKGROUND		0
 #define DEX_DEFAULT_WIN		1
@@ -62,13 +71,14 @@ extern int dex_log_level;
 #define DEX_OUTPUT_RGB888	1
 #define DEX_ENABLE		1
 #define DEX_DISABLE		0
+#define MAX_NAME_SIZE		15
 
 /** decon_tv pad definitions */
 #define DEX_PAD_SINK		0
 #define DEX_PAD_SOURCE		1
+#define DEX_PAD_WB		0
 #define DEX_PADS_NUM		2
 #define DEX_WB_PADS_NUM		1
-#define DEX_WB_PORCH		4
 
 /* HDMI and HPD state definitions */
 #define HPD_LOW		0
@@ -122,6 +132,7 @@ struct dex_reg_data {
 	u32			buf_size[DEX_MAX_WINDOWS];
 	struct dex_dma_buf_data dma_buf_data[DEX_MAX_WINDOWS];
 	u32			win_overlap_bw;
+	bool			protection[DEX_MAX_WINDOWS];
 };
 
 struct dex_resources {
@@ -154,7 +165,7 @@ struct dex_device {
 	struct v4l2_subdev		wb_sd;
 	struct media_pad		pad;
 	struct exynos_md		*mdev;
-	const struct decon_tv_porch	*porch;
+	struct decon_tv_porch		*porch;
 	struct dex_win			*windows[DEX_MAX_WINDOWS];
 	struct dex_resources		res;
 	enum s5p_decon_tv_rgb		color_range;
@@ -170,6 +181,8 @@ struct dex_device {
 	struct ion_client	*ion_client;
 	struct sw_sync_timeline *timeline;
 	int			timeline_max;
+	struct sw_sync_timeline *wb_timeline;
+	int			wb_timeline_max;
 
 	struct mutex		mutex;
 	struct mutex		s_mutex;
@@ -179,6 +192,7 @@ struct dex_device {
 	ktime_t           vsync_timestamp;
 	bool			wb_path;
 
+	bool			protected_content;
 	enum tv_ip_version	ip_ver;
 };
 
@@ -186,6 +200,11 @@ struct dex_device {
 static inline struct dex_win *v4l2_subdev_to_dex_win(struct v4l2_subdev *sd)
 {
 	return container_of(sd, struct dex_win, sd);
+}
+
+static inline struct dex_device *v4l2_subdev_to_dex_device(struct v4l2_subdev *sd)
+{
+	return container_of(sd, struct dex_device, wb_sd);
 }
 
 /* find sink pad of output via enabled link*/
@@ -220,6 +239,7 @@ void dex_reg_streamon(struct dex_device *dex);
 void dex_reg_streamoff(struct dex_device *dex);
 int dex_reg_wait4update(struct dex_device *dex);
 void dex_reg_porch(struct dex_device *dex);
+void dex_reg_set_lineval(struct dex_device *dex);
 void dex_reg_wb_swtrigger(struct dex_device *dex);
 void dex_reg_dump(struct dex_device *dex);
 

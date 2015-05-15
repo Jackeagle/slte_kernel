@@ -128,6 +128,9 @@ static int fts_get_system_status(struct fts_ts_info *info, unsigned char *val1, 
 	unsigned char data[FTS_EVENT_SIZE];
 	int retry = 0;
 
+	if (info->digital_rev == FTS_DIGITAL_REV_2)
+		regAdd2[1] = 0x1f;
+
 	info->fts_write_reg(info, &regAdd1[0], 4);
 	info->fts_write_reg(info, &regAdd2[0], 4);
 
@@ -321,6 +324,9 @@ EXPORT_SYMBOL(fts_fw_updater);
 #define FW_IMAGE_NAME_D1_S			"tsp_stm/stm_s_sync.fw"
 #define FW_IMAGE_NAME_D2_TR		"tsp_stm/stm_t.fw"
 #define FW_IMAGE_NAME_D2_TB			"tsp_stm/stm_tb.fw"
+#define FW_IMAGE_NAME_D2_TB_SEPER_1			"tsp_stm/stm_tb_seper_1.fw"		/* LCD ID 0001 : seperated */
+#define FW_IMAGE_NAME_D2_TB_SEPER_2			"tsp_stm/stm_tb_seper_2.fw"		/* LCD ID 0010 : seperated */
+#define FW_IMAGE_NAME_D2_TB_INTEG			"tsp_stm/stm_tb_integ.fw"		/* LCD ID 0000, 0011, ... : integrated */
 #define CONFIG_ID_D1_S				0x2C
 #define CONFIG_ID_D2_TR				0x2E
 #define CONFIG_ID_D2_TB				0x30
@@ -365,9 +371,39 @@ out:
 	return false;
 }
 
+static unsigned char fts_get_sync_register(struct fts_ts_info *info)
+{
+    unsigned char regAdd[4] = { 0xb2, 0x07, 0x0a, 0x04 };
+    unsigned char data[FTS_EVENT_SIZE];
+    int retry = 0;
+    unsigned char var = 0;
+
+    info->fts_write_reg(info, &regAdd[0], 4);
+    memset(data, 0x0, FTS_EVENT_SIZE);
+    regAdd[0] = READ_ONE_EVENT;
+
+    while (info->fts_read_reg(info, &regAdd[0], 1, (unsigned char *)data,
+                                           FTS_EVENT_SIZE)) {
+                if ((data[0] == 0x12) && (data[1] == regAdd[1])
+                            && (data[2] == regAdd[2])) {
+                            var = data[3];
+                            tsp_debug_info(true, info->dev,
+                                        "%s: Sync Register : 0x%02x\n",
+                            __func__, var);
+                            break;
+                }
+                if (retry++ > FTS_RETRY_COUNT) {
+                            tsp_debug_err(true, info->dev,
+                                        "%s: Time Over\n", __func__);
+                            break;
+                }
+    }
+    return var;
+}
+
 int fts_fw_update_on_probe(struct fts_ts_info *info)
 {
-	int retval;
+	int retval = 0;
 	const struct firmware *fw_entry = NULL;
 	unsigned char *fw_data = NULL;
 	char fw_path[FTS_MAX_FW_PATH];
@@ -379,8 +415,24 @@ int fts_fw_update_on_probe(struct fts_ts_info *info)
 	else if (info->digital_rev == FTS_DIGITAL_REV_1)
 		info->firmware_name = FW_IMAGE_NAME_D1_S;
 	else if (info->digital_rev == FTS_DIGITAL_REV_2) {
-		if (strncmp(info->board->project_name, "TB", 2) == 0)
-			info->firmware_name = FW_IMAGE_NAME_D2_TB;
+		if (strncmp(info->board->project_name, "TB", 2) == 0){
+			/* LCD ID 0001, 0010 : seperated
+			 * FTS_FIRMWARE_NAME_TB... : seperated
+			 *
+			 * LCD ID 0001 / 0010 firmware divide.
+			 * recent, back key sensitivity problem.
+			 * LCD ID 0001 -> FW_IMAGE_NAME_D2_TB_SEPER_1
+			 * LCD ID 0010 -> FW_IMAGE_NAME_D2_TB_SEPER_2
+			 *
+			 * LCD ID 0000, 0011, ... : integrated
+			 * FTS_FIRMWARE_NAME : integrated */
+				if (info->panel_revision == 0x01)
+					info->firmware_name = FW_IMAGE_NAME_D2_TB_SEPER_1;
+				else if (info->panel_revision == 0x02)
+					info->firmware_name = FW_IMAGE_NAME_D2_TB_SEPER_2;
+			else
+				info->firmware_name = FW_IMAGE_NAME_D2_TB_INTEG;
+		}
 		else
 			info->firmware_name = FW_IMAGE_NAME_D2_TR;
 	}
@@ -433,19 +485,30 @@ int fts_fw_update_on_probe(struct fts_ts_info *info)
 		goto done;
 
 	if ((info->fw_main_version_of_ic < info->fw_main_version_of_bin)
-		|| ((info->config_version_of_ic < info->config_version_of_bin)))
+		|| ((info->config_version_of_ic < info->config_version_of_bin))
+		|| ((info->fw_version_of_ic < info->fw_version_of_bin)))
+	{
 		retval = fts_fw_updater(info, fw_data);
+	}
+	else if ((strncmp(info->board->project_name, "TB", 2) == 0) && (fts_get_sync_register(info)!=0x51)) {
+		retval = fts_fw_updater(info, fw_data);
+	}
 	else
 		retval = FTS_NOT_ERROR;
+
+	if (fts_get_system_status(info, &SYS_STAT[0], &SYS_STAT[1]) >= 0) {
+		if (SYS_STAT[0] != SYS_STAT[1]) {
+			info->fts_systemreset(info);
+			msleep(20);
+			info->fts_wait_for_ready(info);
+			fts_fw_init(info);
+		}
+	}
+
 done:
 	if (fw_entry)
 		release_firmware(fw_entry);
-	if (retval < 0) {
-		if (fts_get_system_status(info, &SYS_STAT[0], &SYS_STAT[1]) >= 0) {
-			if (SYS_STAT[0] != SYS_STAT[1])
-				fts_fw_init(info);
-		}
-	}
+
 	return retval;
 }
 EXPORT_SYMBOL(fts_fw_update_on_probe);

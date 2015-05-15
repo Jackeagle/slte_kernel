@@ -34,8 +34,6 @@
 #include <linux/kallsyms.h>
 #include <linux/suspend.h>
 #include <plat/gpio-cfg.h>
-#include <mach/gpio.h>
-#include <mach/regs-gpio.h>
 #include <linux/module.h>
 #include <linux/debugfs.h>
 
@@ -52,39 +50,6 @@ static int pm_enable = 1;
 module_param(pm_enable, int, S_IRUGO);
 MODULE_PARM_DESC(pm_enable, "LLI PM enable");
 
-#ifdef DEBUG_CP_IRQSTRM
-static int max_intr = 600;
-module_param(max_intr, int, S_IRUGO | S_IWUSR | S_IWGRP);
-MODULE_PARM_DESC(max_intr, "LLI maximum intr");
-
-static int intr_cnt;
-static unsigned long last_time, expired;
-
-static inline void lli_mark_last_busy(void)
-{
-	intr_cnt = 0;
-	ACCESS_ONCE(last_time) = jiffies;
-	expired = ACCESS_ONCE(last_time) + msecs_to_jiffies(1000);
-}
-
-static inline bool lli_check_max_intr(void)
-{
-	if (++intr_cnt >= max_intr) {
-		if (time_before(jiffies, expired)) {
-			mif_info("cp_crash due to irq cnt %d\n", intr_cnt);
-			intr_cnt = 0;
-			modemctl_notify_event(MDM_EVENT_CP_FORCE_CRASH);
-			return true;
-		}
-		lli_mark_last_busy();
-	}
-	return false;
-}
-#else
-static inline void lli_mark_last_busy(void) {}
-static inline bool lli_check_max_intr(void) { return false; }
-#endif
-
 static inline void send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 {
 #ifdef CONFIG_EXYNOS_MIPI_LLI_GPIO_SIDEBAND
@@ -100,9 +65,8 @@ static inline void send_ap2cp_irq(struct mem_link_device *mld, u16 mask)
 	val = 1 - val;
 
 	gpio_set_value(mld->gpio_ipc_int2cp, val);
-#ifdef DEBUG_MODEM_IF
+
 	trace_send_sig(mask, val);
-#endif
 
 	spin_unlock_irqrestore(&mld->sig_lock, flags);
 #else
@@ -190,9 +154,7 @@ static bool check_link_status(struct mem_link_device *mld)
 
 static void pm_fail_cb(struct modem_link_pm *pm)
 {
-	struct link_device *ld = pm_to_link_device(pm);
-	struct mem_link_device *mld = ld_to_mem_link_device(ld);
-	mem_forced_cp_crash(mld);
+	modemctl_notify_event(MDM_CRASH_PM_FAIL);
 }
 
 static void pm_cp_fail_cb(struct modem_link_pm *pm)
@@ -202,12 +164,28 @@ static void pm_cp_fail_cb(struct modem_link_pm *pm)
 	struct modem_ctl *mc = ld->mc;
 	struct io_device *iod = mc->iod;
 
+	unsigned long flags;
+
+	spin_lock_irqsave(&mc->lock, flags);
+
 	if (cp_online(mc)) {
-		mem_handle_cp_crash(mld, STATE_CRASH_EXIT);
-	} else if (cp_booting(mc)) {
+		spin_unlock_irqrestore(&mc->lock, flags);
+
+		if (mld->stop_pm)
+			mld->stop_pm(mld);
+
+		modemctl_notify_event(MDM_CRASH_PM_CP_FAIL);
+		return;
+	}
+
+	if (cp_booting(mc)) {
 		iod->modem_state_changed(iod, STATE_OFFLINE);
 		ld->reload(ld);
+		spin_unlock_irqrestore(&mc->lock, flags);
+		return;
 	}
+
+	spin_unlock_irqrestore(&mc->lock, flags);
 }
 
 static void start_pm(struct mem_link_device *mld)
@@ -243,6 +221,7 @@ static int init_pm(struct mem_link_device *mld)
 	struct link_pm_svc *pm_svc;
 	int ret;
 
+	spin_lock_init(&mld->sig_lock);
 	atomic_set(&mld->ref_cnt, 0);
 
 	pm_svc = mipi_lli_get_pm_svc();
@@ -419,6 +398,7 @@ static irqreturn_t ap_wakeup_interrupt(int irq, void *data)
 	struct mem_link_device *mld = (struct mem_link_device *)data;
 	int ap_wakeup = gpio_get_value(mld->gpio_ap_wakeup);
 	int cp_wakeup = gpio_get_value(mld->gpio_cp_wakeup);
+	int cpu = raw_smp_processor_id();
 
 	change_irq_type(irq, ap_wakeup);
 
@@ -426,6 +406,7 @@ static irqreturn_t ap_wakeup_interrupt(int irq, void *data)
 		cancel_delayed_work(&mld->cp_sleep_dwork);
 
 	if (ap_wakeup) {
+		mld->last_cp2ap_intr = cpu_clock(cpu);
 		if (!cp_wakeup)
 			gpio_set_value(mld->gpio_cp_wakeup, 1);
 
@@ -497,8 +478,6 @@ static void start_pm(struct mem_link_device *mld)
 
 		change_irq_type(mld->irq_cp_status.num, cp_status);
 		mif_enable_irq(&mld->irq_cp_status);
-
-		lli_mark_last_busy();
 	} else {
 		wake_lock(&mld->ap_wlock);
 	}
@@ -580,25 +559,25 @@ static int init_pm(struct mem_link_device *mld)
 
 static void lli_link_ready(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
+	mif_err("%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	stop_pm(ld_to_mem_link_device(ld));
 }
 
 static void lli_link_reset(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
+	mif_err("%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	mipi_lli_reset();
 }
 
 static void lli_link_reload(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
+	mif_err("%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	mipi_lli_reload();
 }
 
 static void lli_link_off(struct link_device *ld)
 {
-	evt_log(0, "%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
+	mif_err("%s: PM %s <%pf>\n", ld->name, FUNC, CALLER);
 	stop_pm(ld_to_mem_link_device(ld));
 	mipi_lli_reload();
 }
@@ -623,7 +602,6 @@ static void lli_enable_irq(struct link_device *ld)
 	mipi_lli_enable_irq();
 }
 
-#ifdef CONFIG_LINK_POWER_MANAGEMENT_WITH_FSM
 /**
 @brief	interrupt handler for a MIPI-LLI IPC interrupt
 
@@ -640,45 +618,17 @@ static void lli_irq_handler(void *data, u32 intr)
 	struct mem_link_device *mld = (struct mem_link_device *)data;
 	struct mst_buff *msb;
 
+#if 0
 	/* Prohibit CP from going to sleep */
 	if (gpio_get_value(mld->gpio_cp_status) == 0
 	    || gpio_get_value(mld->gpio_ap_status) == 0)
 		print_pm_status(mld);
+#endif
 
-	msb = mem_take_snapshot(mld, RX);
-	if (!msb)
-		return;
-	msb->snapshot.int2ap = (u16)intr;
-
-	mem_irq_handler(mld, msb);
-}
-#else
-/**
-@brief	interrupt handler for a MIPI-LLI IPC interrupt
-
-1) Get a free mst buffer\n
-2) Reads the RXQ status and saves the status to the mst buffer\n
-3) Saves the interrupt value to the mst buffer\n
-4) Invokes mem_irq_handler that is common to all memory-type interfaces\n
-
-@param data	the pointer to a mem_link_device instance
-@param intr	the interrupt value
-*/
-static void lli_irq_handler(void *data, u32 intr)
-{
-	struct mem_link_device *mld = (struct mem_link_device *)data;
-	struct mst_buff *msb;
-
-	if (unlikely(lli_check_max_intr()))
-		return;
-
-	/* Prohibit CP from going to sleep */
-	if (gpio_get_value(mld->gpio_cp_status) == 0
-	    || gpio_get_value(mld->gpio_ap_status) == 0)
-		print_pm_status(mld);
-
+#ifndef CONFIG_LINK_POWER_MANAGEMENT_WITH_FSM
 	if (gpio_get_value(mld->gpio_cp_wakeup) == 0)
 		gpio_set_value(mld->gpio_cp_wakeup, 1);
+#endif
 
 	msb = mem_take_snapshot(mld, RX);
 	if (!msb)
@@ -687,7 +637,6 @@ static void lli_irq_handler(void *data, u32 intr)
 
 	mem_irq_handler(mld, msb);
 }
-#endif
 
 static struct mem_link_device *g_mld;
 
@@ -700,6 +649,7 @@ static struct mem_link_device *g_mld;
  * some hard-coded values are used to limit the size of line and row.
  * need to invent more neater and cleaner way.
  */
+#if 0
 static ssize_t dump_rb_frame(char *buf, size_t size, struct sbd_ring_buffer *rb)
 {
 	int idx;
@@ -781,7 +731,7 @@ static const struct file_operations dbgfs_frame_fops = {
 	.read = dbgfs_frame,
 	.owner = THIS_MODULE
 };
-
+#endif
 static inline void dev_debugfs_add(struct mem_link_device *mld)
 {
 	mld->dbgfs_dir = debugfs_create_dir("svnet", NULL);
@@ -792,8 +742,9 @@ static inline void dev_debugfs_add(struct mem_link_device *mld)
 	debugfs_create_blob("mem_dump", S_IRUGO, mld->dbgfs_dir,
 					&mld->mem_dump_blob);
 
-	mld->dbgfs_frame = debugfs_create_file("frame", S_IRUGO,
+/*	mld->dbgfs_frame = debugfs_create_file("frame", S_IRUGO,
 			mld->dbgfs_dir, mld, &dbgfs_frame_fops);
+*/
 }
 #else
 static inline void dev_debugfs_add(struct mem_link_device *mld) {}
@@ -874,10 +825,6 @@ struct link_device *lli_create_link_device(struct platform_device *pdev)
 	mld->link_active = check_link_status;
 #endif
 
-#ifdef DEBUG_MODEM_IF
-	mld->debug_info = mipi_lli_debug_info;
-#endif
-
 	/**
 	 * Initialize SHMEM maps for IPC (physical map -> logical map)
 	 */
@@ -928,6 +875,7 @@ struct link_device *lli_create_link_device(struct platform_device *pdev)
 	if (err)
 		goto error;
 #endif
+
 #ifdef DEBUG_MODEM_IF
 	dev_debugfs_add(mld);
 #endif

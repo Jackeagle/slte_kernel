@@ -92,6 +92,7 @@ typedef void (*w1_slave_found_callback)(struct w1_master *, u64);
  */
 struct w1_bus_master
 {
+	bool		irq_mode;
 	/** the first parameter in all the functions below */
 	void		*data;
 
@@ -159,6 +160,9 @@ struct w1_bus_master
 
 	/* add for sending uevent */
 	struct input_dev *input;
+	struct work_struct irqwork;
+	struct delayed_work w1_irqwork;
+
 };
 
 struct w1_master
@@ -203,6 +207,8 @@ struct w1_master
 
 int w1_create_master_attributes(struct w1_master *);
 void w1_destroy_master_attributes(struct w1_master *master);
+int w1_create_additional_attributes(struct w1_master *master);
+void w1_destroy_additional_attributes(struct w1_master *master);
 void w1_search(struct w1_master *dev, u8 search_type, w1_slave_found_callback cb);
 void w1_search_devices(struct w1_master *dev, u8 search_type, w1_slave_found_callback cb);
 struct w1_slave *w1_search_slave(struct w1_reg_num *id);
@@ -256,14 +262,17 @@ extern int w1_max_slave_count;
 extern int w1_max_slave_ttl;
 extern struct list_head w1_masters;
 extern struct mutex w1_mlock;
+extern int w1_read_detect_state(void);
+int w1_ds28el35_verifyecdsa(struct w1_slave *sl);
 
 extern int w1_process(void *);
 
-extern void w1_work(struct work_struct *work);
 
 #ifdef CONFIG_W1_WORKQUEUE
-extern struct w1_master *w1_gdev;
+extern void w1_work(struct work_struct *work);
+extern void w1_irqwork(struct work_struct *irqwork);
 #endif
+extern struct w1_master *w1_gdev;
 
 #endif /* __KERNEL__ */
 

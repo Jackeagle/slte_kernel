@@ -5,7 +5,7 @@
  *
  * flow rings at high level
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -55,7 +55,6 @@
 #define DHD_FLOW_PRIO_AC_MAP		0
 #define DHD_FLOW_PRIO_TID_MAP		1
 
-
 /* Pkttag not compatible with PROP_TXSTATUS or WLFC */
 typedef struct dhd_pkttag_fr {
 	uint16  flowid;
@@ -93,7 +92,6 @@ typedef struct flow_queue {
 	uint16 max;                 /* maximum number of packets, queue may hold */
 	uint32 failures;            /* enqueue failures due to queue overflow */
 	flow_queue_cb_t cb;         /* callback invoked on threshold crossing */
-	void * lock;		/* OS specific lock handle for Q access protection */
 } flow_queue_t;
 
 #define flow_queue_len(queue)   ((int)(queue)->len)
@@ -117,6 +115,7 @@ typedef struct flow_ring_node {
 	uint16		flowid;
 	flow_info_t	flow_info;
 	void		*prot_info;
+	void		*lock; /* OS specific lock handle for Q access protection */
 } flow_ring_node_t;
 typedef flow_ring_node_t flow_ring_table_t;
 

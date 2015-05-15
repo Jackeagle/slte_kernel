@@ -1567,7 +1567,6 @@ static int __sysmmu_unmap_user_pages(struct device *dev,
 	struct exynos_iommu_domain *priv = domain->priv;
 	struct vm_area_struct *vma;
 	unsigned long start, end;
-	unsigned long flags;
 	bool is_pfnmap;
 	sysmmu_pte_t *sent, *pent;
 
@@ -1579,7 +1578,15 @@ static int __sysmmu_unmap_user_pages(struct device *dev,
 	 * The caller must check the range of address space before calling this.
 	 */
 	vma = find_vma(mm, vaddr);
-	if (!vma || (vma->vm_end < (vaddr + size))) {
+	if (!vma) {
+		pr_err("%s: vma is null\n", __func__);
+		up_read(&mm->mmap_sem);
+		return -EINVAL;
+	}
+
+	if (vma->vm_end < (vaddr + size)) {
+		pr_err("%s: vma overflow: %#lx--%#lx, vaddr: %#lx, size: %zd\n",
+			__func__, vma->vm_start, vma->vm_end, vaddr, size);
 		up_read(&mm->mmap_sem);
 		return -EINVAL;
 	}
@@ -1591,8 +1598,6 @@ static int __sysmmu_unmap_user_pages(struct device *dev,
 
 	TRACE_LOG_DEV(dev, "%s: Unmap starts @ %#x@%#lx\n",
 			__func__, size, start);
-
-	spin_lock_irqsave(&priv->pgtablelock, flags);
 
 	do {
 		sysmmu_pte_t *pent_first;
@@ -1615,7 +1620,6 @@ static int __sysmmu_unmap_user_pages(struct device *dev,
 		pgtable_flush(pent_first, pent);
 	} while (start != end);
 
-	spin_unlock_irqrestore(&priv->pgtablelock, flags);
 	up_read(&mm->mmap_sem);
 
 	TRACE_LOG_DEV(dev, "%s: unmap done @ %#lx\n", __func__, start);
@@ -1654,7 +1658,6 @@ int exynos_sysmmu_map_user_pages(struct device *dev,
 	struct iommu_domain *domain = vmm->domain;
 	struct exynos_iommu_domain *priv = domain->priv;
 	struct vm_area_struct *vma;
-	unsigned long flags;
 	unsigned long start, end;
 	unsigned long pgd_next;
 	int ret = -EINVAL;
@@ -1671,7 +1674,15 @@ int exynos_sysmmu_map_user_pages(struct device *dev,
 	 * The caller must check the range of address space before calling this.
 	 */
 	vma = find_vma(mm, vaddr);
-	if (!vma || (vma->vm_end < (vaddr + size))) {
+	if (!vma) {
+		pr_err("%s: vma is null\n", __func__);
+		up_read(&mm->mmap_sem);
+		return -EINVAL;
+	}
+
+	if (vma->vm_end < (vaddr + size)) {
+		pr_err("%s: vma overflow: %#lx--%#lx, vaddr: %#lx, size: %zd\n",
+			__func__, vma->vm_start, vma->vm_end, vaddr, size);
 		up_read(&mm->mmap_sem);
 		return -EINVAL;
 	}
@@ -1683,8 +1694,6 @@ int exynos_sysmmu_map_user_pages(struct device *dev,
 
 	TRACE_LOG_DEV(dev, "%s: map @ %#lx--%#lx, %d bytes, vm_flags: %#lx\n",
 			__func__, start, end, size, vma->vm_flags);
-
-	spin_lock_irqsave(&priv->pgtablelock, flags);
 
 	pgd = pgd_offset(mm, start);
 	do {
@@ -1724,29 +1733,27 @@ int exynos_sysmmu_map_user_pages(struct device *dev,
 
 			pent_first = pent;
 			do {
-				if (!pte_present(*pte)) {
-					ret = -EPERM;
-					goto out_unmap;
-				}
-
-				if (write && (!pte_write(*pte) ||
-						!pte_dirty(*pte))) {
+				if (!pte_present(*pte) ||
+					(write && !pte_write(*pte))) {
 					ret = handle_pte_fault(mm,
-							vma, start,
-							pte, pmd,
-							FAULT_FLAG_WRITE);
+						vma, start, pte, pmd,
+						write ? FAULT_FLAG_WRITE : 0);
 					if (IS_ERR_VALUE(ret)) {
 						ret = -EIO;
 						goto out_unmap;
 					}
 				}
 
-				if (lv2ent_fault(pent)) {
-					if (!is_pfnmap)
-						get_page(pte_page(*pte));
-					*pent = mk_lv2ent_spage(__pfn_to_phys(
-								pte_pfn(*pte)));
+				if (!pte_present(*pte) ||
+					(write && !pte_write(*pte))) {
+					ret = -EPERM;
+					goto out_unmap;
 				}
+
+				if (!is_pfnmap)
+					get_page(pte_page(*pte));
+				*pent = mk_lv2ent_spage(__pfn_to_phys(
+							pte_pfn(*pte)));
 			} while (pte++, pent++,
 				start += PAGE_SIZE, start < pmd_next);
 
@@ -1758,13 +1765,13 @@ int exynos_sysmmu_map_user_pages(struct device *dev,
 
 	ret = 0;
 out_unmap:
-	spin_unlock_irqrestore(&priv->pgtablelock, flags);
 	up_read(&mm->mmap_sem);
 
 	if (ret) {
 		pr_debug("%s: Ignoring mapping for %#lx ~ %#lx (%d)\n",
 					__func__, start, end, ret);
-		__sysmmu_unmap_user_pages(dev, mm, vaddr, start - vaddr);
+		__sysmmu_unmap_user_pages(dev, mm, vaddr,
+					start - (vaddr & PAGE_MASK));
 	}
 
 	return ret;

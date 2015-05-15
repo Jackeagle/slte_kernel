@@ -508,10 +508,10 @@ static int fimc_is_scc_video_s_ctrl(struct file *file, void *priv,
 					ctrl->value);
 			ret = -EINVAL;
 		} else {
-			device->setfile &= ~FIMC_IS_SCC_CRANGE_MASK;
+			device->color_range &= ~FIMC_IS_SCC_CRANGE_MASK;
 
 			if (ctrl->value)
-				device->setfile	|=
+				device->color_range	|=
 					(FIMC_IS_CRANGE_LIMITED << FIMC_IS_SCC_CRANGE_SHIFT);
 		}
 		break;
@@ -646,7 +646,7 @@ static void fimc_is_scc_buffer_queue(struct vb2_buffer *vb)
 {
 	int ret = 0;
 	struct fimc_is_video_ctx *vctx = vb->vb2_queue->drv_priv;
-	struct fimc_is_queue *queue = &vctx->q_dst;
+	struct fimc_is_queue *queue = vctx->q_dst;
 	struct fimc_is_video *video = vctx->video;
 	struct fimc_is_device_ischain *ischain = vctx->device;
 	struct fimc_is_subdev *scc = &ischain->scc;

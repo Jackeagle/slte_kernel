@@ -16,6 +16,7 @@
 #include <linux/interrupt.h>
 #include <linux/mfd/core.h>
 #include <linux/module.h>
+#include <linux/notifier.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
@@ -149,9 +150,6 @@ int arizona_dvfs_down(struct arizona *arizona, unsigned int flags)
 
 	mutex_lock(&arizona->subsys_max_lock);
 
-	if ((arizona->subsys_max_rq & flags) != flags)
-		dev_warn(arizona->dev, "Unbalanced DVFS down: %x\n", flags);
-
 	arizona->subsys_max_rq &= ~flags;
 
 	if (arizona->subsys_max_rq == 0) {
@@ -215,6 +213,8 @@ static irqreturn_t arizona_underclocked(int irq, void *data)
 		dev_err(arizona->dev, "AIF2 underclocked\n");
 	if (val & ARIZONA_AIF1_UNDERCLOCKED_STS)
 		dev_err(arizona->dev, "AIF1 underclocked\n");
+	if (val & ARIZONA_ISRC3_UNDERCLOCKED_STS)
+		dev_err(arizona->dev, "ISRC3 underclocked\n");
 	if (val & ARIZONA_ISRC2_UNDERCLOCKED_STS)
 		dev_err(arizona->dev, "ISRC2 underclocked\n");
 	if (val & ARIZONA_ISRC1_UNDERCLOCKED_STS)
@@ -238,7 +238,7 @@ static irqreturn_t arizona_overclocked(int irq, void *data)
 	struct arizona *arizona = data;
 	unsigned int val[3];
 	int ret;
-	
+
 	ret = regmap_bulk_read(arizona->regmap, ARIZONA_INTERRUPT_RAW_STATUS_6,
 			       &val[0], 3);
 	if (ret != 0) {
@@ -295,6 +295,8 @@ static irqreturn_t arizona_overclocked(int irq, void *data)
 		dev_err(arizona->dev, "ASRC sync WARP overclocked\n");
 	if (val[1] & ARIZONA_ADSP2_1_OVERCLOCKED_STS)
 		dev_err(arizona->dev, "DSP1 overclocked\n");
+	if (val[1] & ARIZONA_ISRC3_OVERCLOCKED_STS)
+		dev_err(arizona->dev, "ISRC3 overclocked\n");
 	if (val[1] & ARIZONA_ISRC2_OVERCLOCKED_STS)
 		dev_err(arizona->dev, "ISRC2 overclocked\n");
 	if (val[1] & ARIZONA_ISRC1_OVERCLOCKED_STS)
@@ -494,6 +496,20 @@ err:
 }
 
 #ifdef CONFIG_PM_RUNTIME
+static int arizona_dcvdd_notify(struct notifier_block *nb,
+				unsigned long action, void *data)
+{
+	struct arizona *arizona = container_of(nb, struct arizona,
+					       dcvdd_notifier);
+
+	dev_dbg(arizona->dev, "DCVDD notify %lx\n", action);
+
+	if (action & REGULATOR_EVENT_DISABLE)
+		msleep(20);
+
+	return NOTIFY_DONE;
+}
+
 static int arizona_runtime_resume(struct device *dev)
 {
 	struct arizona *arizona = dev_get_drvdata(dev);
@@ -584,10 +600,51 @@ static int arizona_runtime_resume(struct device *dev)
 		break;
 	}
 
+	switch (arizona->type) {
+	case WM5110:
+	case WM8280:
+		ret = regulator_set_voltage(arizona->dcvdd, 1200000, 1200000);
+		if (ret < 0) {
+			dev_err(arizona->dev,
+				"Failed to set resume voltage: %d\n",
+				ret);
+			goto err;
+		}
+		break;
+	default:
+		break;
+	}
+
 	ret = regcache_sync(arizona->regmap);
 	if (ret != 0) {
 		dev_err(arizona->dev, "Failed to restore register cache\n");
 		goto err;
+	}
+
+	switch(arizona->type) {
+	case WM5102:
+	case WM8997:
+	case WM8998:
+	case WM1814:
+		/* Restore DVFS setting */
+		ret = 0;
+		mutex_lock(&arizona->subsys_max_lock);
+		if (arizona->subsys_max_rq != 0) {
+			ret = regmap_update_bits(arizona->regmap,
+				ARIZONA_DYNAMIC_FREQUENCY_SCALING_1,
+				ARIZONA_SUBSYS_MAX_FREQ, 1);
+		}
+		mutex_unlock(&arizona->subsys_max_lock);
+
+		if (ret != 0) {
+			dev_err(arizona->dev,
+				"Failed to enable subsys max: %d\n",
+				ret);
+			goto err;
+		}
+		break;
+	default:
+		break;
 	}
 
 	return 0;
@@ -605,6 +662,20 @@ static int arizona_runtime_suspend(struct device *dev)
 
 	dev_dbg(arizona->dev, "Entering AoD mode\n");
 
+	switch(arizona->type) {
+	case WM5102:
+	case WM8997:
+	case WM8998:
+	case WM1814:
+		/* Must disable DVFS boost before powering down DCVDD */
+		regmap_update_bits(arizona->regmap,
+			ARIZONA_DYNAMIC_FREQUENCY_SCALING_1,
+			ARIZONA_SUBSYS_MAX_FREQ, 0);
+		break;
+	default:
+		break;
+	}
+
 	if (arizona->external_dcvdd) {
 		ret = regmap_update_bits(arizona->regmap,
 					 ARIZONA_ISOLATION_CONTROL,
@@ -620,13 +691,10 @@ static int arizona_runtime_suspend(struct device *dev)
 	switch (arizona->type) {
 	case WM5110:
 	case WM8280:
-		ret = regmap_update_bits(arizona->regmap,
-					 ARIZONA_LDO1_CONTROL_1,
-					 ARIZONA_LDO1_VSEL_MASK,
-					 0x0b << ARIZONA_LDO1_VSEL_SHIFT);
-		if (ret != 0) {
+		ret = regulator_set_voltage(arizona->dcvdd, 1175000, 1175000);
+		if (ret < 0) {
 			dev_err(arizona->dev,
-				"Failed to prepare for sleep %d\n",
+				"Failed to set suspend voltage: %d\n",
 				ret);
 			return ret;
 		}
@@ -682,12 +750,12 @@ const struct dev_pm_ops arizona_pm_ops = {
 EXPORT_SYMBOL_GPL(arizona_pm_ops);
 
 #ifdef CONFIG_OF
-int arizona_of_get_type(struct device *dev)
+unsigned long arizona_of_get_type(struct device *dev)
 {
 	const struct of_device_id *id = of_match_device(arizona_of_match, dev);
 
 	if (id)
-		return (int)id->data;
+		return (unsigned long)id->data;
 	else
 		return 0;
 }
@@ -1213,6 +1281,14 @@ int arizona_dev_init(struct arizona *arizona)
 		goto err_early;
 	}
 
+	arizona->dcvdd_notifier.notifier_call = arizona_dcvdd_notify;
+	ret = regulator_register_notifier(arizona->dcvdd,
+					  &arizona->dcvdd_notifier);
+	if (ret < 0) {
+		dev_err(dev, "Failed to register DCVDD notifier %d\n", ret);
+		goto err_dcvdd;
+	}
+
 	if (arizona->pdata.reset) {
 		/* Start out with /RESET low to put the chip into reset */
 		ret = gpio_request_one(arizona->pdata.reset,
@@ -1220,16 +1296,19 @@ int arizona_dev_init(struct arizona *arizona)
 				       "arizona /RESET");
 		if (ret != 0) {
 			dev_err(dev, "Failed to request /RESET: %d\n", ret);
-			goto err_dcvdd;
+			goto err_notifier;
 		}
 	}
+
+	/* Ensure period of reset asserted before we apply the supplies */
+	msleep(20);
 
 	ret = regulator_bulk_enable(arizona->num_core_supplies,
 				    arizona->core_supplies);
 	if (ret != 0) {
 		dev_err(dev, "Failed to enable core supplies: %d\n",
 			ret);
-		goto err_dcvdd;
+		goto err_notifier;
 	}
 
 	ret = regulator_enable(arizona->dcvdd);
@@ -1502,6 +1581,7 @@ int arizona_dev_init(struct arizona *arizona)
 		regmap_update_bits(arizona->regmap,
 				   ARIZONA_MIC_BIAS_CTRL_1 + i,
 				   ARIZONA_MICB1_LVL_MASK |
+				   ARIZONA_MICB1_EXT_CAP |
 				   ARIZONA_MICB1_DISCH |
 				   ARIZONA_MICB1_BYPASS |
 				   ARIZONA_MICB1_RATE, val);
@@ -1634,6 +1714,8 @@ err_reset:
 err_enable:
 	regulator_bulk_disable(arizona->num_core_supplies,
 			       arizona->core_supplies);
+err_notifier:
+	regulator_unregister_notifier(arizona->dcvdd, &arizona->dcvdd_notifier);
 err_dcvdd:
 	regulator_put(arizona->dcvdd);
 err_early:
@@ -1647,6 +1729,7 @@ int arizona_dev_exit(struct arizona *arizona)
 	pm_runtime_disable(arizona->dev);
 
 	regulator_disable(arizona->dcvdd);
+	regulator_unregister_notifier(arizona->dcvdd, &arizona->dcvdd_notifier);
 	regulator_put(arizona->dcvdd);
 
 	mfd_remove_devices(arizona->dev);

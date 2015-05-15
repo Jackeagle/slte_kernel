@@ -312,12 +312,12 @@ static int fimc_is_3aa_video_set_format_mplane(struct file *file, void *fh,
 	}
 
 	if (V4L2_TYPE_IS_OUTPUT(format->type)) {
-		queue = &vctx->q_src;
+		queue = vctx->q_src;
 		fimc_is_ischain_3aa_s_format(device,
 			queue->framecfg.width,
 			queue->framecfg.height);
 	} else {
-		queue = &vctx->q_dst;
+		queue = vctx->q_dst;
 		fimc_is_subdev_s_format(leader,
 			queue->framecfg.width,
 			queue->framecfg.height);
@@ -450,9 +450,10 @@ static int fimc_is_3aa_video_dqbuf(struct file *file, void *priv,
 #endif
 
 	ret = fimc_is_video_dqbuf(file, vctx, buf);
-	if (ret)
+	/* HACK : this log is commented until timeout issue fixed */
+	/* if (ret)
 		merr("fimc_is_video_dqbuf is fail(%d)", vctx, ret);
-
+	*/
 	return ret;
 }
 
@@ -549,6 +550,10 @@ static int fimc_is_3aa_video_s_ctrl(struct file *file, void *priv,
 	}
 
 	switch (ctrl->id) {
+	case V4L2_CID_IS_INTENT:
+		device->group_3aa.intent_ctl.aa.captureIntent = ctrl->value;
+		minfo("[3AA:V] s_ctrl intent(%d)\n", vctx, ctrl->value);
+		break;
 	case V4L2_CID_IS_FORCE_DONE:
 		set_bit(FIMC_IS_GROUP_REQUEST_FSTOP, &device->group_3aa.state);
 		break;
@@ -932,10 +937,10 @@ static int fimc_is_3aa_buffer_finish(struct vb2_buffer *vb)
 #endif
 
 	if (V4L2_TYPE_IS_OUTPUT(vb->v4l2_buf.type)) {
-		queue = &vctx->q_src;
+		queue = vctx->q_src;
 		fimc_is_ischain_3aa_buffer_finish(device, index);
 	} else {
-		queue = &vctx->q_dst;
+		queue = vctx->q_dst;
 		fimc_is_subdev_buffer_finish(subdev, index);
 	}
 

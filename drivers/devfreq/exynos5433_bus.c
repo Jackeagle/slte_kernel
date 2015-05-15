@@ -9,9 +9,14 @@
  */
 
 #include <mach/devfreq.h>
+#include <mach/tmu.h>
+#include <mach/asv-exynos.h>
+#include <mach/regs-clock-exynos5433.h>
+#include <mach/asv-exynos5_cal.h>
+
 #include <linux/pm_qos.h>
 #include <linux/regulator/consumer.h>
-#include <mach/tmu.h>
+
 #include <linux/sec_debug.h>
 #include "devfreq_exynos.h"
 #include "governor.h"
@@ -68,6 +73,12 @@ enum devfreq_disp_clk devfreq_clk_disp_info_idx[] = {
 	DOUT_ACLK_DISP_333,
 	DOUT_SCLK_DSD,
 };
+
+static int g_mif_level;
+int exynos5_devfreq_get_mif_level(void)
+{
+	return g_mif_level;
+}
 
 #ifdef CONFIG_PM_RUNTIME
 struct devfreq_pm_domain_link devfreq_disp_pm_domain[] = {
@@ -682,16 +693,27 @@ static int exynos5_devfreq_int_init_clock(void)
 	return 0;
 }
 
+#define ISP_CONSTRAINT_VOLT_BASE	(900000)
+
 static int exynos5_devfreq_int_set_volt(struct devfreq_data_int *data,
 					unsigned long volt,
 					unsigned long volt_range)
 {
+	unsigned long volt_m = data->volt_constraint_isp;
+
 	if (data->old_volt == volt)
 		goto out;
 
 	regulator_set_voltage(data->vdd_int, volt, volt_range);
 	data->old_volt = volt;
 out:
+	if (volt_m < data->target_volt)
+		volt_m = data->target_volt;
+	if (volt_m < ISP_CONSTRAINT_VOLT_BASE)
+		volt_m = ISP_CONSTRAINT_VOLT_BASE;
+	volt_m += 50000;
+	regulator_set_voltage(data->vdd_int_m, volt_m, volt_m + VOLT_STEP);
+
 	return 0;
 }
 
@@ -804,17 +826,16 @@ int exynos5_devfreq_get_idx(struct devfreq_opp_table *table,
 #ifdef INT_ISP_CONSTRAINT
 int exynos5_int_check_voltage_constraint(unsigned long isp_voltage)
 {
+	unsigned long max_voltage;
+
 	mutex_lock(&data_int->lock);
-
-	data_int->volt_constraint_isp = isp_voltage;
-	if (data_int->target_volt < data_int->volt_constraint_isp) {
-		exynos5_devfreq_int_set_volt(data_int,
-			data_int->volt_constraint_isp, data_int->volt_constraint_isp + VOLT_STEP);
-	} else {
-		exynos5_devfreq_int_set_volt(data_int,
-			data_int->target_volt, data_int->target_volt + VOLT_STEP);
-	}
-
+	max_voltage = data_int->volt_constraint_isp;
+	if (max_voltage < data_int->target_volt)
+		max_voltage = data_int->target_volt;
+	if (max_voltage < ISP_CONSTRAINT_VOLT_BASE)
+		max_voltage = ISP_CONSTRAINT_VOLT_BASE;
+	max_voltage += 50000;
+	regulator_set_voltage(data_int->vdd_int_m, max_voltage, max_voltage + VOLT_STEP);
 	mutex_unlock(&data_int->lock);
 
 	return 0;
@@ -924,8 +945,8 @@ void exynos5_int_notify_power_status(const char *pd_name, unsigned int turn_on)
 
 	mutex_lock(&data_int->lock);
 	cur_freq_idx = exynos5_devfreq_get_idx(devfreq_int_opp_list,
-                                                ARRAY_SIZE(devfreq_int_opp_list),
-                                                data_int->devfreq->previous_freq);
+						ARRAY_SIZE(devfreq_int_opp_list),
+						data_int->devfreq->previous_freq);
 	if (cur_freq_idx == -1) {
 		mutex_unlock(&data_int->lock);
 		pr_err("DEVFREQ(INT) : can't find target_idx to apply notify of power\n");
@@ -984,6 +1005,9 @@ enum devfreq_isp_idx {
 	ISP_LV5,
 	ISP_LV6,
 	ISP_LV7,
+	ISP_LV8,
+	ISP_LV9,
+	ISP_LV10,
 	ISP_LV_COUNT,
 };
 
@@ -1109,12 +1133,15 @@ struct devfreq_clk_list devfreq_isp_clk[CLK_COUNT] = {
 struct devfreq_opp_table devfreq_isp_opp_list[] = {
 	{ISP_LV0,	777000,	950000},		/* CAM0(L0), ISP&CAM1(L0) */
 	{ISP_LV1,	666000,	950000},		/* CAM0(L0), ISP&CAM1(L1) */
-	{ISP_LV2,	555000,	950000},		/* CAM0(L1), ISP&CAM1(L4) */
-	{ISP_LV3,	444000,	950000},		/* CAM0(L2), ISP&CAM1(L2) */
-	{ISP_LV4,	333000,	950000},		/* CAM0(L2), ISP&CAM1(L3) */
-	{ISP_LV5,	222000,	950000},		/* CAM0(L3), ISP&CAM1(L2) */
-	{ISP_LV6,	111000,	925000},		/* CAM0(L4), ISP&CAM1(L3) */
-	{ISP_LV7,	 66000,	925000},		/* CAM0(L5), ISP&CAM1(L5) */
+	{ISP_LV2,	600000,	950000},		/* CAM0(L0), ISP&CAM1(L3) */
+	{ISP_LV3,	580000,	950000},		/* CAM0(L0), ISP&CAM1(L4) */
+	{ISP_LV4,	555000,	950000},		/* CAM0(L1), ISP&CAM1(L4) */
+	{ISP_LV5,	444000,	950000},		/* CAM0(L2), ISP&CAM1(L2) */
+	{ISP_LV6,	333000,	950000},		/* CAM0(L2), ISP&CAM1(L3) */
+	{ISP_LV7,	222000,	950000},		/* CAM0(L3), ISP&CAM1(L2) */
+	{ISP_LV8,	200000,	950000},		/* CAM0(L3), ISP&CAM1(L3) */
+	{ISP_LV9,	111000,	925000},		/* CAM0(L4), ISP&CAM1(L3) */
+	{ISP_LV10,	 66000,	925000},		/* CAM0(L5), ISP&CAM1(L5) */
 };
 
 struct devfreq_clk_state mux_sclk_pixelasync_lite_c[] = {
@@ -1364,8 +1391,11 @@ struct devfreq_clk_info aclk_cam0_552[] = {
 	{ISP_LV3,	552000000,	0,	NULL},
 	{ISP_LV4,	552000000,	0,	NULL},
 	{ISP_LV5,	552000000,	0,	NULL},
-	{ISP_LV6,	138000000,	0,	NULL},
-	{ISP_LV7,	 69000000,	0,	NULL},
+	{ISP_LV6,	552000000,	0,	NULL},
+	{ISP_LV7,	552000000,	0,	NULL},
+	{ISP_LV8,	552000000,	0,	NULL},
+	{ISP_LV9,	138000000,	0,	NULL},
+	{ISP_LV10,	 69000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_cam0_400[] = {
@@ -1375,8 +1405,11 @@ struct devfreq_clk_info aclk_cam0_400[] = {
 	{ISP_LV3,	400000000,	0,	NULL},
 	{ISP_LV4,	400000000,	0,	NULL},
 	{ISP_LV5,	400000000,	0,	NULL},
-	{ISP_LV6,	160000000,	0,	NULL},
-	{ISP_LV7,	100000000,	0,	NULL},
+	{ISP_LV6,	400000000,	0,	NULL},
+	{ISP_LV7,	400000000,	0,	NULL},
+	{ISP_LV8,	400000000,	0,	NULL},
+	{ISP_LV9,	160000000,	0,	NULL},
+	{ISP_LV10,	100000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_cam0_333[] = {
@@ -1386,8 +1419,11 @@ struct devfreq_clk_info aclk_cam0_333[] = {
 	{ISP_LV3,	334000000,	0,	NULL},
 	{ISP_LV4,	334000000,	0,	NULL},
 	{ISP_LV5,	334000000,	0,	NULL},
-	{ISP_LV6,	167000000,	0,	NULL},
-	{ISP_LV7,	 84000000,	0,	NULL},
+	{ISP_LV6,	334000000,	0,	NULL},
+	{ISP_LV7,	334000000,	0,	NULL},
+	{ISP_LV8,	334000000,	0,	NULL},
+	{ISP_LV9,	167000000,	0,	NULL},
+	{ISP_LV10,	 84000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_cam0_bus_400[] = {
@@ -1397,8 +1433,11 @@ struct devfreq_clk_info aclk_cam0_bus_400[] = {
 	{ISP_LV3,	400000000,	0,	NULL},
 	{ISP_LV4,	400000000,	0,	NULL},
 	{ISP_LV5,	400000000,	0,	NULL},
-	{ISP_LV6,	160000000,	0,	NULL},
-	{ISP_LV7,	 13000000,	0,	NULL},
+	{ISP_LV6,	400000000,	0,	NULL},
+	{ISP_LV7,	400000000,	0,	NULL},
+	{ISP_LV8,	400000000,	0,	NULL},
+	{ISP_LV9,	160000000,	0,	NULL},
+	{ISP_LV10,	 13000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_csis0[] = {
@@ -1407,9 +1446,12 @@ struct devfreq_clk_info aclk_csis0[] = {
 	{ISP_LV2,	552000000,	0,	&aclk_csis0_isp_pll_list},
 	{ISP_LV3,	552000000,	0,	&aclk_csis0_isp_pll_list},
 	{ISP_LV4,	552000000,	0,	&aclk_csis0_isp_pll_list},
-	{ISP_LV5,	276000000,	0,	&aclk_csis0_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_csis0_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_csis0_bus_pll_list},
+	{ISP_LV5,	552000000,	0,	&aclk_csis0_isp_pll_list},
+	{ISP_LV6,	552000000,	0,	&aclk_csis0_isp_pll_list},
+	{ISP_LV7,	276000000,	0,	&aclk_csis0_isp_pll_list},
+	{ISP_LV8,	276000000,	0,	&aclk_csis0_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_csis0_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_csis0_bus_pll_list},
 };
 
 struct devfreq_clk_info aclk_lite_a[] = {
@@ -1418,53 +1460,68 @@ struct devfreq_clk_info aclk_lite_a[] = {
 	{ISP_LV2,	552000000,	0,	&aclk_lite_a_isp_pll_list},
 	{ISP_LV3,	552000000,	0,	&aclk_lite_a_isp_pll_list},
 	{ISP_LV4,	552000000,	0,	&aclk_lite_a_isp_pll_list},
-	{ISP_LV5,	276000000,	0,	&aclk_lite_a_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_lite_a_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_lite_a_bus_pll_list},
+	{ISP_LV5,	552000000,	0,	&aclk_lite_a_isp_pll_list},
+	{ISP_LV6,	552000000,	0,	&aclk_lite_a_isp_pll_list},
+	{ISP_LV7,	276000000,	0,	&aclk_lite_a_isp_pll_list},
+	{ISP_LV8,	276000000,	0,	&aclk_lite_a_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_lite_a_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_lite_a_bus_pll_list},
 };
 
 struct devfreq_clk_info aclk_3aa0[] = {
 	{ISP_LV0,	552000000,	0,	&aclk_3aa0_isp_pll_list},
 	{ISP_LV1,	552000000,	0,	&aclk_3aa0_isp_pll_list},
-	{ISP_LV2,	400000000,	0,	&aclk_3aa0_bus_pll_list},
-	{ISP_LV3,	276000000,	0,	&aclk_3aa0_isp_pll_list},
-	{ISP_LV4,	276000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV2,	552000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV3,	552000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV4,	400000000,	0,	&aclk_3aa0_bus_pll_list},
 	{ISP_LV5,	276000000,	0,	&aclk_3aa0_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_3aa0_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_3aa0_bus_pll_list},
+	{ISP_LV6,	276000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV7,	276000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV8,	276000000,	0,	&aclk_3aa0_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_3aa0_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_3aa0_bus_pll_list},
 };
 
-struct devfreq_clk_info aclk_csis1[] = { /////////
+struct devfreq_clk_info aclk_csis1[] = {
 	{ISP_LV0,	184000000,	0,	&aclk_csis1_isp_pll_list},
 	{ISP_LV1,	184000000,	0,	&aclk_csis1_isp_pll_list},
 	{ISP_LV2,	184000000,	0,	&aclk_csis1_isp_pll_list},
 	{ISP_LV3,	184000000,	0,	&aclk_csis1_isp_pll_list},
 	{ISP_LV4,	184000000,	0,	&aclk_csis1_isp_pll_list},
 	{ISP_LV5,	184000000,	0,	&aclk_csis1_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_csis1_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_csis1_bus_pll_list},
+	{ISP_LV6,	184000000,	0,	&aclk_csis1_isp_pll_list},
+	{ISP_LV7,	184000000,	0,	&aclk_csis1_isp_pll_list},
+	{ISP_LV8,	184000000,	0,	&aclk_csis1_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_csis1_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_csis1_bus_pll_list},
 };
 
-struct devfreq_clk_info aclk_lite_b[] = {/////////
+struct devfreq_clk_info aclk_lite_b[] = {
 	{ISP_LV0,	184000000,	0,	&aclk_lite_b_isp_pll_list},
 	{ISP_LV1,	184000000,	0,	&aclk_lite_b_isp_pll_list},
 	{ISP_LV2,	184000000,	0,	&aclk_lite_b_isp_pll_list},
 	{ISP_LV3,	184000000,	0,	&aclk_lite_b_isp_pll_list},
 	{ISP_LV4,	184000000,	0,	&aclk_lite_b_isp_pll_list},
 	{ISP_LV5,	184000000,	0,	&aclk_lite_b_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_lite_b_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_lite_b_bus_pll_list},
+	{ISP_LV6,	184000000,	0,	&aclk_lite_b_isp_pll_list},
+	{ISP_LV7,	184000000,	0,	&aclk_lite_b_isp_pll_list},
+	{ISP_LV8,	184000000,	0,	&aclk_lite_b_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_lite_b_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_lite_b_bus_pll_list},
 };
 
-struct devfreq_clk_info aclk_3aa1[] = {//////////
+struct devfreq_clk_info aclk_3aa1[] = {
 	{ISP_LV0,	400000000,	0,	&aclk_3aa1_bus_pll_list},
 	{ISP_LV1,	400000000,	0,	&aclk_3aa1_bus_pll_list},
-	{ISP_LV2,	184000000,	0,	&aclk_3aa1_isp_pll_list},
-	{ISP_LV3,	184000000,	0,	&aclk_3aa1_isp_pll_list},
+	{ISP_LV2,	400000000,	0,	&aclk_3aa1_bus_pll_list},
+	{ISP_LV3,	400000000,	0,	&aclk_3aa1_bus_pll_list},
 	{ISP_LV4,	184000000,	0,	&aclk_3aa1_isp_pll_list},
 	{ISP_LV5,	184000000,	0,	&aclk_3aa1_isp_pll_list},
-	{ISP_LV6,	160000000,	0,	&aclk_3aa1_bus_pll_list},
-	{ISP_LV7,	 13000000,	0,	&aclk_3aa1_bus_pll_list},
+	{ISP_LV6,	184000000,	0,	&aclk_3aa1_isp_pll_list},
+	{ISP_LV7,	184000000,	0,	&aclk_3aa1_isp_pll_list},
+	{ISP_LV8,	184000000,	0,	&aclk_3aa1_isp_pll_list},
+	{ISP_LV9,	160000000,	0,	&aclk_3aa1_bus_pll_list},
+	{ISP_LV10,	 13000000,	0,	&aclk_3aa1_bus_pll_list},
 };
 
 struct devfreq_clk_info aclk_lite_d[] = {
@@ -1475,7 +1532,10 @@ struct devfreq_clk_info aclk_lite_d[] = {
 	{ISP_LV4,	138000000,	0,	NULL},
 	{ISP_LV5,	138000000,	0,	NULL},
 	{ISP_LV6,	138000000,	0,	NULL},
-	{ISP_LV7,	  9000000,	0,	NULL},
+	{ISP_LV7,	138000000,	0,	NULL},
+	{ISP_LV8,	138000000,	0,	NULL},
+	{ISP_LV9,	138000000,	0,	NULL},
+	{ISP_LV10,	  9000000,	0,	NULL},
 };
 
 struct devfreq_clk_info sclk_pixel_init_552[] = {
@@ -1485,8 +1545,11 @@ struct devfreq_clk_info sclk_pixel_init_552[] = {
 	{ISP_LV3,	69000000,	0,	NULL},
 	{ISP_LV4,	69000000,	0,	NULL},
 	{ISP_LV5,	69000000,	0,	NULL},
-	{ISP_LV6,	18000000,	0,	NULL},
-	{ISP_LV7,	 9000000,	0,	NULL},
+	{ISP_LV6,	69000000,	0,	NULL},
+	{ISP_LV7,	69000000,	0,	NULL},
+	{ISP_LV8,	69000000,	0,	NULL},
+	{ISP_LV9,	18000000,	0,	NULL},
+	{ISP_LV10,	 9000000,	0,	NULL},
 };
 
 struct devfreq_clk_info sclk_pixel_333[] = {
@@ -1496,8 +1559,11 @@ struct devfreq_clk_info sclk_pixel_333[] = {
 	{ISP_LV3,	42000000,	0,	&sclk_pixelasync_lite_c_list},
 	{ISP_LV4,	42000000,	0,	&sclk_pixelasync_lite_c_list},
 	{ISP_LV5,	42000000,	0,	&sclk_pixelasync_lite_c_list},
-	{ISP_LV6,	21000000,	0,	&sclk_pixelasync_lite_c_list},
-	{ISP_LV7,	10000000,	0,	&sclk_pixelasync_lite_c_list},
+	{ISP_LV6,	42000000,	0,	&sclk_pixelasync_lite_c_list},
+	{ISP_LV7,	42000000,	0,	&sclk_pixelasync_lite_c_list},
+	{ISP_LV8,	42000000,	0,	&sclk_pixelasync_lite_c_list},
+	{ISP_LV9,	21000000,	0,	&sclk_pixelasync_lite_c_list},
+	{ISP_LV10,	10000000,	0,	&sclk_pixelasync_lite_c_list},
 };
 
 struct devfreq_clk_info sclk_lite_freecnt_c[] = {
@@ -1509,18 +1575,24 @@ struct devfreq_clk_info sclk_lite_freecnt_c[] = {
 	{ISP_LV5,	0,	0,	&sclk_lite_freecnt_c_list},
 	{ISP_LV6,	0,	0,	&sclk_lite_freecnt_c_list},
 	{ISP_LV7,	0,	0,	&sclk_lite_freecnt_c_list},
+	{ISP_LV8,	0,	0,	&sclk_lite_freecnt_c_list},
+	{ISP_LV9,	0,	0,	&sclk_lite_freecnt_c_list},
+	{ISP_LV10,	0,	0,	&sclk_lite_freecnt_c_list},
 };
 
 /* ISP & CAM1 */
 struct devfreq_clk_info aclk_cam1_552[] = {
 	{ISP_LV0,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
 	{ISP_LV1,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
-	{ISP_LV2,	400000000,	0,	&aclk_cam1_552_bus_pll_list},
-	{ISP_LV3,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
-	{ISP_LV4,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
+	{ISP_LV2,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
+	{ISP_LV3,	400000000,	0,	&aclk_cam1_552_bus_pll_list},
+	{ISP_LV4,	400000000,	0,	&aclk_cam1_552_bus_pll_list},
 	{ISP_LV5,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
 	{ISP_LV6,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
-	{ISP_LV7,	400000000,	0,	&aclk_cam1_552_bus_pll_list},
+	{ISP_LV7,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
+	{ISP_LV8,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
+	{ISP_LV9,	552000000,	0,	&aclk_cam1_552_isp_pll_list},
+	{ISP_LV10,	400000000,	0,	&aclk_cam1_552_bus_pll_list},
 };
 
 struct devfreq_clk_info aclk_cam1_400[] = {
@@ -1531,7 +1603,10 @@ struct devfreq_clk_info aclk_cam1_400[] = {
 	{ISP_LV4,	400000000,	0,	NULL},
 	{ISP_LV5,	400000000,	0,	NULL},
 	{ISP_LV6,	400000000,	0,	NULL},
-	{ISP_LV7,	267000000,	0,	NULL},
+	{ISP_LV7,	400000000,	0,	NULL},
+	{ISP_LV8,	400000000,	0,	NULL},
+	{ISP_LV9,	400000000,	0,	NULL},
+	{ISP_LV10,	267000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_cam1_333[] = {
@@ -1542,7 +1617,10 @@ struct devfreq_clk_info aclk_cam1_333[] = {
 	{ISP_LV4,	334000000,	0,	NULL},
 	{ISP_LV5,	334000000,	0,	NULL},
 	{ISP_LV6,	334000000,	0,	NULL},
-	{ISP_LV7,	167000000,	0,	NULL},
+	{ISP_LV7,	334000000,	0,	NULL},
+	{ISP_LV8,	334000000,	0,	NULL},
+	{ISP_LV9,	334000000,	0,	NULL},
+	{ISP_LV10,	167000000,	0,	NULL},
 };
 
 struct devfreq_clk_info pclk_cam1_83[] = {
@@ -1554,17 +1632,23 @@ struct devfreq_clk_info pclk_cam1_83[] = {
 	{ISP_LV5,	84000000,	0,	NULL},
 	{ISP_LV6,	84000000,	0,	NULL},
 	{ISP_LV7,	84000000,	0,	NULL},
+	{ISP_LV8,	84000000,	0,	NULL},
+	{ISP_LV9,	84000000,	0,	NULL},
+	{ISP_LV10,	84000000,	0,	NULL},
 };
 
 struct devfreq_clk_info aclk_fd_400[] = {
 	{ISP_LV0,	400000000,	0,	&aclk_fd_400_bus_pll_list},
 	{ISP_LV1,	334000000,	0,	&aclk_fd_400_mfc_pll_list},
-	{ISP_LV2,	112000000,	0,	&aclk_fd_400_mfc_pll_list},
-	{ISP_LV3,	334000000,	0,	&aclk_fd_400_mfc_pll_list},
-	{ISP_LV4,	167000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV2,	167000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV3,	112000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV4,	112000000,	0,	&aclk_fd_400_mfc_pll_list},
 	{ISP_LV5,	334000000,	0,	&aclk_fd_400_mfc_pll_list},
 	{ISP_LV6,	167000000,	0,	&aclk_fd_400_mfc_pll_list},
-	{ISP_LV7,	 84000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV7,	334000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV8,	167000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV9,	167000000,	0,	&aclk_fd_400_mfc_pll_list},
+	{ISP_LV10,	 84000000,	0,	&aclk_fd_400_mfc_pll_list},
 };
 
 struct devfreq_clk_info aclk_csis2_333[] = {
@@ -1575,7 +1659,10 @@ struct devfreq_clk_info aclk_csis2_333[] = {
 	{ISP_LV4,	 42000000,	0,	&mux_aclk_csis2_list},
 	{ISP_LV5,	 42000000,	0,	&mux_aclk_csis2_list},
 	{ISP_LV6,	 42000000,	0,	&mux_aclk_csis2_list},
-	{ISP_LV7,	 21000000,	0,	&mux_aclk_csis2_list},
+	{ISP_LV7,	 42000000,	0,	&mux_aclk_csis2_list},
+	{ISP_LV8,	 42000000,	0,	&mux_aclk_csis2_list},
+	{ISP_LV9,	 42000000,	0,	&mux_aclk_csis2_list},
+	{ISP_LV10,	 21000000,	0,	&mux_aclk_csis2_list},
 };
 
 struct devfreq_clk_info aclk_lite_c[] = {
@@ -1586,29 +1673,38 @@ struct devfreq_clk_info aclk_lite_c[] = {
 	{ISP_LV4,	 42000000,	0,	&mux_aclk_lite_c_list},
 	{ISP_LV5,	 42000000,	0,	&mux_aclk_lite_c_list},
 	{ISP_LV6,	 42000000,	0,	&mux_aclk_lite_c_list},
-	{ISP_LV7,	 21000000,	0,	&mux_aclk_lite_c_list},
+	{ISP_LV7,	 42000000,	0,	&mux_aclk_lite_c_list},
+	{ISP_LV8,	 42000000,	0,	&mux_aclk_lite_c_list},
+	{ISP_LV9,	 42000000,	0,	&mux_aclk_lite_c_list},
+	{ISP_LV10,	 21000000,	0,	&mux_aclk_lite_c_list},
 };
 
 struct devfreq_clk_info aclk_isp_400[] = {
 	{ISP_LV0,	400000000,	0,	&aclk_isp_400_bus_pll_list},
 	{ISP_LV1,	334000000,	0,	&aclk_isp_400_mfc_pll_list},
-	{ISP_LV2,	112000000,	0,	&aclk_isp_400_mfc_pll_list},
-	{ISP_LV3,	267000000,	0,	&aclk_isp_400_bus_pll_list},
-	{ISP_LV4,	167000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV2,	167000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV3,	112000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV4,	112000000,	0,	&aclk_isp_400_mfc_pll_list},
 	{ISP_LV5,	267000000,	0,	&aclk_isp_400_bus_pll_list},
 	{ISP_LV6,	167000000,	0,	&aclk_isp_400_mfc_pll_list},
-	{ISP_LV7,	 84000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV7,	267000000,	0,	&aclk_isp_400_bus_pll_list},
+	{ISP_LV8,	167000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV9,	167000000,	0,	&aclk_isp_400_mfc_pll_list},
+	{ISP_LV10,	 84000000,	0,	&aclk_isp_400_mfc_pll_list},
 };
 
 struct devfreq_clk_info aclk_isp_dis_400[] = {
 	{ISP_LV0,	400000000,	0,	&aclk_isp_dis_400_bus_pll_list},
 	{ISP_LV1,	334000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
-	{ISP_LV2,	112000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
-	{ISP_LV3,	267000000,	0,	&aclk_isp_dis_400_bus_pll_list},
-	{ISP_LV4,	167000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV2,	167000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV3,	112000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV4,	112000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
 	{ISP_LV5,	267000000,	0,	&aclk_isp_dis_400_bus_pll_list},
 	{ISP_LV6,	167000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
-	{ISP_LV7,	 84000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV7,	267000000,	0,	&aclk_isp_dis_400_bus_pll_list},
+	{ISP_LV8,	167000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV9,	167000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
+	{ISP_LV10,	 84000000,	0,	&aclk_isp_dis_400_mfc_pll_list},
 };
 
 #ifdef CONFIG_PM_RUNTIME
@@ -1784,23 +1880,26 @@ static int exynos5_devfreq_isp_set_freq(struct devfreq_data_isp *data,
 		for (i = 0; i < ARRAY_SIZE(devfreq_clk_isp_info_list); ++i) {
 			clk_info = &devfreq_clk_isp_info_list[i][target_idx];
 			clk_states = clk_info->states;
+			old_clk_info = &devfreq_clk_isp_info_list[i][old_idx];
 
 #ifdef CONFIG_PM_RUNTIME
-		pm_domain = devfreq_isp_pm_domain[i].pm_domain;
+			pm_domain = devfreq_isp_pm_domain[i].pm_domain;
 
-		if (pm_domain != NULL) {
-			mutex_lock(&pm_domain->access_lock);
-			if ((__raw_readl(pm_domain->base + 0x4) & EXYNOS_INT_LOCAL_PWR_EN) == 0) {
-				mutex_unlock(&pm_domain->access_lock);
-				continue;
+			if (pm_domain != NULL) {
+				mutex_lock(&pm_domain->access_lock);
+				if ((__raw_readl(pm_domain->base + 0x4) & EXYNOS_INT_LOCAL_PWR_EN) == 0) {
+					mutex_unlock(&pm_domain->access_lock);
+					continue;
+				}
 			}
-		}
 #endif
 
-			if (clk_states) {
-				for (j = 0; j < clk_states->state_count; ++j) {
-					clk_set_parent(devfreq_isp_clk[clk_states->state[j].clk_idx].clk,
-						devfreq_isp_clk[clk_states->state[j].parent_clk_idx].clk);
+			if (clk_info->freq >= old_clk_info->freq) {
+				if (clk_states) {
+					for (j = 0; j < clk_states->state_count; ++j) {
+						clk_set_parent(devfreq_isp_clk[clk_states->state[j].clk_idx].clk,
+								devfreq_isp_clk[clk_states->state[j].parent_clk_idx].clk);
+					}
 				}
 			}
 
@@ -1810,9 +1909,26 @@ static int exynos5_devfreq_isp_set_freq(struct devfreq_data_isp *data,
 						devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk_name,
 						clk_info->freq, clk_get_rate(devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk));
 			}
+
+			if (clk_info->freq < old_clk_info->freq) {
+				if (clk_states) {
+					for (j = 0; j < clk_states->state_count; ++j) {
+						clk_set_parent(devfreq_isp_clk[clk_states->state[j].clk_idx].clk,
+								devfreq_isp_clk[clk_states->state[j].parent_clk_idx].clk);
+					}
+				}
+
+				if (clk_info->freq != 0) {
+					clk_set_rate(devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk, clk_info->freq);
+					pr_debug("ISP clk name: %s, set_rate: %lu, get_rate: %lu\n",
+							devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk_name,
+							clk_info->freq, clk_get_rate(devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk));
+				}
+			}
+
 #ifdef CONFIG_PM_RUNTIME
-		if (pm_domain != NULL)
-			mutex_unlock(&pm_domain->access_lock);
+			if (pm_domain != NULL)
+				mutex_unlock(&pm_domain->access_lock);
 #endif
 		}
 	} else {
@@ -1821,19 +1937,19 @@ static int exynos5_devfreq_isp_set_freq(struct devfreq_data_isp *data,
 			clk_states = clk_info->states;
 
 #ifdef CONFIG_PM_RUNTIME
-		pm_domain = devfreq_isp_pm_domain[i].pm_domain;
+			pm_domain = devfreq_isp_pm_domain[i].pm_domain;
 
-		if (pm_domain != NULL) {
-			mutex_lock(&pm_domain->access_lock);
-			if ((__raw_readl(pm_domain->base + 0x4) & EXYNOS_INT_LOCAL_PWR_EN) == 0) {
-				mutex_unlock(&pm_domain->access_lock);
-				continue;
+			if (pm_domain != NULL) {
+				mutex_lock(&pm_domain->access_lock);
+				if ((__raw_readl(pm_domain->base + 0x4) & EXYNOS_INT_LOCAL_PWR_EN) == 0) {
+					mutex_unlock(&pm_domain->access_lock);
+					continue;
+				}
 			}
-		}
 #endif
 
 			if (clk_info->freq != 0) {
-				/* it is just code to prevent 3aa0 overflow, when trasition ISP_LV1(552) to ISP_LV2(400),
+				/* it is just code to prevent 3aa0 overflow, when trasition ISP_LV3(552) to ISP_LV4(400),
 				   it apply mux value after divider. so it assert 276M for a while because of clk_set_rate().
 				   it caused 3aa0 overflow.
 				   */
@@ -1862,8 +1978,8 @@ static int exynos5_devfreq_isp_set_freq(struct devfreq_data_isp *data,
 						clk_info->freq, clk_get_rate(devfreq_isp_clk[devfreq_clk_isp_info_idx[i]].clk));
 			}
 #ifdef CONFIG_PM_RUNTIME
-		if (pm_domain != NULL)
-			mutex_unlock(&pm_domain->access_lock);
+			if (pm_domain != NULL)
+				mutex_unlock(&pm_domain->access_lock);
 #endif
 		}
 	}
@@ -2026,6 +2142,7 @@ int exynos5433_devfreq_isp_deinit(struct devfreq_data_isp *data)
 /* ========== 3. MIF related function */
 #define TRAFFIC_BYTES_HD_32BIT_60FPS		(1280*720*4*60)
 #define TRAFFIC_BYTES_FHD_32BIT_60FPS		(1920*1080*4*60)
+#define TRAFFIC_BYTES_QXGA_32BIT_60FPS		(1536*2048*4*60)
 #define TRAFFIC_BYTES_WQHD_32BIT_60FPS		(2560*1440*4*60)
 #define TRAFFIC_BYTES_WQXGA_32BIT_60FPS		(2560*1600*4*60)
 
@@ -2337,6 +2454,7 @@ struct devfreq_mif_timing_parameter {
 	unsigned int timing_rfcpb;
 	unsigned int dvfs_con1;
 	unsigned int mif_drex_mr_data[4];
+	unsigned int dvfs_offset;
 };
 
 struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
@@ -2353,6 +2471,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 633Mhz */
 		.timing_row	= 0x2A48758F,
 		.timing_data	= 0x3530064A,
@@ -2366,6 +2485,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000040C,
 			[3]	= 0x0010040C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 543Mhz */
 		.timing_row	= 0x244764CD,
 		.timing_data	= 0x35300549,
@@ -2379,6 +2499,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000078C,
 			[3]	= 0x0010078C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 413Mhz */
 		.timing_row	= 0x1B35538A,
 		.timing_data	= 0x24200539,
@@ -2392,6 +2513,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 15,
 	}, {	/* 275Mhz */
 		.timing_row	= 0x12244287,
 		.timing_data	= 0x23200529,
@@ -2405,6 +2527,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 30,
 	}, {	/* 206Mhz */
 		.timing_row	= 0x112331C6,
 		.timing_data	= 0x23200529,
@@ -2418,6 +2541,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 30,
 	}, {	/* 165Mhz */
 		.timing_row	= 0x11223185,
 		.timing_data	= 0x23200529,
@@ -2431,6 +2555,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	}, {	/* 138Mhz */
 		.timing_row	= 0x11222144,
 		.timing_data	= 0x23200529,
@@ -2444,6 +2569,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	}, {	/* 103Mhz */
 		.timing_row	= 0x11222103,
 		.timing_data	= 0x23200529,
@@ -2457,6 +2583,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_2gb[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	},
 };
 
@@ -2498,20 +2625,20 @@ struct devfreq_distriction_level {
 };
 
 struct devfreq_distriction_level distriction_fullhd[] = {
-	{MIF_LV9,	DISP_LV3},			/*  78000 */
-	{MIF_LV8,	DISP_LV3},			/* 103000 */
-	{MIF_LV7,	DISP_LV3},			/* 138000 */
-	{MIF_LV6,	DISP_LV2},			/* 165000 */
-	{MIF_LV5,	DISP_LV2},			/* 206000 */
-	{MIF_LV4,	DISP_LV2},			/* 275000 */
-	{MIF_LV0,	DISP_LV0},			/* 825000 */
+	{MIF_LV9,       DISP_LV3},                      /*  78000 or  83000 */
+	{MIF_LV8,       DISP_LV3},                      /* 103000 or 111000 */
+	{MIF_LV7,       DISP_LV3},                      /* 138000 or 133000 */
+	{MIF_LV6,       DISP_LV2},                      /* 165000 or 167000 */
+	{MIF_LV5,       DISP_LV2},                      /* 206000 or 222000 */
+	{MIF_LV4,       DISP_LV2},                      /* 275000 or 334000 */
+	{MIF_LV0,       DISP_LV0},                      /* 825000 or 921000 */
 };
 
 unsigned int timeout_fullhd[][2] = {
 	{0x0FFF0FFF,	0x00000000},
 	{0x0FFF0FFF,	0x00000000},
 	{0x0FFF0FFF,	0x00000000},
-	{0x0FFF0FFF,	0x00000000},
+	{0x00800080,	0x000000FF},
 	{0x00800080,	0x000000FF},
 	{0x00800080,	0x000000FF},
 	{0x00800080,	0x000000FF},
@@ -2526,7 +2653,7 @@ struct devfreq_distriction_level distriction_fullhd_gscl[] = {
 	{MIF_LV5,	DISP_LV2},
 	{MIF_LV4,	DISP_LV2},
 	{MIF_LV4,	DISP_LV2},
-	{MIF_LV8,	DISP_LV3},
+	{MIF_LV0,	DISP_LV3},
 	{MIF_LV0,	DISP_LV0},
 };
 
@@ -2591,9 +2718,9 @@ unsigned int timeout_fullhd_camera[][2] = {
 };
 
 struct devfreq_distriction_level distriction_wqhd[] = {
-	{MIF_LV9,   	DISP_LV2,	INT_LV6},
+	{MIF_LV9,   	DISP_LV3,	INT_LV6},
 	{MIF_LV7,	DISP_LV2,	INT_LV6},
-	{MIF_LV3,	DISP_LV1,	INT_LV4},
+	{MIF_LV4,	DISP_LV1,	INT_LV4},
 	{MIF_LV3,	DISP_LV0,	INT_LV2},
 	{MIF_LV3,   	DISP_LV0,	INT_LV0},
 	{MIF_LV2,	DISP_LV0,	INT_LV0},
@@ -2614,7 +2741,7 @@ unsigned int timeout_wqhd[][2] = {
 };
 
 struct devfreq_distriction_level distriction_wqhd_gscl[] = {
-	{MIF_LV7,	DISP_LV2,	INT_LV6},
+	{MIF_LV7,	DISP_LV3,	INT_LV6},
 	{MIF_LV7,	DISP_LV2,	INT_LV4},
 	{MIF_LV4,	DISP_LV1,	INT_LV2},
 	{MIF_LV3,   	DISP_LV0,	INT_LV0},
@@ -2637,7 +2764,7 @@ unsigned int timeout_wqhd_gscl[][2] = {
 };
 
 struct devfreq_distriction_level distriction_wqhd_tv[] = {
-	{MIF_LV4,	DISP_LV2,	INT_LV4},
+	{MIF_LV4,	DISP_LV1,	INT_LV4},
 	{MIF_LV4,	DISP_LV1,	INT_LV4},
 	{MIF_LV3,	DISP_LV0,	INT_LV2},
 	{MIF_LV3,	DISP_LV0,	INT_LV0},
@@ -2669,6 +2796,16 @@ struct devfreq_distriction_level distriction_wqhd_camera[] = {
 	{MIF_LV0,	DISP_LV0,	INT_LV0},
 };
 
+struct devfreq_distriction_level distriction_wqxga_camera[] = {
+	{MIF_LV2,	DISP_LV2,	INT_LV6},
+	{MIF_LV2,	DISP_LV2,	INT_LV6},
+	{MIF_LV2,	DISP_LV1,	INT_LV4},
+	{MIF_LV1,	DISP_LV1,	INT_LV0},
+	{MIF_LV0,	DISP_LV0,	INT_LV0},
+	{MIF_LV0,	DISP_LV0,	INT_LV0},
+	{MIF_LV0,	DISP_LV0,	INT_LV0},
+};
+
 unsigned int timeout_wqhd_camera[][2] = {
 	{0x00800080,	0x000000FF},
 	{0x00800080,	0x000000FF},
@@ -2682,7 +2819,7 @@ unsigned int timeout_wqhd_camera[][2] = {
 	{0x00000000,	0x000000FF},
 };
 
-unsigned int timeout_wqhd_ud_decode[][2] = {
+unsigned int timeout_wqhd_ud_encode[][2] = {
 	{0x0FFF0FFF,	0x00000000},
 	{0x0FFF0FFF,	0x00000000},
 	{0x0FFF0FFF,	0x00000000},
@@ -2825,6 +2962,8 @@ static int exynos5_devfreq_mif_set_freq(struct devfreq_data_mif *data,
 		exynos5_devfreq_waiting_pause(data);
 		exynos5_devfreq_waiting_mux(data);
 	}
+
+	g_mif_level = target_idx;
 	return 0;
 }
 
@@ -2842,6 +2981,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 633Mhz */
 		.timing_row	= 0x4348758F,
 		.timing_data	= 0x3530064A,
@@ -2855,6 +2995,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000040C,
 			[3]	= 0x0010040C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 543Mhz */
 		.timing_row	= 0x3A4764CD,
 		.timing_data	= 0x35300549,
@@ -2868,6 +3009,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000078C,
 			[3]	= 0x0010078C,
 		},
+		.dvfs_offset	= 0,
 	}, {	/* 413Mhz */
 		.timing_row	= 0x2C35538A,
 		.timing_data	= 0x24200539,
@@ -2881,6 +3023,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 15,
 	}, {	/* 275Mhz */
 		.timing_row	= 0x1D244287,
 		.timing_data	= 0x23200529,
@@ -2894,6 +3037,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 30,
 	}, {	/* 206Mhz */
 		.timing_row	= 0x162331C6,
 		.timing_data	= 0x23200529,
@@ -2907,6 +3051,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 30,
 	}, {	/* 165Mhz */
 		.timing_row	= 0x12223185,
 		.timing_data	= 0x23200529,
@@ -2920,6 +3065,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	}, {	/* 138Mhz */
 		.timing_row	= 0x11222144,
 		.timing_data	= 0x23200529,
@@ -2933,6 +3079,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	}, {	/* 103Mhz */
 		.timing_row	= 0x11222103,
 		.timing_data	= 0x23200529,
@@ -2946,6 +3093,7 @@ struct devfreq_mif_timing_parameter dmc_timing_parameter_default[] = {
 			[2]	= 0x0000060C,
 			[3]	= 0x0010060C,
 		},
+		.dvfs_offset	= 40,
 	},
 };
 
@@ -2966,13 +3114,66 @@ static int exynos5_devfreq_mif_change_timing_set(struct devfreq_data_mif *data)
 		tmp = __raw_readl(data->base_mif + 0x1004);
 		tmp |= 0x1;
 		__raw_writel(tmp, data->base_mif + 0x1004);
+
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xB8);
+		tmp &= ~(0x3 << 24);
+		tmp |= (0x2 << 24);
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xB8);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xB8);
+		tmp &= ~(0x3 << 24);
+		tmp |= (0x2 << 24);
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xB8);
 	} else {
 		tmp = __raw_readl(data->base_mif + 0x1004);
 		tmp &= ~0x1;
 		__raw_writel(tmp, data->base_mif + 0x1004);
+
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xB8);
+		tmp &= ~(0x3 << 24);
+		tmp |= (0x1 << 24);
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xB8);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xB8);
+		tmp &= ~(0x3 << 24);
+		tmp |= (0x1 << 24);
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xB8);
 	}
 
 	exynos5_devfreq_mif_update_timingset(data);
+
+	return 0;
+}
+
+static int exynos5_devfreq_mif_set_phy(struct devfreq_data_mif *data,
+		int target_idx)
+{
+	struct devfreq_mif_timing_parameter *cur_parameter;
+	unsigned int tmp;
+
+	cur_parameter = &dmc_timing_parameter_3gb[target_idx];
+
+	if (use_mif_timing_set_0) {
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xBC);
+		tmp &= ~(0x1F << 24);
+		tmp |= (cur_parameter->dvfs_con1 & (0x1F << 24));
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xBC);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xBC);
+		tmp &= ~(0x1F << 24);
+		tmp |= (cur_parameter->dvfs_con1 & (0x1F << 24));
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xBC);
+	} else {
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xBC);
+		tmp &= ~(0x1F << 16);
+		tmp |= (cur_parameter->dvfs_con1 & (0x1F << 16));
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xBC);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xBC);
+		tmp &= ~(0x1F << 16);
+		tmp |= (cur_parameter->dvfs_con1 & (0x1F << 16));
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xBC);
+	}
 
 	return 0;
 }
@@ -3004,6 +3205,16 @@ static int exynos5_devfreq_mif_set_and_change_timing_set(struct devfreq_data_mif
 		tmp |= (cur_parameter->timing_rfcpb & (TIMING_RFCPB_MASK << 8));
 		__raw_writel(tmp, data->base_drex1 + 0x20);
 		__raw_writel(cur_parameter->rd_fetch, data->base_drex1 + 0x50);
+
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xB8);
+		tmp &= ~(0xFF << 8);
+		tmp |= (cur_parameter->dvfs_offset << 8);
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xB8);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xB8);
+		tmp &= ~(0xFF << 8);
+		tmp |= (cur_parameter->dvfs_offset << 8);
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xB8);
 	} else {
 		__raw_writel(cur_parameter->timing_row, data->base_drex0 + 0x34);
 		__raw_writel(cur_parameter->timing_data, data->base_drex0 + 0x38);
@@ -3022,7 +3233,18 @@ static int exynos5_devfreq_mif_set_and_change_timing_set(struct devfreq_data_mif
 		tmp |= (cur_parameter->timing_rfcpb & TIMING_RFCPB_MASK);
 		__raw_writel(tmp, data->base_drex1 + 0x20);
 		__raw_writel(cur_parameter->rd_fetch, data->base_drex1 + 0x4C);
+
+		tmp = __raw_readl(data->base_lpddr_phy0 + 0xB8);
+		tmp &= ~(0xFF);
+		tmp |= (cur_parameter->dvfs_offset);
+		__raw_writel(tmp, data->base_lpddr_phy0 + 0xB8);
+
+		tmp = __raw_readl(data->base_lpddr_phy1 + 0xB8);
+		tmp &= ~(0xFF);
+		tmp |= (cur_parameter->dvfs_offset);
+		__raw_writel(tmp, data->base_lpddr_phy1 + 0xB8);
 	}
+	exynos5_devfreq_mif_set_phy(data, target_idx);
 	exynos5_devfreq_mif_change_timing_set(data);
 
 	return 0;
@@ -3064,6 +3286,7 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 	int disp_qos = DISP_LV3;
 	int mif_qos = MIF_LV9;
 	int int_qos = INT_LV6;
+	int tv_layer_value;
 
 	mutex_lock(&media_mutex);
 
@@ -3081,25 +3304,29 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 		media_enabled_gscl_local = value;
 		break;
 	case TYPE_TV:
-		media_num_mixer_layer = value;
+		media_enabled_tv = !!value;
+		tv_layer_value = value;
 		switch (media_resolution) {
 			case RESOLUTION_HD:
-				media_num_mixer_layer =
-					((value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
-					  + (media_resolution_bandwidth - 1)) / TRAFFIC_BYTES_FHD_32BIT_60FPS);
+				tv_layer_value = (value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
+					  + (TRAFFIC_BYTES_FHD_32BIT_60FPS - 1));
+				if (tv_layer_value < 0)
+					tv_layer_value = 0;
+				media_num_mixer_layer = tv_layer_value / TRAFFIC_BYTES_FHD_32BIT_60FPS;
 				break;
 			case RESOLUTION_FULLHD:
 			case RESOLUTION_WQHD:
 			case RESOLUTION_WQXGA:
-				media_num_mixer_layer =
-					((value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
-					  + (media_resolution_bandwidth - 1)) / media_resolution_bandwidth);
+				tv_layer_value = (value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
+					  + (media_resolution_bandwidth - 1));
+				if (tv_layer_value < 0)
+					tv_layer_value = 0;
+				media_num_mixer_layer = tv_layer_value / media_resolution_bandwidth;
 				break;
 			default:
 				pr_err("DEVFREQ(MIF) : can't calculate mixer layer by traffic(%u)\n", media_resolution);
 				break;
 		}
-		media_enabled_tv = !!value;
 		break;
 	case TYPE_UD_DECODING:
 		enabled_ud_decode = value;
@@ -3114,6 +3341,9 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 				break;
 			case TRAFFIC_BYTES_FHD_32BIT_60FPS:
 				media_resolution = RESOLUTION_FULLHD;
+				break;
+			case TRAFFIC_BYTES_QXGA_32BIT_60FPS:
+				media_resolution = RESOLUTION_WQHD;
 				break;
 			case TRAFFIC_BYTES_WQHD_32BIT_60FPS:
 				media_resolution = RESOLUTION_WQHD;
@@ -3142,6 +3372,11 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 			timeout_table = timeout_fullhd_camera;
 		}
 		if (media_enabled_gscl_local) {
+			total_layer_count = media_num_decon_layer - 1;
+			if (total_layer_count < 0)
+				total_layer_count = 0;
+			total_layer_count += media_num_mixer_layer;
+
 			if (total_layer_count == NUM_LAYER_5) {
 				pr_err("DEVFREQ(MIF) : can't support mif and disp distriction. using gscl local with 5 windows.\n");
 				goto out;
@@ -3165,12 +3400,17 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 			mif_qos = distriction_fullhd[total_layer_count].mif_level;
 		if (disp_qos > distriction_fullhd[total_layer_count].disp_level)
 			disp_qos = distriction_fullhd[total_layer_count].disp_level;
-	} else if (media_resolution == RESOLUTION_WQHD) {
+	} else if (media_resolution == RESOLUTION_WQHD || media_resolution == RESOLUTION_WQXGA) {
 		if (media_enabled_fimc_lite) {
 			if (mif_qos > distriction_wqhd_camera[total_layer_count].mif_level)
 				mif_qos = distriction_wqhd_camera[total_layer_count].mif_level;
-			if (int_qos > distriction_wqhd_camera[total_layer_count].int_level)
-				int_qos = distriction_wqhd_camera[total_layer_count].int_level;
+			if (media_resolution == RESOLUTION_WQHD) {
+				if (int_qos > distriction_wqhd_camera[total_layer_count].int_level)
+					int_qos = distriction_wqhd_camera[total_layer_count].int_level;
+			} else if (media_resolution == RESOLUTION_WQXGA) {
+				if (int_qos > distriction_wqxga_camera[total_layer_count].int_level)
+					int_qos = distriction_wqxga_camera[total_layer_count].int_level;
+			}
 			if (disp_qos > distriction_wqhd_camera[total_layer_count].disp_level)
 				disp_qos = distriction_wqhd_camera[total_layer_count].disp_level;
 			timeout_table = timeout_wqhd_camera;
@@ -3189,6 +3429,11 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 			wqhd_tv_window5 = false;
 		}
 		if (media_enabled_gscl_local) {
+			total_layer_count = media_num_decon_layer - 1;
+			if (total_layer_count < 0)
+				total_layer_count = 0;
+			total_layer_count += media_num_mixer_layer;
+
 			if (total_layer_count == NUM_LAYER_5) {
 				pr_err("DEVFREQ(MIF) : can't support mif and disp distriction. using gscl local with 5 windows.\n");
 				goto out;
@@ -3209,12 +3454,13 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 			int_qos = distriction_wqhd[total_layer_count].int_level;
 		if (disp_qos > distriction_wqhd[total_layer_count].disp_level)
 			disp_qos = distriction_wqhd[total_layer_count].disp_level;
-		if (enabled_ud_decode)
-			timeout_table = timeout_wqhd_ud_decode;
+		if (enabled_ud_encode)
+			timeout_table = timeout_wqhd_ud_encode;
 	}
 
-	if (pm_qos_request_active(&exynos5_mif_bts_qos))
+	if (pm_qos_request_active(&exynos5_mif_bts_qos)) {
 		pm_qos_update_request(&exynos5_mif_bts_qos, devfreq_mif_opp_list[mif_qos].freq);
+	}
 
 	exynos5_update_district_disp_level(disp_qos);
 
@@ -3625,6 +3871,33 @@ void exynos_mif_call_notifier(int val)
 	blocking_notifier_call_chain(&mif_max_thermal_level_notifier, val, v);
 }
 
+/* notifier for DTM driver to handle MR4 throttling */
+static BLOCKING_NOTIFIER_HEAD(mif_thermal_level_notifier);
+
+int exynos5_mif_thermal_add_notifier(struct notifier_block *n)
+{
+	return blocking_notifier_chain_register(&mif_thermal_level_notifier, n);
+}
+
+void exynos5_mif_thermal_call_notifier(int val, enum devfreq_mif_thermal_channel ch)
+{
+	blocking_notifier_call_chain(&mif_thermal_level_notifier, val, &ch);
+}
+
+static void exynos5_devfreq_swtrip(void)
+{
+#ifdef CONFIG_EXYNOS_SWTRIP
+	char tmustate_string[20];
+	char *envp[2];
+
+	snprintf(tmustate_string, sizeof(tmustate_string), "TMUSTATE=%d", 3);
+	envp[0] = tmustate_string;
+	envp[1] = NULL;
+	pr_err("DEVFREQ(MIF) : SW trip by MR4\n");
+	kobject_uevent_env(&data_mif->dev->kobj, KOBJ_CHANGE, envp);
+#endif
+}
+
 #define MRSTATUS_THERMAL_BIT_SHIFT	(7)
 #define MRSTATUS_THERMAL_BIT_MASK	(1)
 #define MRSTATUS_THERMAL_LV_MASK	(0x7)
@@ -3633,7 +3906,7 @@ static void exynos5_devfreq_thermal_monitor(struct work_struct *work)
 	struct delayed_work *d_work = container_of(work, struct delayed_work, work);
 	struct devfreq_thermal_work *thermal_work =
 			container_of(d_work, struct devfreq_thermal_work, devfreq_mif_thermal_work);
-	unsigned int mrstatus, tmp_thermal_level, max_thermal_level = 0;
+	unsigned int mrstatus, tmp_thermal_level, max_thermal_level = 0, tmp;
 	unsigned int timingaref_value = RATE_ONE;
 	unsigned long max_freq = data_mif->cal_qos_max;
 	bool throttling = false;
@@ -3664,6 +3937,8 @@ static void exynos5_devfreq_thermal_monitor(struct work_struct *work)
 
 	mutex_unlock(&data_mif->lock);
 
+	exynos5_mif_thermal_call_notifier(thermal_work->thermal_level_cs1, thermal_work->channel);
+
 	switch (max_thermal_level) {
 	case 0:
 	case 1:
@@ -3677,9 +3952,8 @@ static void exynos5_devfreq_thermal_monitor(struct work_struct *work)
 		thermal_work->polling_period = 300;
 		pr_info("MIF: max_thermal_level is %d\n", max_thermal_level);
 		break;
-	case 6:
-		throttling = true;
 	case 5:
+		throttling = true;
 		timingaref_value = RATE_QUARTER;
 		thermal_work->polling_period = 100;
 
@@ -3690,15 +3964,19 @@ static void exynos5_devfreq_thermal_monitor(struct work_struct *work)
 			exynos_mif_call_notifier(devfreq_mif_opp_list[MIF_LV5].freq);
 		}
 		break;
+	case 6:
+		exynos5_devfreq_swtrip();
+		return;
 	default:
 		pr_err("DEVFREQ(MIF) : can't support memory thermal level\n");
 		return;
 	}
 
-	if (throttling && use_mif_throttling)
+	if (throttling && use_mif_throttling) {
 		max_freq = devfreq_mif_opp_list[MIF_LV5].freq;
-	else
+	} else {
 		max_freq = data_mif->cal_qos_max;
+	}
 
 	if (thermal_work->max_freq != max_freq) {
 		thermal_work->max_freq = max_freq;
@@ -3707,7 +3985,20 @@ static void exynos5_devfreq_thermal_monitor(struct work_struct *work)
 		mutex_unlock(&data_mif->devfreq->lock);
 	}
 
+	if (max_freq != data_mif->cal_qos_max) {
+		tmp = __raw_readl(base_drex + 0x4);
+		tmp &= ~(0x1 << 27);
+		__raw_writel(tmp, base_drex + 0x4);
+	}
+
 	__raw_writel(timingaref_value, base_drex + 0x30);
+
+	if (max_freq == data_mif->cal_qos_max) {
+		tmp = __raw_readl(base_drex + 0x4);
+		tmp |= (0x1 << 27);
+		__raw_writel(tmp, base_drex + 0x4);
+	}
+
 	exynos5_devfreq_thermal_event(thermal_work);
 }
 
@@ -3762,6 +4053,7 @@ int exynos5433_devfreq_mif_init(struct devfreq_data_mif *data)
 {
 	int i;
 	int ret = 0;
+
 	timeout_table = timeout_fullhd;
 	media_enabled_fimc_lite = false;
 	media_enabled_gscl_local = false;
@@ -3770,6 +4062,13 @@ int exynos5433_devfreq_mif_init(struct devfreq_data_mif *data)
 	media_num_decon_layer = false;
 	wqhd_tv_window5 = false;
 	data_mif = data;
+
+	data->mif_set_freq = exynos5_devfreq_mif_set_freq;
+	data->mif_set_and_change_timing_set = exynos5_devfreq_mif_set_and_change_timing_set;
+	data->mif_set_timeout = exynos5_devfreq_mif_set_timeout;
+	data->mif_set_dll = exynos5_devfreq_mif_set_dll;
+	data->mif_dynamic_setting = exynos5_devfreq_mif_dynamic_setting;
+	data->mif_set_volt = exynos5_devfreq_mif_set_volt;
 
 	for (i = 0; i < CNT_FW_MIF_LEVELS; i++) {
 		int RL = g_aDvfsMifParam[i].uDvfsRdLat;
@@ -3784,16 +4083,10 @@ int exynos5433_devfreq_mif_init(struct devfreq_data_mif *data)
 		dmc_timing_parameter_3gb[i].mif_drex_mr_data[1] = g_aDvfsMifParam[i].uMRW1;
 		dmc_timing_parameter_3gb[i].mif_drex_mr_data[2] = g_aDvfsMifParam[i].uMRW2;
 		dmc_timing_parameter_3gb[i].mif_drex_mr_data[3] = g_aDvfsMifParam[i].uMRW3;
+		dmc_timing_parameter_3gb[i].dvfs_offset = g_aDvfsMifParam[i].uDvfsOffset;
 	}
 
 	data->max_state = MIF_LV_COUNT;
-
-	data->mif_set_freq = exynos5_devfreq_mif_set_freq;
-	data->mif_set_and_change_timing_set= exynos5_devfreq_mif_set_and_change_timing_set;
-	data->mif_set_timeout = exynos5_devfreq_mif_set_timeout;
-	data->mif_set_dll = exynos5_devfreq_mif_set_dll;
-	data->mif_dynamic_setting = exynos5_devfreq_mif_dynamic_setting;
-	data->mif_set_volt = exynos5_devfreq_mif_set_volt;
 
 	data->mif_asv_abb_table = kzalloc(sizeof(int) * data->max_state, GFP_KERNEL);
 	if (data->mif_asv_abb_table == NULL) {

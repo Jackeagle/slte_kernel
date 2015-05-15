@@ -105,11 +105,16 @@ typedef struct kbasep_js_policy_cfs_ctx {
 	/** Link implementing the Policy's Queue, and Currently Scheduled list */
 	struct list_head list;
 
-	/** Job lists for use when in the Run Pool - only using
-	 * kbasep_js_policy_fcfs::num_unique_slots of them. We still need to track
-	 * the jobs when we're not in the runpool, so this member is accessed from
-	 * outside the policy queue (for the first job), inside the policy queue,
-	 * and inside the runpool.
+	/** Job lists for use when in the Run Pool
+	 *
+	 * Job (atom) priority is implemented by having separate lists for each
+	 * priority level. This also allows us to easily restrict choosing jobs
+	 * from a certain priority level, and also not choosing jobs from lower
+	 * priority levels when high priority jobs are currently running.
+	 *
+	 * We still need to track the jobs when we're not in the runpool, so
+	 * this member is accessed from outside the policy queue (for the first
+	 * job), inside the policy queue, and inside the runpool.
 	 *
 	 * If the context is in the runpool, then this must only be accessed with
 	 * kbasep_js_device_data::runpool_irq::lock held
@@ -117,7 +122,7 @@ typedef struct kbasep_js_policy_cfs_ctx {
 	 * Jobs are still added to this list even when the context is not in the
 	 * runpool. In that case, the kbasep_js_kctx_info::ctx::jsctx_mutex must be
 	 * held before accessing this. */
-	struct list_head job_list_head[KBASEP_JS_MAX_NR_CORE_REQ_VARIANTS];
+	struct list_head job_list_head[BASE_JD_NR_PRIO_LEVELS][KBASEP_JS_MAX_NR_CORE_REQ_VARIANTS];
 
 	/** Number of us this context has been running for
 	 *
@@ -133,18 +138,8 @@ typedef struct kbasep_js_policy_cfs_ctx {
 	/* Calling process policy scheme is a realtime scheduler and will use the priority queue
 	 * Non-mutable after ctx init */
 	mali_bool process_rt_policy;
-	/* Calling process NICE priority */
+	/* Calling process NICE priority, in the range -20..19 */
 	int process_priority;
-	/* Average NICE priority of all atoms in bag:
-	 * Hold the kbasep_js_kctx_info::ctx::jsctx_mutex when accessing  */
-	int bag_priority;
-	/* Total NICE priority of all atoms in bag
-	 * Hold the kbasep_js_kctx_info::ctx::jsctx_mutex when accessing  */
-	int bag_total_priority;
-	/* Total number of atoms in the bag
-	 * Hold the kbasep_js_kctx_info::ctx::jsctx_mutex when accessing  */
-	int bag_total_nr_atoms;
-
 } kbasep_js_policy_cfs_ctx;
 
 /**

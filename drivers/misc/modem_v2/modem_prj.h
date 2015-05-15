@@ -228,14 +228,11 @@ struct fragmented_data {
 struct skbuff_private {
 	struct io_device *iod;
 	struct link_device *ld;
-	struct io_device *real_iod; /* for rx multipdp */
-	void *sipch;
-
 	void *context;
-	struct urb *urb; /* TX urb*/
-	bool nzlp; /* Non-Zero Length packet*/
 
-	int status;
+	void *sipch;
+	struct urb *urb;	/* TX urb*/
+	bool nzlp;		/* Non-Zero Length packet*/
 } __packed;
 
 static inline struct skbuff_private *skbpriv(struct sk_buff *skb)
@@ -276,6 +273,8 @@ struct io_device {
 	/* Misc and net device structures for the IO device */
 	struct miscdevice  miscdev;
 	struct net_device *ndev;
+	/* list of activated network_device */
+	struct list_head node_ndev;
 
 	/* ID and Format for channel on the link */
 	unsigned id;
@@ -473,6 +472,9 @@ struct modem_shared {
 	/* list of link devices */
 	struct list_head link_dev_list;
 
+	/* list of activated ndev */
+	struct list_head activated_ndev_list;
+
 	/* rb_tree root of io devices. */
 	struct rb_root iodevs_tree_chan; /* group by channel */
 	struct rb_root iodevs_tree_fmt; /* group by dev_format */
@@ -523,6 +525,7 @@ struct modem_ctl {
 
 	int irq_phone_active;
 	int irq_sim_detect;
+	int irq_cp_dump_int;
 
 #ifdef CONFIG_LTE_MODEM_CMC221
 	const struct attribute_group *group;

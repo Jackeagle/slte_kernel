@@ -1,15 +1,26 @@
-/*
- * .... hwcnt
+/* drivers/gpu/arm/.../platform/gpu_hwcnt.c
  *
- * Copyright (C) 2013 Samsung Electronics
- *      Sangkyu Kim <skwith.kim@samsung.com>
+ * Copyright 2011 by S.LSI. Samsung Electronics Inc.
+ * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
+ *
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * published by the Free Software FoundatIon.
  */
+
+/**
+ * @file gpu_hwcnt.c
+ * DVFS
+ */
+
 #include <mali_kbase.h>
+#include <mali_kbase_mem_linux.h>
 #include "mali_kbase_platform.h"
+
+#include <linux/compat.h> /* is_compat_task */
+
 #include "gpu_hwcnt.h"
 
 mali_error exynos_gpu_hwcnt_update(struct kbase_device *kbdev)
@@ -70,7 +81,7 @@ bool hwcnt_check_conditions(struct kbase_device *kbdev)
 
 		kbdev->hwcnt.condition_to_dump = TRUE;
 
-		GPU_LOG(DVFS_INFO, LSI_HWCNT_ON_DVFS, 0u, kbdev->hwcnt.kspace_addr, "hwcnt on dvfs mode\n");
+		GPU_LOG(DVFS_INFO, LSI_HWCNT_ON_DVFS, 0u, (long unsigned int)kbdev->hwcnt.kspace_addr, "hwcnt on dvfs mode\n");
 
 		if (!kbdev->hwcnt.kspace_addr)
 			kbase_instr_hwcnt_start(kbdev);
@@ -80,9 +91,9 @@ bool hwcnt_check_conditions(struct kbase_device *kbdev)
 		kbdev->hwcnt.cnt_for_bt_stop = 0;
 	} else if ((kbdev->hwcnt.condition_to_dump) && (platform->cur_clock < platform->gpu_max_clock_limit)) {
 		kbdev->hwcnt.cnt_for_stop++;
-		if (kbdev->hwcnt.cnt_for_stop > 5) {
+		if ((kbdev->hwcnt.cnt_for_stop > 5) || (platform->cur_clock < platform->gpu_max_clock_limit)) {
 
-			GPU_LOG(DVFS_INFO, LSI_HWCNT_OFF_DVFS, 0u, kbdev->hwcnt.kspace_addr, "hwcnt off dvfs mode\n");
+			GPU_LOG(DVFS_INFO, LSI_HWCNT_OFF_DVFS, 0u, (long unsigned int)kbdev->hwcnt.kspace_addr, "hwcnt off dvfs mode\n");
 
 			if (kbdev->hwcnt.kspace_addr)
 				kbase_instr_hwcnt_stop(kbdev);
@@ -110,13 +121,14 @@ void hwcnt_utilization_equation(struct kbase_device *kbdev)
 			kbdev->hwcnt.resources.arith_words, kbdev->hwcnt.resources.ls_issues,
 			kbdev->hwcnt.resources.tex_issues);
 
-	total_util = kbdev->hwcnt.resources.arith_words +
-		kbdev->hwcnt.resources.ls_issues + kbdev->hwcnt.resources.tex_issues;
+	total_util = kbdev->hwcnt.resources.arith_words * 25 +
+		kbdev->hwcnt.resources.ls_issues * 40 + kbdev->hwcnt.resources.tex_issues * 35;
+
 	debug_util = (kbdev->hwcnt.resources.arith_words << 24)
 		| (kbdev->hwcnt.resources.ls_issues << 16) | (kbdev->hwcnt.resources.tex_issues << 8);
 
 	if ((kbdev->hwcnt.resources.arith_words * 10 > kbdev->hwcnt.resources.ls_issues * 14) &&
-			(kbdev->hwcnt.resources.ls_issues < 40) && (total_util > 80)) {
+			(kbdev->hwcnt.resources.ls_issues < 40) && (total_util > 1000) && (total_util < 4800)) {
 		kbdev->hwcnt.cnt_for_bt_start++;
 		kbdev->hwcnt.cnt_for_bt_stop = 0;
 		if (kbdev->hwcnt.cnt_for_bt_start > 5) {
@@ -159,7 +171,7 @@ mali_error hwcnt_get_utilization_resouce(struct kbase_device *kbdev)
 	}
 
 	num_cores = kbdev->gpu_props.num_cores;
-	addr32 = (unsigned int *)((unsigned int)kbdev->hwcnt.kspace_addr & 0xffffffff);
+	addr32 = (unsigned int *)kbdev->hwcnt.kspace_addr;
 
 	if (num_cores <= 4)
 		mem_offset = MALI_SIZE_OF_HWCBLK * 3;
@@ -194,4 +206,61 @@ mali_error hwcnt_get_utilization_resouce(struct kbase_device *kbdev)
 
 out:
 	return err;
+}
+
+void exynos_hwcnt_init(struct kbase_device *kbdev)
+{
+	struct kbase_uk_hwcnt_setup setup_arg;
+	struct kbase_context *kctx;
+	struct kbase_uk_mem_alloc mem;
+	struct kbase_va_region *reg;
+
+	kctx = kbase_create_context(kbdev, is_compat_task());
+
+	if (kctx) {
+		kbdev->hwcnt.kctx = kctx;
+	} else {
+		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "hwcnt error!, hwcnt_init is failed\n");
+		return;
+	}
+
+	mem.va_pages = mem.commit_pages = mem.extent = 1;
+	mem.flags = BASE_MEM_PROT_GPU_WR | BASE_MEM_PROT_CPU_RD | BASE_MEM_HINT_CPU_RD;
+
+	reg = kbase_mem_alloc(kctx, mem.va_pages, mem.commit_pages, mem.extent, &mem.flags, &mem.gpu_va, &mem.va_alignment);
+
+	kctx->kbdev->hwcnt.phy_addr = reg->alloc->pages[0];
+
+	setup_arg.dump_buffer = mem.gpu_va;
+	setup_arg.jm_bm = 0;
+	setup_arg.shader_bm = 0x560;
+	setup_arg.tiler_bm = 0;
+	setup_arg.l3_cache_bm = 0;
+	setup_arg.mmu_l2_bm = 0;
+	setup_arg.padding = HWC_MODE_UTILIZATION;
+
+	if (MALI_ERROR_NONE != kbase_instr_hwcnt_util_setup(kctx, &setup_arg))
+		GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "kbase_instr_hwcnt_util_setup is failed\n");
+
+}
+
+void exynos_hwcnt_remove(struct kbase_device *kbdev)
+{
+	struct exynos_context *platform;
+
+	if (!kbdev->hwcnt.prev_mm)
+		return;
+
+	if (kbdev->hwcnt.kctx && kbdev->hwcnt.suspended_state.dump_buffer)
+		kbase_mem_free(kbdev->hwcnt.kctx, kbdev->hwcnt.suspended_state.dump_buffer);
+
+	platform = (struct exynos_context *) kbdev->platform_context;
+
+	kbdev->hwcnt.condition_to_dump = FALSE;
+	kbdev->hwcnt.enable_for_gpr = FALSE;
+	kbdev->hwcnt.enable_for_utilization = FALSE;
+	kbdev->hwcnt.kctx_gpr = NULL;
+	kbdev->hwcnt.kctx = NULL;
+	kbdev->hwcnt.prev_mm = NULL;
+	platform->hwcnt_bt_clk = 0;
 }

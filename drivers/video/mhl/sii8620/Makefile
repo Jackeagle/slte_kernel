@@ -34,7 +34,7 @@ MHL_PRODUCT_NUM=8620
 
 #
 # color annotations to use instead of leading newline chars
-ccflags-y += -DANSI_COLORS
+#ccflags-y += -DANSI_COLORS
 
 ccflags-y += -DBUILD_NUM_STRING=\"$(MHL_BUILD_NUM)$(DEVELOPER_BUILD_ID)\"
 ccflags-y += -DMHL_PRODUCT_NUM=$(MHL_PRODUCT_NUM)
@@ -75,6 +75,11 @@ ccflags-y += -DMANUAL_EDID_FETCH
 # Enable only if you must for debugging.
 #ccflags-y += -DPRINT_DDC_ABORTS
 
+# CoC_FSM_MONITORING exports CoC state machine to GPIO pins
+# Enable only if you must for debugging.
+#ccflags-y += -DCoC_FSM_MONITORING
+#ccflags-y += -DGPIO_OSCILLOSCOPE_DEBUG
+
 # For si_emsc_hid-mt.c
 ccflags-y += -Idrivers/hid
 
@@ -110,6 +115,7 @@ ccflags-y += -DCONFIG_SS_FACTORY
 ccflags-y += -DCONFIG_MHL_CONFIG_TOOLS
 #ccflags-y += -DCONFIG_TESTONLY_SYSFS_SW_REG_TUNING
 ccflags-y += -DCONFIG_SII8620_CHECK_MONITOR
+ccflags-y += -DCONFIG_MHL3_DVI_WR
 
 obj-$(CONFIG_SEC_MHL_SII8620)  += platform.o
 obj-$(CONFIG_SEC_MHL_SII8620)  += mhl_linux_tx.o
@@ -121,7 +127,7 @@ obj-$(CONFIG_SEC_MHL_SII8620)  += si_mhl2_edid_3d.o
 obj-$(CONFIG_SEC_MHL_SII8620)  += si_mdt_inputdev.o
 obj-$(CONFIG_SEC_MHL_SII8620)  += si_emsc_hid.o
 obj-$(CONFIG_SEC_MHL_SII8620)  += si_emsc_hid-mt.o
-
+obj-$(CONFIG_SEC_MHL_SII8620)  += mhl_test_case.o
 else
 
 # Normal Makefile

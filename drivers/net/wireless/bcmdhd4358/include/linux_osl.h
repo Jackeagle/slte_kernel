@@ -1,7 +1,7 @@
 /*
  * Linux OS Independent Layer
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: linux_osl.h 491188 2014-07-15 08:11:24Z $
+ * $Id: linux_osl.h 523747 2015-01-02 03:17:29Z $
  */
 
 #ifndef _linux_osl_h_
@@ -40,21 +40,13 @@ extern int osl_os_image_size(void *image);
 #ifdef BCMDRIVER
 
 /* OSL initialization */
-#ifdef SHARED_OSL_CMN
-extern osl_t *osl_attach(void *pdev, uint bustype, bool pkttag, void **osh_cmn);
-#else
 extern osl_t *osl_attach(void *pdev, uint bustype, bool pkttag);
-#endif /* SHARED_OSL_CMN */
 
 extern void osl_detach(osl_t *osh);
 extern int osl_static_mem_init(osl_t *osh, void *adapter);
 extern int osl_static_mem_deinit(osl_t *osh, void *adapter);
 extern void osl_set_bus_handle(osl_t *osh, void *bus_handle);
 extern void* osl_get_bus_handle(osl_t *osh);
-#ifdef EXYNOS5433_PCIE_WAR
-extern void exynos_pcie_set_l1_exit(void);
-extern void exynos_pcie_clear_l1_exit(void);
-#endif /* EXYNOS5433_PCIE_WAR */
 
 /* Global ASSERT type */
 extern uint32 g_assert_type;
@@ -80,14 +72,6 @@ extern void osl_assert(const char *exp, const char *file, int line);
 /* bcm_prefetch_32B */
 static inline void bcm_prefetch_32B(const uint8 *addr, const int cachelines_32B)
 {
-#if defined(BCM47XX_CA9) && (__LINUX_ARM_ARCH__ >= 5)
-	switch (cachelines_32B) {
-		case 4: __asm__ __volatile__("pld\t%a0" :: "p"(addr + 96) : "cc");
-		case 3: __asm__ __volatile__("pld\t%a0" :: "p"(addr + 64) : "cc");
-		case 2: __asm__ __volatile__("pld\t%a0" :: "p"(addr + 32) : "cc");
-		case 1: __asm__ __volatile__("pld\t%a0" :: "p"(addr +  0) : "cc");
-	}
-#endif 
 }
 
 /* microsecond delay */
@@ -191,7 +175,11 @@ extern void osl_dma_unmap(osl_t *osh, uint pa, uint size, int direction);
 /* API for DMA addressing capability */
 #define OSL_DMADDRWIDTH(osh, addrwidth) ({BCM_REFERENCE(osh); BCM_REFERENCE(addrwidth);})
 
-#if defined(BCM47XX_CA9) && defined(__ARM_ARCH_7A__)
+/* API for CPU relax */
+extern void osl_cpu_relax(void);
+#define OSL_CPU_RELAX() osl_cpu_relax()
+
+#if (defined(USE_KMALLOC_FOR_FLOW_RING) && defined(__ARM_ARCH_7A__))
 	extern void osl_cache_flush(void *va, uint size);
 	extern void osl_cache_inv(void *va, uint size);
 	extern void osl_prefetch(const void *ptr);
@@ -207,7 +195,7 @@ extern void osl_dma_unmap(osl_t *osh, uint pa, uint size, int direction);
 #else
 	#define OSL_CACHE_FLUSH(va, len)	BCM_REFERENCE(va)
 	#define OSL_CACHE_INV(va, len)		BCM_REFERENCE(va)
-	#define OSL_PREFETCH(ptr)			BCM_REFERENCE(ptr)
+	#define OSL_PREFETCH(ptr)		BCM_REFERENCE(ptr)
 
 	#define OSL_ARCH_IS_COHERENT()		NULL
 #endif 
@@ -219,21 +207,8 @@ extern void osl_dma_unmap(osl_t *osh, uint pa, uint size, int direction);
 		(uintptr)(r), sizeof(*(r)), (v)))
 	#define OSL_READ_REG(osh, r) (bcmsdh_reg_read(osl_get_bus_handle(osh), \
 		(uintptr)(r), sizeof(*(r))))
-#elif defined(BCM47XX_ACP_WAR)
-extern void osl_pcie_rreg(osl_t *osh, ulong addr, void *v, uint size);
-
-#define OSL_READ_REG(osh, r) \
-	({\
-		__typeof(*(r)) __osl_v; \
-		osl_pcie_rreg(osh, (uintptr)(r), (void *)&__osl_v, sizeof(*(r))); \
-		__osl_v; \
-	})
 #endif 
 
-#if defined(BCM47XX_ACP_WAR)
-	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
-	#define SELECT_BUS_READ(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); bus_op;})
-#else
 
 #if defined(BCMSDIO)
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) if (((osl_pubinfo_t*)(osh))->mmbus) \
@@ -244,7 +219,6 @@ extern void osl_pcie_rreg(osl_t *osh, ulong addr, void *v, uint size);
 	#define SELECT_BUS_WRITE(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
 	#define SELECT_BUS_READ(osh, mmap_op, bus_op) ({BCM_REFERENCE(osh); mmap_op;})
 #endif 
-#endif /* BCM47XX_ACP_WAR */
 
 #define OSL_ERROR(bcmerror)	osl_error(bcmerror)
 extern int osl_error(int bcmerror);
@@ -276,26 +250,6 @@ extern int osl_error(int bcmerror);
 
 /* register access macros */
 
-#ifdef EXYNOS5433_PCIE_WAR
-#define R_REG(osh, r) (\
-	SELECT_BUS_READ(osh, \
-		({ \
-			__typeof(*(r)) __osl_v; \
-			exynos_pcie_set_l1_exit();	\
-			switch (sizeof(*(r))) { \
-				case sizeof(uint8):	__osl_v = \
-					readb((volatile uint8*)(r)); break; \
-				case sizeof(uint16):	__osl_v = \
-					readw((volatile uint16*)(r)); break; \
-				case sizeof(uint32):	__osl_v = \
-					readl((volatile uint32*)(r)); break; \
-			} \
-			exynos_pcie_clear_l1_exit();	\
-			__osl_v; \
-		}), \
-		OSL_READ_REG(osh, r)) \
-)
-#else
 #define R_REG(osh, r) (\
 	SELECT_BUS_READ(osh, \
 		({ \
@@ -312,21 +266,7 @@ extern int osl_error(int bcmerror);
 		}), \
 		OSL_READ_REG(osh, r)) \
 )
-#endif /* EXYNOS5433_PCIE_WAR */
 
-#ifdef EXYNOS5433_PCIE_WAR
-#define W_REG(osh, r, v) do { \
-	exynos_pcie_set_l1_exit();	\
-	SELECT_BUS_WRITE(osh, \
-		switch (sizeof(*(r))) { \
-			case sizeof(uint8):	writeb((uint8)(v), (volatile uint8*)(r)); break; \
-			case sizeof(uint16):	writew((uint16)(v), (volatile uint16*)(r)); break; \
-			case sizeof(uint32):	writel((uint32)(v), (volatile uint32*)(r)); break; \
-		}, \
-		(OSL_WRITE_REG(osh, r, v))); \
-		exynos_pcie_clear_l1_exit();	\
-	} while (0)
-#else
 #define W_REG(osh, r, v) do { \
 	SELECT_BUS_WRITE(osh, \
 		switch (sizeof(*(r))) { \
@@ -336,7 +276,6 @@ extern int osl_error(int bcmerror);
 		}, \
 		(OSL_WRITE_REG(osh, r, v))); \
 	} while (0)
-#endif /* EXYNOS5433_PCIE_WAR */
 
 #define	AND_REG(osh, r, v)		W_REG(osh, (r), R_REG(osh, r) & (v))
 #define	OR_REG(osh, r, v)		W_REG(osh, (r), R_REG(osh, r) | (v))
@@ -443,7 +382,7 @@ extern int osl_error(int bcmerror);
 #define PKTSETID(skb, id)       ({BCM_REFERENCE(skb); BCM_REFERENCE(id);})
 #define PKTSHRINK(osh, m)		({BCM_REFERENCE(osh); m;})
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 6, 0)
-#define PKTORPHAN(skb)          skb_orphan(skb)
+#define PKTORPHAN(skb)          ({BCM_REFERENCE(skb); 0;})
 #else
 #define PKTORPHAN(skb)          ({BCM_REFERENCE(skb); 0;})
 #endif /* LINUX VERSION >= 3.6 */
@@ -543,243 +482,20 @@ extern void osl_ctfpool_stats(osl_t *osh, void *b);
 #define	PKTCLRCTF(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTISCTF(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb); FALSE;})
 
-#ifdef HNDCTF
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
-#define	SKIPCT	(1 << 2)
-#define	CHAINED	(1 << 3)
-#define	PKTSETSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags |= SKIPCT); \
-	 })
-#define	PKTCLRSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags &= (~SKIPCT)); \
-	 })
-#define	PKTSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags & SKIPCT); \
-	 })
-#define	PKTSETCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags |= CHAINED); \
-	 })
-#define	PKTCLRCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags &= (~CHAINED)); \
-	 })
-#define	PKTISCHAINED(skb)	(((struct sk_buff*)(skb))->pktc_flags & CHAINED)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22)
-#define	SKIPCT	(1 << 18)
-#define	CHAINED	(1 << 19)
-#define	PKTSETSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len |= SKIPCT); \
-	 })
-#define	PKTCLRSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len &= (~SKIPCT)); \
-	 })
-#define	PKTSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len & SKIPCT); \
-	 })
-#define	PKTSETCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len |= CHAINED); \
-	 })
-#define	PKTCLRCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len &= (~CHAINED)); \
-	 })
-#define	PKTISCHAINED(skb)	(((struct sk_buff*)(skb))->mac_len & CHAINED)
-#else /* 2.6.22 */
-#define	SKIPCT	(1 << 2)
-#define	CHAINED	(1 << 3)
-#define	PKTSETSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused |= SKIPCT); \
-	 })
-#define	PKTCLRSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused &= (~SKIPCT)); \
-	 })
-#define	PKTSKIPCT(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused & SKIPCT); \
-	 })
-#define	PKTSETCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused |= CHAINED); \
-	 })
-#define	PKTCLRCHAINED(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused &= (~CHAINED)); \
-	 })
-#define	PKTISCHAINED(skb)	(((struct sk_buff*)(skb))->__unused & CHAINED)
-#endif /* 2.6.22 */
-typedef struct ctf_mark {
-	uint32	value;
-}	ctf_mark_t;
-#define CTF_MARK(m)				(m.value)
-#else /* HNDCTF */
 #define	PKTSETSKIPCT(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTCLRSKIPCT(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTSKIPCT(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define CTF_MARK(m)		({BCM_REFERENCE(m); 0;})
-#endif /* HNDCTF */
 
-#if defined(BCM_GMAC3)
-
-/** pktalloced accounting in devices using GMAC Bulk Forwarding to DHD */
-
-/* Account for packets delivered to downstream forwarder by GMAC interface. */
-extern void osl_pkt_tofwder(osl_t *osh, void *skbs, int skb_cnt);
-#define PKTTOFWDER(osh, skbs, skb_cnt)  \
-	osl_pkt_tofwder(((osl_t *)osh), (void *)(skbs), (skb_cnt))
-
-/* Account for packets received from downstream forwarder. */
-extern void osl_pkt_frmfwder(osl_t *osh, void *skbs, int skb_cnt);
-#define PKTFRMFWDER(osh, skbs, skb_cnt) \
-	osl_pkt_frmfwder(((osl_t *)osh), (void *)(skbs), (skb_cnt))
-
-
-/** GMAC Forwarded packet tagging for reduced cache flush/invalidate.
- * In FWDERBUF tagged packet, only FWDER_PKTMAPSZ amount of data would have
- * been accessed in the GMAC forwarder. This may be used to limit the number of
- * cachelines that need to be flushed or invalidated.
- * Packets sent to the DHD from a GMAC forwarder will be tagged w/ FWDERBUF.
- * DHD may clear the FWDERBUF tag, if more than FWDER_PKTMAPSZ was accessed.
- * Likewise, a debug print of a packet payload in say the ethernet driver needs
- * to be accompanied with a clear of the FWDERBUF tag.
- */
-
-/** Forwarded packets, have a HWRXOFF sized rx header (etc.h) */
-#define FWDER_HWRXOFF       (30)
-
-/** Maximum amount of a pktadat that a downstream forwarder (GMAC) may have
- * read into the L1 cache (not dirty). This may be used in reduced cache ops.
- *
- * Max 56: ET HWRXOFF[30] + BRCMHdr[4] + EtherHdr[14] + VlanHdr[4] + IP[4]
- */
-#define FWDER_PKTMAPSZ      (FWDER_HWRXOFF + 4 + 14 + 4 + 4)
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
-
-#define FWDERBUF            (1 << 4)
-#define PKTSETFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags |= FWDERBUF); \
-	 })
-#define PKTCLRFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags &= (~FWDERBUF)); \
-	 })
-#define PKTISFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags & FWDERBUF); \
-	 })
-
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22)
-
-#define FWDERBUF	        (1 << 20)
-#define PKTSETFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len |= FWDERBUF); \
-	 })
-#define PKTCLRFWDERBUF(osh, skb)  \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len &= (~FWDERBUF)); \
-	 })
-#define PKTISFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->mac_len & FWDERBUF); \
-	 })
-
-#else /* 2.6.22 */
-
-#define FWDERBUF            (1 << 4)
-#define PKTSETFWDERBUF(osh, skb)  \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused |= FWDERBUF); \
-	 })
-#define PKTCLRFWDERBUF(osh, skb)  \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused &= (~FWDERBUF)); \
-	 })
-#define PKTISFWDERBUF(osh, skb) \
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->__unused & FWDERBUF); \
-	 })
-
-#endif /* 2.6.22 */
-
-#else  /* ! BCM_GMAC3 */
 
 #define PKTSETFWDERBUF(osh, skb)  ({ BCM_REFERENCE(osh); BCM_REFERENCE(skb); })
 #define PKTCLRFWDERBUF(osh, skb)  ({ BCM_REFERENCE(osh); BCM_REFERENCE(skb); })
 #define PKTISFWDERBUF(osh, skb)   ({ BCM_REFERENCE(osh); BCM_REFERENCE(skb); FALSE;})
 
-#endif /* ! BCM_GMAC3 */
 
-
-#ifdef HNDCTF
-/* For broadstream iqos */
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36)
-#define	TOBR		(1 << 5)
-#define	PKTSETTOBR(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags |= TOBR); \
-	 })
-#define	PKTCLRTOBR(osh, skb)	\
-	({ \
-	 BCM_REFERENCE(osh); \
-	 (((struct sk_buff*)(skb))->pktc_flags &= (~TOBR)); \
-	 })
-#define	PKTISTOBR(skb)	(((struct sk_buff*)(skb))->pktc_flags & TOBR)
-#define	PKTSETCTFIPCTXIF(skb, ifp)	(((struct sk_buff*)(skb))->ctf_ipc_txif = ifp)
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 22)
 #define	PKTSETTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTCLRTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
 #define	PKTISTOBR(skb)	({BCM_REFERENCE(skb); FALSE;})
-#define	PKTSETCTFIPCTXIF(skb, ifp)	({BCM_REFERENCE(skb); BCM_REFERENCE(ifp);})
-#else /* 2.6.22 */
-#define	PKTSETTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
-#define	PKTCLRTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
-#define	PKTISTOBR(skb)	({BCM_REFERENCE(skb); FALSE;})
-#define	PKTSETCTFIPCTXIF(skb, ifp)	({BCM_REFERENCE(skb); BCM_REFERENCE(ifp);})
-#endif /* 2.6.22 */
-#else /* HNDCTF */
-#define	PKTSETTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
-#define	PKTCLRTOBR(osh, skb)	({BCM_REFERENCE(osh); BCM_REFERENCE(skb);})
-#define	PKTISTOBR(skb)	({BCM_REFERENCE(skb); FALSE;})
-#endif /* HNDCTF */
 
 
 #ifdef BCMFA
@@ -855,60 +571,6 @@ extern uint32 osl_rand(void);
 #define	DMA_MAP(osh, va, size, direction, p, dmah) \
 	osl_dma_map((osh), (va), (size), (direction), (p), (dmah))
 
-#ifdef PKTC
-/* Use 8 bytes of skb tstamp field to store below info */
-struct chain_node {
-	struct sk_buff	*link;
-	unsigned int	flags:3, pkts:9, bytes:20;
-};
-
-#define CHAIN_NODE(skb)		((struct chain_node*)(((struct sk_buff*)skb)->pktc_cb))
-
-#define	PKTCSETATTR(s, f, p, b)	({CHAIN_NODE(s)->flags = (f); CHAIN_NODE(s)->pkts = (p); \
-	                         CHAIN_NODE(s)->bytes = (b);})
-#define	PKTCCLRATTR(s)		({CHAIN_NODE(s)->flags = CHAIN_NODE(s)->pkts = \
-	                         CHAIN_NODE(s)->bytes = 0;})
-#define	PKTCGETATTR(s)		(CHAIN_NODE(s)->flags << 29 | CHAIN_NODE(s)->pkts << 20 | \
-	                         CHAIN_NODE(s)->bytes)
-#define	PKTCCNT(skb)		(CHAIN_NODE(skb)->pkts)
-#define	PKTCLEN(skb)		(CHAIN_NODE(skb)->bytes)
-#define	PKTCGETFLAGS(skb)	(CHAIN_NODE(skb)->flags)
-#define	PKTCSETFLAGS(skb, f)	(CHAIN_NODE(skb)->flags = (f))
-#define	PKTCCLRFLAGS(skb)	(CHAIN_NODE(skb)->flags = 0)
-#define	PKTCFLAGS(skb)		(CHAIN_NODE(skb)->flags)
-#define	PKTCSETCNT(skb, c)	(CHAIN_NODE(skb)->pkts = (c))
-#define	PKTCINCRCNT(skb)	(CHAIN_NODE(skb)->pkts++)
-#define	PKTCADDCNT(skb, c)	(CHAIN_NODE(skb)->pkts += (c))
-#define	PKTCSETLEN(skb, l)	(CHAIN_NODE(skb)->bytes = (l))
-#define	PKTCADDLEN(skb, l)	(CHAIN_NODE(skb)->bytes += (l))
-#define	PKTCSETFLAG(skb, fb)	(CHAIN_NODE(skb)->flags |= (fb))
-#define	PKTCCLRFLAG(skb, fb)	(CHAIN_NODE(skb)->flags &= ~(fb))
-#define	PKTCLINK(skb)		(CHAIN_NODE(skb)->link)
-#define	PKTSETCLINK(skb, x)	(CHAIN_NODE(skb)->link = (struct sk_buff*)(x))
-#define FOREACH_CHAINED_PKT(skb, nskb) \
-	for (; (skb) != NULL; (skb) = (nskb)) \
-		if ((nskb) = (PKTISCHAINED(skb) ? PKTCLINK(skb) : NULL), \
-		    PKTSETCLINK((skb), NULL), 1)
-#define	PKTCFREE(osh, skb, send) \
-do { \
-	void *nskb; \
-	ASSERT((skb) != NULL); \
-	FOREACH_CHAINED_PKT((skb), nskb) { \
-		PKTCLRCHAINED((osh), (skb)); \
-		PKTCCLRFLAGS((skb)); \
-		PKTFREE((osh), (skb), (send)); \
-	} \
-} while (0)
-#define PKTCENQTAIL(h, t, p) \
-do { \
-	if ((t) == NULL) { \
-		(h) = (t) = (p); \
-	} else { \
-		PKTSETCLINK((t), (p)); \
-		(t) = (p); \
-	} \
-} while (0)
-#endif /* PKTC */
 
 #else /* ! BCMDRIVER */
 

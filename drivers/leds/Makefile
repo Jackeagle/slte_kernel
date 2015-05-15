@@ -61,6 +61,7 @@ obj-$(CONFIG_LEDS_MAX77804)		+= leds-max77804.o
 obj-$(CONFIG_LEDS_MAX77828_RGB)		+= leds-max77828-rgb.o
 obj-$(CONFIG_LEDS_MAX77843_RGB)		+= leds-max77843-rgb.o
 obj-$(CONFIG_LEDS_MAX77828_FLASH)		+= leds-max77828-flash.o
+obj-$(CONFIG_LEDS_MAX77888)		+= leds-max77888.o
 obj-$(CONFIG_LEDS_AN30259A)             += leds-an30259a.o
 obj-$(CONFIG_LEDS_KTD2692)			+= leds-ktd2692.o
 

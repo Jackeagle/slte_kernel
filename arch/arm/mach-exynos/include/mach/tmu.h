@@ -38,11 +38,11 @@
 #define GPU_TH_TEMP4		100
 #define GPU_TH_TEMP5		110
 #elif defined(CONFIG_SOC_EXYNOS5433)
-#define GPU_TH_TEMP1		80
-#define GPU_TH_TEMP2		90
-#define GPU_TH_TEMP3		95
-#define GPU_TH_TEMP4		100
-#define GPU_TH_TEMP5		110
+#define GPU_TH_TEMP1		95
+#define GPU_TH_TEMP2		100
+#define GPU_TH_TEMP3		105
+#define GPU_TH_TEMP4		110
+#define GPU_TH_TEMP5		115
 #else
 #define GPU_TH_TEMP1		85
 #define GPU_TH_TEMP2		90

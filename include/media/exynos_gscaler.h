@@ -37,6 +37,7 @@ struct exynos_platform_gscaler {
 	u32 ip_ver;
 	u32 mif_min;
 	u32 int_min;
+	u32 int_min_otf;
 };
 
 extern struct exynos_platform_gscaler exynos_gsc0_default_data;

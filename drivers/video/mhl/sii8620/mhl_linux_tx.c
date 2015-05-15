@@ -51,6 +51,7 @@
 #include "si_8620_drv.h"
 #ifdef CONFIG_MHL3_SEC_FEATURE
 #include "si_8620_regs.h"
+#include "mhl_test_case.h"
 #endif
 
 #define MHL_DRIVER_MINOR_MAX 1
@@ -3932,12 +3933,12 @@ static int sii8620_electrical_eye_verification(struct mhl_dev_context *dev_conte
 	int i = 0;
 
 	if (event) {
-		pr_info("sii8620:%s:%d:(%d) MHL-Connection(TESTONLY)*****\n", __func__, __LINE__, (int)event);
+		pr_info("sii8620 : %s:%d:(%d) MHL-Connection(TESTONLY)*****\n", __func__, __LINE__, (int)event);
 		clk_prepare_enable(dev_context->pdata->mhl_clk);
 		dev_context->pdata->charger_mhl_cb(true, 0x03);
 		dev_context->pdata->power(true);
 		si_mhl_tx_initialize(dev_context);
-		pr_info("sii8620: mhl3-elc.defualt reg set++ \n");
+		pr_info("sii8620 : mhl3-elc.defualt reg set++ \n");
 
 		mhl_tx_write_reg_elc(dev_context, (0x72), 0x0B, 0xFE);  /* TX_PAGE_0 */
 		mhl_tx_write_reg_elc(dev_context, (0x72), 0x80, 0x33);  /* TX_PAGE_0 */
@@ -4003,17 +4004,17 @@ static int sii8620_electrical_eye_verification(struct mhl_dev_context *dev_conte
 		mhl_tx_write_reg_elc(dev_context, (0xC2), 0x10, 0x48);  /* TX_PAGE_7 */
 		mhl_tx_write_reg_elc(dev_context, (0xC2), 0x24, 0x0C);  /* TX_PAGE_7 */
 		mhl_tx_write_reg_elc(dev_context, (0xC2), 0x25, 0x80);  /* TX_PAGE_7 */
-		pr_info("sii8620: mhl3-elc.defualt reg set-- \n");
+		pr_info("sii8620 : mhl3-elc.defualt reg set-- \n");
 
 		/*--Add--*/
 		for (i = 0; i < dev_context->pdata->m_cnt; i++) {
 			mhl_tx_write_reg_elc(dev_context, dev_context->pdata->m_page[i],
 					dev_context->pdata->m_offset[i], dev_context->pdata->m_value[i]);
-			pr_info("sii8620:0x%02x x 0x%02x = 0x%02x \n", dev_context->pdata->m_page[i],
+			pr_info("sii8620 : 0x%02x x 0x%02x = 0x%02x \n", dev_context->pdata->m_page[i],
 					dev_context->pdata->m_offset[i], dev_context->pdata->m_value[i]);
 		}
 	} else {
-		pr_info("sii8620:%s:%d:(%d) MHL-Disconnection(TESTONLY)*****\n", __func__, __LINE__, (int)event);
+		pr_info("sii8620 : %s:%d:(%d) MHL-Disconnection(TESTONLY)*****\n", __func__, __LINE__, (int)event);
 		clk_disable_unprepare(dev_context->pdata->mhl_clk);
 		disable_irq(dev_context->drv_info->irq);
 		dev_context->pdata->charger_mhl_cb(false, -1);
@@ -4025,43 +4026,31 @@ static int sii8620_electrical_eye_verification(struct mhl_dev_context *dev_conte
 }
 #endif /* CONFIG_TESTONLY_SYSFS_SW_REG_TUNING */
 
+extern int devtype_ssdongle_v4;
 
 /* DEFAULT BEHAVIOR MODE */
-static int sii8620_detection_callback(struct notifier_block *this,
-					unsigned long event, void *ptr)
+int sii8620_detection_start(unsigned long event)
 {
-	struct mhl_dev_context *dev_context = container_of(this, struct mhl_dev_context,
-						mhl_nb);
-	muic_attached_dev_t attached_dev = *(muic_attached_dev_t *)ptr;
+	struct mhl_dev_context *dev_context = dev_get_drvdata(sii8620_dev);
 
-	switch (attached_dev) {
-	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
-	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
-		/* sii8240->muic_smartdock = true; */
-	case ATTACHED_DEV_MHL_MUIC:
-		break;
-	default:
+	if (event == dev_context->detection_state) {
+		pr_info("sii8240 : Same muic event, Ignored!\n");
 		return MHL_CON_UNHANDLED;
 	}
-
-	if (event == dev_context->muic_state) {
-		pr_info("sii8240: Same muic event, Ignored!\n");
-		return MHL_CON_UNHANDLED;
-	}
-	dev_context->muic_state = event;
+	dev_context->detection_state = event;
 
 #ifdef CONFIG_TESTONLY_SYSFS_SW_REG_TUNING	/* TESTONLY - HW Eye verification */
 	sii8620_electrical_eye_verification(dev_context, event);
 #else
 	if (event) {
-		pr_info("sii8620:%s:%d: MHL-Connection(%d)*****\n", __func__, __LINE__, (int)event);
+		pr_info("sii8620 : %s:%d: MHL-Connection(%d)*****\n", __func__, __LINE__, (int)event);
 		wake_lock(&dev_context->mhl_wake_lock);
 		dev_context->pdata->power(true);
 		clk_prepare_enable(dev_context->pdata->mhl_clk);
 		si_mhl_tx_initialize(dev_context);
 		enable_irq(dev_context->drv_info->irq);
 	} else {
-		pr_info("sii8620:%s:%d: MHL-Disconnection(%d)*****\n", __func__, __LINE__, (int)event);
+		pr_info("sii8620 : %s:%d: MHL-Disconnection(%d)*****\n", __func__, __LINE__, (int)event);
 		clk_disable_unprepare(dev_context->pdata->mhl_clk);
 		disable_irq(dev_context->drv_info->irq);
 		dev_context->pdata->charger_mhl_cb(false, -1);
@@ -4069,10 +4058,19 @@ static int sii8620_detection_callback(struct notifier_block *this,
 		/* MHL version reset for Factory test */
 		dev_context->dev_cap_cache.mdc.mhl_version = 0;
 		dev_context->peer_mhl3_version = 0;
-		if (dev_context->mhl_event_switch.state == 1) {
-			pr_info("sii8620 : MHL switch event sent : 0\n");
-			switch_set_state(&dev_context->mhl_event_switch, 0);
+		devtype_ssdongle_v4 = 0;
+#ifdef CONFIG_MHL3_DVI_WR
+		if(force_ocbus_for_ects == 2) {
+			force_ocbus_for_ects = 0;
+			dev_context->mhl3_to_mhl1_2 = false;
 		}
+#endif
+#ifdef CONFIG_MHL3_SEC_FEATURE
+		if (dev_context->mhl_event_switch.state != MHL_EVENT_CLR) {
+			pr_info("sii8620 : MHL switch event sent : %d\n", MHL_EVENT_CLR);
+			switch_set_state(&dev_context->mhl_event_switch, MHL_EVENT_CLR);
+		}
+#endif
 #ifdef CONFIG_SII8620_CHECK_MONITOR
 		dev_context->pdata->link_monitor(0x04);
 #endif
@@ -4086,6 +4084,33 @@ power_down:
 	return MHL_CON_UNHANDLED;
 #endif /* #ifdef CONFG_TESTONLY_SYSFS_SW_REG_TUNING */
 	return 0;
+}
+
+/* DEFAULT BEHAVIOR MODE */
+static int sii8620_detection_callback(struct notifier_block *this,
+					unsigned long event, void *ptr)
+{
+	struct mhl_dev_context *dev_context = dev_get_drvdata(sii8620_dev);
+	muic_attached_dev_t attached_dev = *(muic_attached_dev_t *)ptr;
+
+	switch (attached_dev) {
+	case ATTACHED_DEV_SMARTDOCK_TA_MUIC:
+	case ATTACHED_DEV_SMARTDOCK_USB_MUIC:
+		dev_context->mhl_muic_type = MHL_SMART_DOCK;
+		break;
+	case ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC:
+		dev_context->mhl_muic_type = MHL_MM_DOCK;
+		break;
+	case ATTACHED_DEV_MHL_MUIC:
+		dev_context->mhl_muic_type = MHL_MUIC_DEV;
+		break;
+	default:
+		dev_context->mhl_muic_type = MHL_UNHANDLED;
+		return MHL_CON_UNHANDLED;
+	}
+	dev_context->muic_state = event;
+
+	return sii8620_detection_start(event);
 }
 #endif /* CONFIG_MHL3_SEC_FEATURE */
 
@@ -4123,19 +4148,26 @@ static ssize_t sii8620_test_show(struct class *dev,
 #endif
 	ret_val = mhl_tx_read_reg(sii8620, REG_DEV_IDH);
 	if (ret_val < 0) {
-		MHL_TX_DBG_ERR("spi read fail : 0x%x\n", ret_val);
+		MHL_TX_DBG_ERR("1st i2c fail : 0x%x : retry\n", ret_val);
+		pdata->hw_reset();
+		ret_val = mhl_tx_read_reg(sii8620, REG_DEV_IDH);
+	}
+	if (ret_val < 0) {
+		MHL_TX_DBG_ERR("i2c read fail : 0x%x\n", ret_val);
+		pdata->power(0);
 		return ret_val;
 	}
 	number = ret_val << 8;
 
 	ret_val = mhl_tx_read_reg(sii8620, REG_DEV_IDL);
 	if (ret_val < 0) {
-		MHL_TX_DBG_ERR("spi read fail :  0x%x\n", ret_val);
+		MHL_TX_DBG_ERR("i2c read fail :  0x%x\n", ret_val);
+		pdata->power(0);
 		return ret_val;
 	}
 	ret_val |= number;
 
-	pr_info("sii8620:%s:%d: get Device_ID, spi read : ret_val = %04x\n",
+	pr_info("sii8620 : %s:%d: get Device_ID, i2c read : ret_val = %04x\n",
 			__func__, __LINE__, ret_val);
 	pdata->power(0);
 
@@ -4214,6 +4246,38 @@ static CLASS_ATTR(swing_v3, 0664,
 		sii8620_swing_v3_test_show, sii8620_swing_v3_test_store);
 
 
+static ssize_t sii8620_ref_current_test_show(struct class *dev,
+		struct class_attribute *attr, char *buf)
+{
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+	char str_buf[] = "ex) echo 0x08 > ref_current\n";
+
+	sprintf(buf, str_buf);
+	sprintf(str_buf, "current value : 0x%02x\n",
+			sii8620->pdata->ref_current);
+	buf = strcat(buf, str_buf);
+
+	return strlen(buf) + 1;
+}
+static ssize_t sii8620_ref_current_test_store(struct class *dev,
+		struct class_attribute *attr,
+		const char *buf, size_t size)
+{
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+	int numbers[2];
+
+	get_options(buf, 2, numbers);
+	if (numbers[0] == 1 && numbers[1] >=0 && numbers[1] <= 0xff)
+		sii8620->pdata->ref_current = numbers[1];
+	else
+		sii8620->pdata->ref_current = 0x08;
+
+	return size;
+}
+
+static CLASS_ATTR(ref_current, 0664,
+		sii8620_ref_current_test_show, sii8620_ref_current_test_store);
+
 
 extern int hdmi_forced_resolution;
 static ssize_t sii8620_timing_test_show(struct class *dev,
@@ -4243,6 +4307,46 @@ static ssize_t sii8620_timing_test_store(struct class *dev,
 
 static CLASS_ATTR(timing, 0664,
 		sii8620_timing_test_show, sii8620_timing_test_store);
+
+static ssize_t sii8620_test_case_show(struct class *dev,
+		struct class_attribute *attr, char *buf)
+{
+	int size;
+
+	size = snprintf(buf, 10, "%d\n", mhl_get_test_result());
+	return size;
+}
+
+static ssize_t sii8620_test_case_store(struct class *dev,
+		struct class_attribute *attr,
+		const char *buf, size_t size)
+{
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+	int numbers[6] = {0,};
+
+	get_options(buf, 5, numbers);
+	if (numbers[0] == 0)
+		return size;
+
+	mhl_test_case_main(sii8620->pdata, &sii8620->muic_state, &numbers[1]);
+
+	return size;
+}
+
+static CLASS_ATTR(test_case, 0444,
+		sii8620_test_case_show, sii8620_test_case_store);
+
+static ssize_t sii8620_hdcp_status(struct class *dev,
+		struct class_attribute *attr, char *buf)
+{
+	int size;
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+
+	size = snprintf(buf, 10,"%d", sii8620->pdata->monitor_cmd);
+	return size;
+}
+
+static CLASS_ATTR(hdcp_status, 0444, sii8620_hdcp_status, NULL);
 #endif /* CONFIG_MHL_CONFIG_TOOLS */
 
 #ifdef FORCE_OCBUS_FOR_ECTS
@@ -4281,7 +4385,7 @@ static ssize_t sii8620_test_v2_test_store(struct class *dev,
 	else
 		force_ocbus_for_ects = 0;
 
-	MHL_TX_DBG_INFO("force_ocbus_for_ects = %d\n", force_ocbus_for_ects);
+	pr_info("sii8620 : force_ocbus_for_ects = %d\n", force_ocbus_for_ects);
 
 	return size;
 }
@@ -4289,6 +4393,40 @@ static ssize_t sii8620_test_v2_test_store(struct class *dev,
 static CLASS_ATTR(test_v2, 0664,
 		sii8620_test_v2_test_show, sii8620_test_v2_test_store);
 #endif
+
+#ifdef CONFIG_MHL3_SEC_FEATURE
+static ssize_t sii8620_connection_test_show(struct class *dev,
+		struct class_attribute *attr, char *buf)
+{
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+	int status;
+
+	status = sii8620->muic_state;
+	pr_info("sii8620 : %s muic_status : %d\n", __func__, status);
+	return scnprintf(buf, PAGE_SIZE, "%d", status);
+}
+static ssize_t sii8620_connection_test_store(struct class *dev,
+		struct class_attribute *attr, const char *buf, size_t size)
+{
+	int status, ret;
+	struct mhl_dev_context *sii8620 = dev_get_drvdata(sii8620_dev);
+
+	if (sii8620->muic_state == MHL_ATTACHED) {
+		ret = kstrtoint(buf, 10, &status);
+		if (unlikely(ret < 0))
+			return size;
+
+		pr_info("sii8620 : %s MHL connection change: status %d\n", __func__, status);
+		sii8620_detection_start(status);
+	} else
+		pr_info("sii8620 : MHL is not connected\n");
+
+	return size;
+}
+
+static CLASS_ATTR(connection, 0664,
+		sii8620_connection_test_show, sii8620_connection_test_store);
+#endif /* CONFIG_MHL3_SEC_FEATURE */
 
 #ifdef CONFIG_TESTONLY_SYSFS_SW_REG_TUNING
 static ssize_t sii8620_reg_tuning_show(struct class *dev,
@@ -4389,7 +4527,7 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 	struct mhl_dev_context *dev_context;
 	int ret;
 
-	pr_info("sii8620:%s:%d: MHL transmitter init start\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: MHL transmitter init start\n", __func__, __LINE__);
 	if (drv_info == NULL || parent_dev == NULL) {
 		pr_err("sii8620:%s:%d: Null parameter passed to mhl_tx_init\n", __func__, __LINE__);
 		return -EINVAL;
@@ -4428,7 +4566,7 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 		mhl_class = class_create(THIS_MODULE, "mhl");
 		if (IS_ERR(mhl_class)) {
 			ret = PTR_ERR(mhl_class);
-			pr_info("sii8620:%s:%d: class_create failed %d\n",  __func__, __LINE__, ret);
+			pr_info("sii8620 : %s:%d: class_create failed %d\n",  __func__, __LINE__, ret);
 			goto err_exit;
 		}
 
@@ -4438,7 +4576,7 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 			0, MHL_DRIVER_MINOR_MAX, MHL_DRIVER_NAME);
 
 		if (ret) {
-			pr_info("sii8620:%s:%d: register_chrdev %s failed, error code: %d\n",
+			pr_info("sii8620 : %s:%d: register_chrdev %s failed, error code: %d\n",
 				__func__, __LINE__,
 				MHL_DRIVER_NAME, ret);
 			goto free_class;
@@ -4461,6 +4599,10 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 			pr_err("sii8620:%s:%d: failed to create device file in sysfs entries!\n",
 				__func__, __LINE__);
 #endif
+		ret = class_create_file(mhl_class, &class_attr_connection);
+		if (ret)
+			MHL_TX_DBG_ERR(": failed to create connection sysfs file\n");
+
 #ifdef CONFIG_MHL_CONFIG_TOOLS
 		ret = class_create_file(mhl_class, &class_attr_swing_v2);
 		if (ret)
@@ -4472,10 +4614,23 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 			pr_err("sii8620:%s:%d: failed to create swing_3 sysfs file\n",
 				__func__, __LINE__);
 
+		ret = class_create_file(mhl_class, &class_attr_ref_current);
+		if (ret)
+			pr_err("sii8620:%s:%d: failed to create ref_current sysfs file\n",
+				__func__, __LINE__);
+
 		ret = class_create_file(mhl_class, &class_attr_timing);
 		if (ret)
 			pr_err("sii8620:%s:%d: failed to create timing sysfs file\n",
 				__func__, __LINE__);
+		ret = class_create_file(mhl_class, &class_attr_test_case);
+		if (ret)
+			pr_err("sii8620:%s:%d: failed to create test_case sysfs file\n",
+					__func__, __LINE__);
+		ret = class_create_file(mhl_class, &class_attr_hdcp_status);
+		if (ret)
+			MHL_TX_DBG_ERR(": failed to create hdcp_status sysfs file\n",
+					__func__, __LINE__);
 #endif
 #ifdef FORCE_OCBUS_FOR_ECTS
 		ret = class_create_file(mhl_class, &class_attr_test_v2);
@@ -4503,7 +4658,7 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 					     "%s", MHL_DEVICE_NAME);
 	if (IS_ERR(dev_context->mhl_dev)) {
 		ret = PTR_ERR(dev_context->mhl_dev);
-		pr_info("sii8620:%s:%d: device_create failed %s %d\n",  __func__, __LINE__,
+		pr_info("sii8620 : %s:%d: device_create failed %s %d\n",  __func__, __LINE__,
 				MHL_DEVICE_NAME, ret);
 		goto free_cdev;
 	}
@@ -4597,7 +4752,7 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 	dev_context->edid_parser_context =
 		si_edid_create_context(dev_context,
 			(struct drv_hw_context *)&dev_context->drv_context);
-	pr_info("sii8620:%s:%d: Initialize EDID parser module\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: Initialize EDID parser module\n", __func__, __LINE__);
 	rcp_input_dev_one_time_init(dev_context);
 #ifndef CONFIG_MHL3_SEC_FEATURE
 	ret = si_mhl_tx_initialize(dev_context);
@@ -4616,7 +4771,10 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 		init_rcp_input_dev(dev_context);
 
 	dev_context->mhl_event_switch.name = "mhl_event_switch";
-	switch_dev_register(&dev_context->mhl_event_switch);
+	ret = switch_dev_register(&dev_context->mhl_event_switch);
+	if (ret < 0)
+		pr_err("sii8620:%s:%d mhl_event_switch register is fail\n", __func__, __LINE__);
+
 	wake_lock_init(&dev_context->mhl_wake_lock,
 					WAKE_LOCK_SUSPEND, "mhl_wake_lock");
 #endif
@@ -4625,13 +4783,13 @@ int mhl_tx_init(struct mhl_drv_info const *drv_info, struct device *parent_dev)
 #ifdef CONFIG_MUIC_NOTIFIER
 	INIT_DELAYED_WORK(&dev_context->notifier_register_work, sii8620_notifier_delay_work);
 	queue_delayed_work(system_nrt_wq,
-		&dev_context->notifier_register_work, msecs_to_jiffies(20000));
+		&dev_context->notifier_register_work, msecs_to_jiffies(5000));
 #else
 	dev_context->mhl_nb.notifier_call = sii8620_detection_callback;
 	/* acc_register_notifier(&dev_context->mhl_nb); */
 #endif /* CONFIG_MUIC_NOTIFIER */
 
-	pr_info("sii8620:%s:%d: MHL transmitter successfully initialized\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: MHL transmitter successfully initialized\n", __func__, __LINE__);
 
 	return ret;
 

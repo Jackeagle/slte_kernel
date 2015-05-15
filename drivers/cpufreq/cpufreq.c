@@ -1803,10 +1803,17 @@ int cpufreq_update_policy(unsigned int cpu)
 	struct cpufreq_policy *data = cpufreq_cpu_get(cpu);
 	struct cpufreq_policy policy;
 	int ret;
+	int policy_cpu;
 
 	if (!data) {
 		ret = -ENODEV;
 		goto no_policy;
+	}
+
+	policy_cpu = per_cpu(cpufreq_policy_cpu, cpu);
+	if (policy_cpu == -1) {
+		ret = -ENODEV;
+		goto fail;
 	}
 
 	if (unlikely(lock_policy_rwsem_write(cpu))) {

@@ -234,7 +234,7 @@ irqreturn_t dex_irq_handler(int irq, void *dev_data)
 		wake_up_interruptible_all(&dex->vsync_wait);
 	}
 	if (val & VIDINTCON1_INT_FIFO) {
-		dex_err("DECONTV FIFO underrun\n");
+		printk_ratelimited("DECONTV FIFO underrun\n");
 		dex_write_mask(dex, VIDINTCON1, ~0, VIDINTCON1_INT_FIFO);
 	}
 	if (val & VIDINTCON1_INT_I80) {
@@ -329,6 +329,13 @@ void dex_reg_porch(struct dex_device *dex)
 	dex_write_mask(dex, VIDOUTCON0, val, VIDOUTCON0_MODE_MASK);
 }
 
+void dex_reg_set_lineval(struct dex_device *dex)
+{
+	u32 val = VIDTCON2_LINEVAL(dex->porch->yres - 1)
+		| VIDTCON2_HOZVAL(dex->porch->xres - 1);
+	dex_write(dex, VIDTCON2, val);
+}
+
 void dex_reg_wb_swtrigger(struct dex_device *dex)
 {
 	dex_write_mask(dex, TRIGCON, ~0, TRIGCON_WB_SWTRIGCMD);
@@ -388,7 +395,7 @@ static void dex_reg_dex_dump(struct dex_device *dex)
 {
 #define DUMPREG(reg_id) \
 do { \
-	dex_dbg(#reg_id " = %08x\n", \
+	dex_info(#reg_id " = %08x\n", \
 		(u32)readl(dex->res.dex_regs + reg_id)); \
 } while (0)
 
@@ -399,10 +406,20 @@ do { \
 	DUMPREG(WINCON(2));
 	DUMPREG(WINCON(3));
 	DUMPREG(WINCON(4));
+	DUMPREG(VIDOSD_A(1));
+	DUMPREG(VIDOSD_B(1));
+	DUMPREG(VIDOSD_A(2));
+	DUMPREG(VIDOSD_B(2));
+	DUMPREG(VIDOSD_A(3));
+	DUMPREG(VIDOSD_B(3));
+	DUMPREG(VIDOSD_A(4));
+	DUMPREG(VIDOSD_B(4));
 	DUMPREG(FRAMEFIFO_REG7);
 	DUMPREG(FRAMEFIFO_STATUS);
 	DUMPREG(DECON_UPDATE);
 	DUMPREG(VIDCON1);
+	DUMPREG(VIDTCON2);
+	DUMPREG(FRAME_SIZE);
 	DUMPREG(TRIGCON);
 
 #undef DUMPREG

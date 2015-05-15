@@ -160,7 +160,13 @@ static int exynos5_devfreq_disp_reboot_notifier(struct notifier_block *nb, unsig
 						void *v)
 {
 	unsigned long freq = exynos5433_qos_disp.default_qos;
-	exynos5_devfreq_disp_target(disp_dev, &freq, 0);
+	struct devfreq_data_disp *data = dev_get_drvdata(disp_dev);
+	struct devfreq *devfreq_disp = data->devfreq;
+
+	devfreq_disp->max_freq = freq;
+	mutex_lock(&devfreq_disp->lock);
+	update_devfreq(devfreq_disp);
+	mutex_unlock(&devfreq_disp->lock);
 
 	return NOTIFY_DONE;
 }

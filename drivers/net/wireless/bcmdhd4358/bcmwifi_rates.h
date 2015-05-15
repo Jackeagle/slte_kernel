@@ -1,7 +1,7 @@
 /*
  * Indices for 802.11 a/b/g/n/ac 1-3 chain symmetric transmit rates
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -36,11 +36,7 @@ extern "C" {
 #define WL_RATESET_SZ_OFDM		8
 #define WL_RATESET_SZ_VHT_MCS	10
 
-#if defined(WLPROPRIETARY_11N_RATES)
-#define WL_RATESET_SZ_HT_MCS	WL_RATESET_SZ_VHT_MCS
-#else
 #define WL_RATESET_SZ_HT_MCS	8
-#endif
 
 #define WL_RATESET_SZ_HT_IOCTL	8	/* MAC histogram, compatibility with wl utility */
 

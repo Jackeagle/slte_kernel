@@ -3,14 +3,14 @@
  *
  * Support NAN (Neighbor Awareness Networking) and RTT (Round Trip Time)
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
- *
+ * Copyright (C) 1999-2015, Broadcom Corporation
+ * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
  * under the terms of the GNU General Public License version 2 (the "GPL"),
  * available at http://www.broadcom.com/licenses/GPLv2.php, with the
  * following added to such license:
- *
+ * 
  *      As a special exception, the copyright holders of this software give you
  * permission to link this software with independent modules, and to copy and
  * distribute the resulting executable under terms of your choice, provided that
@@ -18,7 +18,7 @@
  * the license of that module.  An independent module is a module which is not
  * derived from this software.  The special exception does not apply to any
  * modifications of the software.
- *
+ * 
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
@@ -37,14 +37,13 @@
 #define WL_NAN_EVENT_CLEAR_BIT		32
 #define NAN_EVENT_MASK_ALL			0x7fffffff
 
-#define INVALID_ID(id)	(((id < 0) || (id > 255)) ? true : false)
-#define INVALID_ROLE(role)	(((role < WL_NAN_ROLE_AUTO) || \
-	(role > WL_NAN_ROLE_ANCHOR_MASTER)) ? true : false)
-#define INVALID_CHANSPEC(chanspec)	((chanspec == INVCHANSPEC) || \
+#define NAN_INVALID_ID(id)	(((id < 0) || (id > 255)) ? true : false)
+#define NAN_INVALID_ROLE(role)	((role > WL_NAN_ROLE_ANCHOR_MASTER) ? true : false)
+#define NAN_INVALID_CHANSPEC(chanspec)	((chanspec == INVCHANSPEC) || \
 	(chanspec == 0) ? true : false)
-#define INVALID_NAN_EVENT(num)	(((num < WL_NAN_EVENT_START) && \
+#define NAN_INVALID_EVENT(num)	(((num < WL_NAN_EVENT_START) || \
 	(num >= WL_NAN_EVENT_INVALID)) ? true : false)
-#define INVALID_PROXD_EVENT(num)	((num != WLC_E_PROXD_NAN_EVENT) ? \
+#define NAN_INVALID_PROXD_EVENT(num)	((num != WLC_E_PROXD_NAN_EVENT) ? \
 	true : false)
 #define NAN_EVENT_BIT(event) (1U << (event - WL_NAN_EVENT_START))
 

@@ -199,9 +199,9 @@ struct mdnie_table *mdnie_request_table(char *path, struct mdnie_table *s)
 			memset(string, 0, sizeof(string));
 			sprintf(string, "%s_%d", t->name, j);
 			size = mdnie_request_firmware(path, string, &buf);
-			t->tune[i].sequence = buf;
-			t->tune[i].size = size;
-			pr_info("%s: size is %d\n", string, t->tune[i].size);
+			t->seq[i].cmd = buf;
+			t->seq[i].len = size;
+			pr_info("%s: size is %d\n", string, t->seq[i].len);
 		}
 	} else if (ret == 0) {
 		size = mdnie_request_firmware(path, NULL, &buf);
@@ -210,17 +210,17 @@ struct mdnie_table *mdnie_request_table(char *path, struct mdnie_table *s)
 			if (buf[i] == 0xEC)
 				break;
 		}
-		t->tune[MDNIE_CMD1].sequence = &buf[0];
-		t->tune[MDNIE_CMD1].size = i;
+		t->seq[MDNIE_CMD1].cmd = &buf[0];
+		t->seq[MDNIE_CMD1].len = i;
 #endif
-		t->tune[MDNIE_CMD2].sequence = &buf[i];
-		t->tune[MDNIE_CMD2].size = size - i + 1;
+		t->seq[MDNIE_CMD2].cmd = &buf[i];
+		t->seq[MDNIE_CMD2].len = size - i + 1;
 	}
 
 	/* for (i = 0; i < MDNIE_CMD_MAX; i++) {
-		pr_info("%d: size is %d\n", i, t->tune[i].size);
-		for (j = 0; j < t->tune[i].size; j++)
-			pr_info("%d: %03d: %02x\n", i, j, t->tune[i].sequence[j]);
+		pr_info("%d: size is %d\n", i, t->seq[i].len);
+		for (j = 0; j < t->seq[i].len; j++)
+			pr_info("%d: %03d: %02x\n", i, j, t->seq[i].cmd[j]);
 	} */
 
 	return t;

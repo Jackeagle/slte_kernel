@@ -87,7 +87,12 @@
 #include <linux/spi/spidev.h>
 #include <linux/kthread.h>
 #include <linux/circ_buf.h>
+#include <linux/irq.h>
+#include <linux/wakelock.h>
+#include <linux/suspend.h>
+#include <linux/kernel.h>
 #include "bcm_gps_spi.h"
+#include "bbd_internal.h"
 
 #include <linux/ssp_platformdata.h>
 #include <linux/gpio.h>
@@ -204,21 +209,21 @@ static void bcm4773_get_freq(unsigned long bit_len,unsigned long time,unsigned l
 
 static void bcm4773_profile_print(struct uart_port	*port,const char *func,long line)
 {
-	pr_debug(PFX "%s.01 rxtx_work: count %ld time %ld in %s(%ld)\n",__func__,
+	pr_debug(PFX "[SSPBBD]: %s.01 rxtx_work: count %ld time %ld in %s(%ld)\n",__func__,
                   profile_rxtx_work.count[0], profile_rxtx_work.total_time[0],
                   func, line);
 
 #if DEBUG_PROFILE==2
-	pr_debug(PFX "%s.02.1 spi_sync: W: count %ld time %ld, R: count %ld time %ld\n",__func__,
+	pr_debug(PFX "[SSPBBD]: %s.02.1 spi_sync: W: count %ld time %ld, R: count %ld time %ld\n",__func__,
                   profile_spi_sync.count[0], profile_spi_sync.total_time[0], 
 				  profile_spi_sync.count[1], profile_spi_sync.total_time[1]);
 #endif
 
-	pr_debug(PFX "%s.02.2 rxtx_start: tx %ld(%ld) irq %ld(%ld), rxtx_work: tx %ld(%ld) irq %ld(%ld)\n",__func__,
+	pr_debug(PFX "[SSPBBD]: %s.02.2 rxtx_start: tx %ld(%ld) irq %ld(%ld), rxtx_work: tx %ld(%ld) irq %ld(%ld)\n",__func__,
 			      profile_spi_sync.rxtx_work[0],profile_spi_sync.rxtx_enter[0],profile_spi_sync.rxtx_work[1],profile_spi_sync.rxtx_enter[1],       // rxtx_work_profile
                   profile_rxtx_work.rxtx_work[0],profile_rxtx_work.rxtx_enter[0],profile_rxtx_work.rxtx_work[1],profile_rxtx_work.rxtx_enter[1]);
 
-	pr_debug(PFX "%s.03 uart_port: RX: icnt=%lu be=%lu oe=%lu, TX: icnt=%lu ff=%lu\n",__func__,
+	pr_debug(PFX "[SSPBBD]: %s.03 uart_port: RX: icnt=%lu be=%lu oe=%lu, TX: icnt=%lu ff=%lu\n",__func__,
 			      (unsigned long)port->icount.rx,
 			      (unsigned long)port->icount.brk,
 			      (unsigned long)port->icount.overrun,
@@ -279,10 +284,13 @@ struct bcm4773_uart_port
 	struct work_struct		stop_rx;
 	struct work_struct		stop_tx;
 	struct workqueue_struct		*serial_wq;
+	spinlock_t			irq_lock;
 	atomic_t			irq_enabled;
+	atomic_t			suspending;
 
 	struct spi_transfer             master_transfer;
 	struct spi_transfer             dbg_transfer;
+	struct wake_lock             bcm4773_wake_lock;
 };
 
 /* UART name and device definitions */
@@ -499,7 +507,7 @@ static void bcm4773_stop_tx_work( struct work_struct *work )
 	struct bcm4773_uart_port	*bport=container_of( work, struct bcm4773_uart_port, stop_tx );
 //	unsigned long int		flags;
 
-	pr_debug(PFX "%s tx_enabled %d rx_enabled %d\n",__func__,bport->tx_enabled,bport->rx_enabled);
+	pr_debug(PFX "[SSPBBD]: %s tx_enabled %d rx_enabled %d\n",__func__,bport->tx_enabled,bport->rx_enabled);
 #endif
 	return;
 }
@@ -520,7 +528,7 @@ static void bcm4773_start_tx_work( struct work_struct *work )
 #ifdef DEBUG_IRQ_HANDLER
 	struct uart_port		*port=&(bport->port);
 	int pending=uart_circ_chars_pending( &port->state->xmit );
-	pr_debug(PFX "%s.RXTX_WORK pn %d, tx %d\n",__func__,pending,bport->tx_enabled);
+	pr_debug(PFX "[SSPBBD]: %s.RXTX_WORK pn %d, tx %d\n",__func__,pending,bport->tx_enabled);
 #endif
 
 	spin_lock_irqsave( &(bport->lock), flags );
@@ -540,6 +548,18 @@ static void bcm4773_start_tx_work( struct work_struct *work )
 static void bcm4773_start_tx( struct uart_port *port )
 {
 	struct bcm4773_uart_port	*bport=container_of( port, struct bcm4773_uart_port, port );
+	unsigned long int		flags;
+
+	spin_lock_irqsave( &bport->irq_lock, flags);
+	if (atomic_xchg(&bport->irq_enabled, 0)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=0) {
+			printk("[SSPBBD]: %s irq depth mismatch. enabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 0;
+		}
+		disable_irq_nosync(bport->port.irq);
+	}
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
 
 	queue_work(bport->serial_wq, &(bport->start_tx) );
 
@@ -553,7 +573,7 @@ static void bcm4773_stop_rx_work( struct work_struct *work )
 
 #ifdef DEBUG_RX
 	struct uart_port		*port=&(bport->port);
-	pr_debug(PFX "%s tx %d, rx %d, oe %d\n",__func__,bport->tx_enabled,bport->rx_enabled,port->icount.buf_overrun);
+	pr_debug(PFX "[SSPBBD]: %s tx %d, rx %d, oe %d\n",__func__,bport->tx_enabled,bport->rx_enabled,port->icount.buf_overrun);
 #endif
 
 	spin_lock_irqsave( &(bport->lock), flags );
@@ -598,15 +618,19 @@ static int bcm4773_startup( struct uart_port *port )
 	bport->rx_enabled=1;
 	bport->tx_enabled=0;
 	spin_unlock_irqrestore( &(bport->lock), flags );
-#if 0
-	atomic_set( &(bport->irq_enabled), 1);
-	enable_irq( bport->port.irq );
-#else
+
+	spin_lock_irqsave( &bport->irq_lock, flags);
 	if (!atomic_xchg(&bport->irq_enabled, 1)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=1) {
+			printk("[SSPBBD]: %s irq depth mismatch. disabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 1;
+		}
 		enable_irq(bport->port.irq);
-		enable_irq_wake(bport->port.irq);
 	}
-#endif
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
+
+	enable_irq_wake(bport->port.irq);
 
 #ifndef CONFIG_SPI_NO_AUTOBAUD
 	bcm4773_autobaud(bport);
@@ -624,7 +648,6 @@ static void bcm4773_shutdown( struct uart_port *port )
 	struct bcm4773_uart_port	*bport=container_of( port, struct bcm4773_uart_port, port );
 	unsigned long int		flags;
 
-
 	spin_lock_irqsave( &(bport->lock), flags );
 
 	if( bport->rx_enabled )
@@ -634,15 +657,23 @@ static void bcm4773_shutdown( struct uart_port *port )
 		bcm4773_stop_tx( port );
 		
 	spin_unlock_irqrestore( &(bport->lock), flags );
-	cancel_work_sync(&bport->rxtx_work);
-	flush_workqueue( bport->serial_wq );
+	//cancel_work_sync(&bport->rxtx_work);
+	//flush_workqueue( bport->serial_wq );
 
+	msleep(10);
 
+	spin_lock_irqsave( &bport->irq_lock, flags);
 	if (atomic_xchg(&bport->irq_enabled, 0)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=0) {
+			printk("[SSPBBD]: %s irq depth mismatch. enabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 0;
+		}
 		disable_irq_nosync(bport->port.irq);
-		disable_irq_wake(bport->port.irq);
 	}
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
 
+	disable_irq_wake(bport->port.irq);
 	return;
 }
 
@@ -651,13 +682,13 @@ static void bcm4773_set_termios(struct uart_port *port, struct ktermios *termios
 	struct bcm4773_uart_port	*bport=container_of( port, struct bcm4773_uart_port, port );
 
 #ifdef DEBUG_SET_TERMIOS
-	pr_debug(PFX "%s TTY <== i=0x%08X o=0x%08X c=0x%08X l=0x%08X m%d t%d %d %d...oe %d\n",__func__,
+	pr_debug(PFX "[SSPBBD]: %s TTY <== i=0x%08X o=0x%08X c=0x%08X l=0x%08X m%d t%d %d %d...oe %d\n",__func__,
             termios->c_iflag, termios->c_oflag,
             termios->c_cflag, termios->c_lflag,
             termios->c_cc[VMIN], termios->c_cc[VTIME],
             termios->c_ispeed,termios->c_ospeed,
 			port->icount.buf_overrun);
-	pr_debug(PFX "%s opened line %d\n",__func__, port->line);
+	pr_debug(PFX "[SSPBBD]: %s opened line %d\n",__func__, port->line);
 #endif
 
 	/* Termios field is fake. */
@@ -670,7 +701,7 @@ static void bcm4773_set_termios(struct uart_port *port, struct ktermios *termios
 
 static const char *bcm4773_type(struct uart_port *port)
 {
-	return "BCM4773_SPI";
+	return "[SSPBBD]: BCM4773_SPI";
 }
 
 static void bcm4773_release_port(struct uart_port *port)
@@ -922,7 +953,7 @@ static bcm4773_stat_t bcm4773_read_transmit( struct bcm4773_uart_port *bcm_port,
 	bcm4773_stat_t status = BCM4773_MSG_STAT(retval);
 
 #ifdef DEBUG_TRANSFER__READ_TRANSMIT
-	pr_debug(PFX " %s: retval=0x%04X ( len %d , stat = 0x%02X )\n", __func__,retval,BCM4773_MSG_LEN(retval),status);
+	pr_debug(PFX "[SSPBBD]:  %s: retval=0x%04X ( len %d , stat = 0x%02X )\n", __func__,retval,BCM4773_MSG_LEN(retval),status);
 #endif
 
 	if( status == 0 ) 
@@ -939,7 +970,7 @@ static bcm4773_stat_t bcm4773_read_transmit( struct bcm4773_uart_port *bcm_port,
 			len2 = BCM4773_MSG_LEN(retval);
 			if ( len2 < *length ) {
 				struct uart_port *port=&(bcm_port->port);
-				pr_err(PFX "%s error reading from the chipset! Read %d, expected %d\n", __func__,len2,*length);
+				pr_err(PFX "[SSPBBD]: %s error reading from the chipset! Read %d, expected %d\n", __func__,len2,*length);
 				*length = len2;
 			   port->icount.brk++;
 		  }
@@ -986,15 +1017,21 @@ static irqreturn_t bcm4773_irq_handler( int irq, void *pdata )
 	bcm4773_stat_t	status = gpio_get_value(bport->host_req_pin);
 
 	struct uart_port		*port=&(bport->port);
-	pr_debug(PFX "%s.RXTX_WORK hq %d, rx %d\n",__func__,status,bport->rx_enabled);
+	pr_debug(PFX "[SSPBBD]: %s.RXTX_WORK hq %d, rx %d\n",__func__,status,bport->rx_enabled);
 #endif
-
+	spin_lock(&bport->irq_lock);
 	if (atomic_xchg(&bport->irq_enabled, 0)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=0) {
+			printk("[SSPBBD]: %s irq depth mismatch. enabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 0;
+		}
 		disable_irq_nosync(bport->port.irq);
 	}
+	spin_unlock(&bport->irq_lock);
 
 	queue_work(bport->serial_wq, &bport->rxtx_work);
-	
+
 	return IRQ_HANDLED;
 }
 
@@ -1012,7 +1049,7 @@ static void bcm4773_insert_flip_string(struct uart_port	*port, struct bcm4773_ua
 #endif		
 		if( count < length )
 		{
-			pr_err(PFX "tty_insert_flip_string input overrun error by (%i - %i) = %i bytes!\n", length, count, length - count );
+			pr_err(PFX "[SSPBBD]: tty_insert_flip_string input overrun error by (%i - %i) = %i bytes!\n", length, count, length - count );
 			port->icount.buf_overrun+=length - count;
 		}
 		port->icount.rx+=count;
@@ -1023,7 +1060,7 @@ static void bcm4773_insert_flip_string(struct uart_port	*port, struct bcm4773_ua
 #endif		
 
 #ifdef DEBUG_INSERT_FLIP_STRING
-		pr_debug(PFX "%s inserts %d bytes from %s(%ld)\n",__func__,length,func,line);
+		pr_debug(PFX "[SSPBBD]: %s inserts %d bytes from %s(%ld)\n",__func__,length,func,line);
 #endif
 	}
 }
@@ -1050,7 +1087,7 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 	pending=uart_circ_chars_pending( &port->state->xmit );
 	
 #ifdef DEBUG_TRANSFER__RXTX_WORK
-	pr_debug(PFX "%s.START pn %d, hq %d, rx %d, tx %d, oe %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled,port->icount.buf_overrun);
+	pr_debug(PFX "[SSPBBD]: %s.START pn %d, hq %d, rx %d, tx %d, oe %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled,port->icount.buf_overrun);
 #endif
 	if (bcm4773_hello(bport)) {
 	
@@ -1063,7 +1100,7 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 
 				if( BCM4773_MSG_STAT(status) != 0x00 )
 				{ 
-					pr_err(PFX "bcm4773_read_transmit buffer error! retval=0x%04X, port->irq = %d\n", status,port->irq);
+					pr_err(PFX "[SSPBBD]: bcm4773_read_transmit buffer error! retval=0x%04X, port->irq = %d\n", status,port->irq);
 
 					break;  //FIXME: return ???
 					//spin_lock_irqsave( &(bport->lock), flags );
@@ -1151,7 +1188,7 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 			pending=uart_circ_chars_pending( &port->state->xmit );
 
 #ifdef DEBUG_TRANSFER__RXTX_WORK_LOOP
-			pr_debug(PFX "%s.LOOP pending %d, host_req %d, rx %d,  tx %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled);
+			pr_debug(PFX "[SSPBBD]: %s.LOOP pending %d, host_req %d, rx %d,  tx %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled);
 #endif
 
 //		} while( ( pending || status) && port->state->port.tty && !port->state->port.tty->closing);
@@ -1160,7 +1197,7 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 		bcm4773_bye(bport);
 	}
 	else {
-		pr_err("[SSP]: %s timeout!!\n", __func__);
+		pr_err("[SSPBBD]: %s timeout!!\n", __func__);
 	}
 
 	pending=uart_circ_chars_pending( &port->state->xmit );
@@ -1171,7 +1208,7 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 
 
 #ifdef DEBUG_TRANSFER__RXTX_WORK
-	pr_debug(PFX "%s.EXIT pn %d, hq %d, rx %d, tx %d, oe %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled,port->icount.buf_overrun);
+	pr_debug(PFX "[SSPBBD]: %s.EXIT pn %d, hq %d, rx %d, tx %d, oe %d\n",__func__,pending,status,bport->rx_enabled,bport->tx_enabled,port->icount.buf_overrun);
 #endif
 
 #ifdef DEBUG_PROFILE
@@ -1181,16 +1218,22 @@ static void bcm4773_rxtx_work( struct work_struct *work )
 	count = (bport->tx_enabled-1) % 2;      // rxtx_work_profile
 	profile_rxtx_work.rxtx_enter[count]--;
 #endif
-
-
 	spin_unlock_irqrestore( &(bport->lock), flags );
 
-	/* Let irq happen again */
-//	if (!port->state->port.tty->closing && !atomic_xchg(&bport->irq_enabled, 1)) {
-	if (!atomic_xchg(&bport->irq_enabled, 1)) {
-		enable_irq(bport->port.irq);
+	spin_lock_irqsave( &bport->irq_lock, flags);
+	if (!atomic_read(&bport->suspending))	// we dont' want to enable irq when going to suspendq
+	{
+		/* Let irq happen again */
+		if (!atomic_xchg(&bport->irq_enabled, 1)) {
+			struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+			if (desc->depth!=1) {
+				printk("[SSPBBD]: %s irq depth mismatch. disabled irq has depth %d!\n", __func__, desc->depth);
+				desc->depth = 1;
+			}
+			enable_irq(bport->port.irq);
+		}
 	}
-
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
 	return;
 }
 
@@ -1221,7 +1264,7 @@ static void bcm4773_autobaud(struct bcm4773_uart_port *bport)
 		bcm4773_bye(bport);
 	}
 	else {
-		pr_err("[SSP]: %s timeout!!\n", __func__);
+		pr_err("[SSPBBD]: %s timeout!!\n", __func__);
 	}
 }
 #endif
@@ -1248,7 +1291,7 @@ static int bcm4773_do_identify( struct bcm4773_uart_port *bcm_port )
 
 	if( BCM4773_MSG_STAT(status) != 0x00 )
 	{
-		pr_err(PFX "Error writing identify! Status %.2X\n", status );
+		pr_err(PFX "[SSPBBD]: Error writing identify! Status %.2X\n", status );
 		return -ENODEV;
 	}
 	//FIXED: Full Duplex issue, length = BCM4773_MSG_LEN(status);
@@ -1261,7 +1304,7 @@ static int bcm4773_do_identify( struct bcm4773_uart_port *bcm_port )
 	status=bcm4773_read_transmit( bcm_port, &length );
 	if( BCM4773_MSG_STAT(status) != 0x00 )
 	{
-		pr_err(PFX "Error receiving identify result! Status %.2X\n", status );
+		pr_err(PFX "[SSPBBD]: Error receiving identify result! Status %.2X\n", status );
 		return -ENODEV;
 	}
 
@@ -1279,24 +1322,30 @@ static int bcm4773_do_identify( struct bcm4773_uart_port *bcm_port )
 
 	if( (length != sizeof( ident_read )) || memcmp( ident_read, buffer, length ) )
 	{
-		pr_err(PFX "Ident data received is not correct!\n" );
+		pr_err(PFX "[SSPBBD]: Ident data received is not correct!\n" );
 		for( length=0; length < sizeof( ident_read ); length++ )
 			//pr_notice(PFX "Read[%i]: %.2X, Expect: %.2X\n", length, buffer[length], ident_read[length] );
-			pr_notice(PFX "SPI Data Compare passed for byte           %2d. Exp = %.2X, Act = %.2X\n",length,ident_read[length],buffer[length]);
+			pr_notice(PFX "[SSPBBD]: SPI Data Compare passed for byte           %2d. Exp = %.2X, Act = %.2X\n",length,ident_read[length],buffer[length]);
 						
-		pr_err(PFX "Length received: %i, expected %u\n", n + n2, sizeof( ident_read ) );
+		pr_err(PFX "[SSPBBD]: Length received: %i, expected %u\n", n + n2, sizeof( ident_read ) );
 		return -ENODEV;
 	}
 
-	pr_notice(PFX "Identify success!\n" );
-	pr_notice(PFX "Received: " );
+	pr_notice(PFX "[SSPBBD]: Identify success!\n" );
+	pr_notice(PFX "[SSPBBD]: Received: " );
 	for( length=0; length < sizeof( ident_read ); length++ )
 		pr_notice( "%.2X ", buffer[length] );
-	pr_notice(PFX "\nStatus: %.2X\n", status );
+	pr_notice(PFX "\n[SSPBBD]: Status: %.2X\n", status );
 	return 0;
 }
 #endif
 
+#if 0
+static int bcm4773_notifier(struct notifier_block *nb, unsigned long event, void * data);
+static struct notifier_block bcm4773_notifier_block = {
+        .notifier_call = bcm4773_notifier,
+};
+#endif
 
 static int bcm4773_spi_probe( struct spi_device *spi )
 {
@@ -1306,14 +1355,22 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	
 	struct ssp_platform_data *pdata = spi->dev.platform_data;
 	if (!pdata) {
-		pr_warning(PFX "Platform_data null has been provided. Use local allocation.\n");
+		pr_warning(PFX "[SSPBBD]: Platform_data null has been provided. Use local allocation.\n");
 		pdata = &dflt; 
 		if (!spi->dev.of_node) {
-			pr_err(PFX "Failed to find of_node\n");
+			pr_err(PFX "[SSPBBD]: Failed to find of_node\n");
 			return -1;
 		}
 	}	
-		
+
+#ifdef SUPPORT_MCU_HOST_WAKE
+	if (of_property_read_u32(spi->dev.of_node, "[SSPBBD]: ssp-hw-rev", &gpbbd_dev->hw_rev)) {
+		/* default value is zero(open) for old hw */
+		gpbbd_dev->hw_rev = 0;
+	}
+	printk("[SSPBBD]: %s ssp-hw-rev[%d]\n", __func__, gpbbd_dev->hw_rev);
+#endif
+
 	/*   All the gpio pins SCLK,CS0,MOSI,MISO and HOST_REQ should be defined in arch/arm/boot/dts/exynos5430-kqlte_eur_open_00.dts
 	 *   The fake HOST_REQ pin is commented out.
 	 *   pdata->mcu_int1 = of_get_named_gpio(spi->dev.of_node, "ssp-irq2", 0);
@@ -1332,28 +1389,33 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 		 *  - gpio_direction_input(pdata->mcu_int1);
 		 */
 
+	if (pdata->mcu_int1<0) {
+		pr_err(PFX "[SSPBBD]: Failed to get mcu_ap_int1 from DT, err %d\n",pdata->mcu_int1);
+		return -1;
+	}
+
 	spi->irq = gpio_to_irq(pdata->mcu_int1);
 	if ( spi->irq < 0 ) {
-		pr_err(PFX "Failed to get mcu_ap_int1 gpio %d, err %d\n",pdata->mcu_int1,spi->irq);
+		pr_err(PFX "[SSPBBD]: Failed to get mcu_ap_int1 gpio %d, err %d\n",pdata->mcu_int1,spi->irq);
 		return -1;			
 	}
 		
 	if (pdata->mcu_int1 <0)
 	{
-		pr_err(PFX "Failed to find ssp-irq in of_node\n");
+		pr_err(PFX "[SSPBBD]: Failed to find ssp-irq in of_node\n");
 		return -1;
 	}
-	pr_debug(PFX "OK, found ssp-irq %d ", pdata->mcu_int1);
+	pr_debug(PFX "[SSPBBD]: OK, found ssp-irq %d ", pdata->mcu_int1);
 		
 	/* Allocate memory for the private driver data. */
 	bcm4773_uart_port=(struct bcm4773_uart_port *) kmalloc( sizeof( struct bcm4773_uart_port ), GFP_ATOMIC );
 
-	pr_notice(PFX "%s SPI/SSI UART Driver v"GPS_VERSION", pdata->gpio_spi = %d, spi->irq = %d, ac_data = 0x%p\n",__func__, 
+	pr_notice(PFX "[SSPBBD]: %s SPI/SSI UART Driver v"GPS_VERSION", pdata->gpio_spi = %d, spi->irq = %d, ac_data = 0x%p\n",__func__, 
 			pdata->mcu_int1,spi->irq, bcm4773_uart_port);
 
 	if( bcm4773_uart_port == NULL )
 	{
-		pr_err(PFX "Failed to allocate memory for the BCM4773 SPI-UART driver.\n");
+		pr_err(PFX "[SSPBBD]: Failed to allocate memory for the BCM4773 SPI-UART driver.\n");
 		return -ENOMEM;
 	}
 	else memset( bcm4773_uart_port, 0, sizeof( struct bcm4773_uart_port ) );
@@ -1361,6 +1423,7 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	/* Initialize the structure. */
 	spin_lock_init( &(bcm4773_uart_port->port.lock) );
 	spin_lock_init( &(bcm4773_uart_port->lock) );
+	spin_lock_init( &(bcm4773_uart_port->irq_lock) );
 	bcm4773_uart_port->port.iotype=UPIO_MEM;
 	bcm4773_uart_port->port.irq=spi->irq;
 	bcm4773_uart_port->port.custom_divisor=1;
@@ -1396,7 +1459,7 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	if( !bcm4773_uart_port->master_transfer.tx_buf || !bcm4773_uart_port->master_transfer.rx_buf ||
 	    !bcm4773_uart_port->dbg_transfer.tx_buf || !bcm4773_uart_port->dbg_transfer.rx_buf )
 	{
-		pr_err(PFX "Failed to allocate transfer buffer memory.\n" );
+		pr_err(PFX "[SSPBBD]: Failed to allocate transfer buffer memory.\n" );
 		if( bcm4773_uart_port->master_transfer.tx_buf )
 #ifdef CONFIG_SPI_BCM4773_DMA
 			dma_free_coherent( &(spi->dev), sizeof( struct bcm4773_message ), (void *) bcm4773_uart_port->master_transfer.tx_buf,
@@ -1431,7 +1494,7 @@ static int bcm4773_spi_probe( struct spi_device *spi )
     retval = bcm4773_do_identify( bcm4773_uart_port );
 	if( retval < 0 )
 	{
-		pr_err(PFX "Failed to identify BCM4773 chip! (Is the chip powered?)\n");
+		pr_err(PFX "[SSPBBD]: Failed to identify BCM4773 chip! (Is the chip powered?)\n");
 #ifdef CONFIG_SPI_BCM4773_DMA
 		dma_free_coherent( &(spi->dev), sizeof( struct bcm4773_message ), (void *) bcm4773_uart_port->master_transfer.tx_buf,
 				bcm4773_uart_port->master_transfer.tx_dma );
@@ -1450,7 +1513,7 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	retval=uart_register_driver( &bcm4773_uart_driver );
 	if( retval )
 	{
-		pr_err(PFX "Failed to register BCM4773 SPI-UART driver.\n");
+		pr_err(PFX "[SSPBBD]: Failed to register BCM4773 SPI-UART driver.\n");
 #ifdef CONFIG_SPI_BCM4773_DMA
 		dma_free_coherent( &(spi->dev), sizeof( struct bcm4773_message ), (void *) bcm4773_uart_port->master_transfer.tx_buf,
 				bcm4773_uart_port->master_transfer.tx_dma );
@@ -1496,12 +1559,11 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	retval=request_irq( bcm4773_uart_port->port.irq, bcm4773_irq_handler,
 			IRQF_TRIGGER_HIGH,
 			//IRQF_TRIGGER_RISING | IRQF_ONESHOT,
-			//KOM -- IRQF_TRIGGER_LOW,
 			bcm4773_uart_driver.driver_name,
 			bcm4773_uart_port );
 	if( retval )
 	{
-		pr_err(PFX "Failed to register BCM4773 SPI TTY IRQ %d.\n",bcm4773_uart_port->port.irq);
+		pr_err(PFX "[SSPBBD]: Failed to register BCM4773 SPI TTY IRQ %d.\n",bcm4773_uart_port->port.irq);
 		uart_remove_one_port( &bcm4773_uart_driver, &(bcm4773_uart_port->port) );
 		uart_unregister_driver( &bcm4773_uart_driver );
 #ifdef CONFIG_SPI_BCM4773_DMA
@@ -1519,14 +1581,23 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 
 	g_bport = bcm4773_uart_port;
 
+	// Init wakelock
+	wake_lock_init(&bcm4773_uart_port->bcm4773_wake_lock, WAKE_LOCK_SUSPEND, "bcm4773_wake_lock");
+
+#if 0
+	// Register PM notifier
+	register_pm_notifier(&bcm4773_notifier_block);
+#endif
 	/* Disable interrupts */
-	pr_notice(PFX "Initialized. irq = %d\n", bcm4773_uart_port->port.irq);
+	pr_notice(PFX "[SSPBBD]: Initialized. irq = %d\n", bcm4773_uart_port->port.irq);
 	disable_irq( bcm4773_uart_port->port.irq );
 	atomic_set( &(bcm4773_uart_port->irq_enabled), 0 );
 
+	atomic_set(&bcm4773_uart_port->suspending, 0);
+
 #ifdef CONFIG_DDS
 	/* Prepare MCU request/response */
-	// MCU_REQ 	GPIO6 : EXYNOS_GPX3[0]
+	// MCU_REQ GPIO6 : EXYNOS_GPX3[0]
 	gpio_request(g_bport->mcu_req, "MCU REQ");
 	gpio_direction_output(g_bport->mcu_req, 0);
 #ifdef CONFIG_MACH_UNIVERSAL5420
@@ -1545,12 +1616,22 @@ static int bcm4773_spi_probe( struct spi_device *spi )
 	return 0;
 }
 
+static inline struct bcm4773_uart_port* bcm4773_spi_get_drvdata( struct spi_device *spi )
+{
+	// TODO: This is a temporary solution. 
+	// 	 We sometimes have wrong drv data from spi_get_drvdata.
+	if (g_bport)
+		return g_bport;
+	else
+		return (struct bcm4773_uart_port *) spi_get_drvdata( spi );
+}
+
 static int bcm4773_spi_remove( struct spi_device *spi )
 {
-	struct bcm4773_uart_port	*bport=(struct bcm4773_uart_port *) spi_get_drvdata( spi );
+	struct bcm4773_uart_port	*bport = bcm4773_spi_get_drvdata( spi );
 	unsigned long int		flags;
 
-	pr_notice(PFX " %s : called\n", __func__);
+	pr_notice(PFX "[SSPBBD]:  %s : called\n", __func__);
 
 	spin_lock_irqsave( &(bport->lock), flags );
 
@@ -1607,29 +1688,50 @@ static struct uart_ops	bcm4773_serial_ops=
 
 static int bcm4773_suspend( struct spi_device *spi, pm_message_t state )
 {
+	struct bcm4773_uart_port *bport = bcm4773_spi_get_drvdata( spi );
+	unsigned long int		flags;
 #if 0
-	struct bcm4773_uart_port	*bport=(struct bcm4773_uart_port *) spi_get_drvdata( spi );
-	struct bcm4773_gps_platform_data 	*pdata=spi->dev.platform_data;
+	struct bcm4773_gps_platform_data *pdata=spi->dev.platform_data;
 
 	/* No need to suspend if nothing is running. */
 	if( bport->rx_enabled || bport->tx_enabled )
 		uart_suspend_port( &bcm4773_uart_driver, &(bport->port) );
 #endif
 
+	atomic_set(&bport->suspending, 1);
+
+
+	spin_lock_irqsave( &bport->irq_lock, flags);
+	if (atomic_xchg(&bport->irq_enabled, 0)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=0) {
+			printk("[SSPBBD]: %s irq depth mismatch. enabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 0;
+		}
+		disable_irq_nosync(bport->port.irq);
+	}
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
+
+	flush_workqueue(bport->serial_wq );
+
 	if (pssp_driver->suspend)
-		return pssp_driver->suspend(spi, state);
+		pssp_driver->suspend(spi, state);
 
 	if (pssp_driver->driver.pm && pssp_driver->driver.pm->suspend)
-		return pssp_driver->driver.pm->suspend(&spi->dev);
+		pssp_driver->driver.pm->suspend(&spi->dev);
+
+	//msleep(10);
 
         return 0;
 }
 
 static int bcm4773_resume( struct spi_device *spi )
 {
+	struct bcm4773_uart_port *bport = bcm4773_spi_get_drvdata( spi );
+	unsigned long int		flags;
+
 #if 0 // Ted::TODO
-	struct bcm4773_uart_port	*bport=(struct bcm4773_uart_port *) spi_get_drvdata( spi );
-	struct bcm4773_gps_platform_data	*pdata=spi->dev.platform_data;
+	struct bcm4773_gps_platform_data *pdata=spi->dev.platform_data;
 
 	if (pdata->resume)
 		pdata->resume();
@@ -1638,15 +1740,52 @@ static int bcm4773_resume( struct spi_device *spi )
 	if( bport->port.suspended )
 		uart_resume_port( &bcm4773_uart_driver, &(bport->port) );
 #endif
-	if (pssp_driver->resume)
-		return pssp_driver->resume(spi);
 
 	if (pssp_driver->driver.pm && pssp_driver->driver.pm->suspend)
-		return pssp_driver->driver.pm->resume(&spi->dev);
+		pssp_driver->driver.pm->resume(&spi->dev);
+
+	if (pssp_driver->resume)
+		pssp_driver->resume(spi);
+
+	atomic_set(&bport->suspending, 0);
+
+	/* Let irq happen again */
+	spin_lock_irqsave( &bport->irq_lock, flags);
+	if (!atomic_xchg(&bport->irq_enabled, 1)) {
+		struct irq_desc	*desc = irq_to_desc(bport->port.irq);
+		if (desc->depth!=1) {
+			printk("[SSPBBD]: %s irq depth mismatch. disabled irq has depth %d!\n", __func__, desc->depth);
+			desc->depth = 1;
+		}
+		enable_irq(bport->port.irq);
+	}
+	spin_unlock_irqrestore( &bport->irq_lock, flags);
+
+	wake_lock_timeout(&g_bport->bcm4773_wake_lock, HZ/2);
 
 	return 0;
 }
 
+#if 0
+static int bcm4773_notifier(struct notifier_block *nb, unsigned long event, void * data)
+{
+	struct spi_device *spi = bcm4773_uart_to_spidevice(g_bport);
+	pm_message_t state = {0};
+
+        switch (event) {
+		case PM_SUSPEND_PREPARE:
+			printk("%s going to sleep", __func__);
+			state.event = event;
+			bcm4773_suspend(spi, state);
+			break;
+		case PM_POST_SUSPEND:
+			printk("%s waking up", __func__);
+			bcm4773_resume(spi);
+			break;
+	}
+	return NOTIFY_OK;
+}
+#endif
 
 /* Ted */
 static void bcm4773_spi_shutdown(struct spi_device *spi)
@@ -1672,9 +1811,11 @@ static struct spi_driver	bcm4773_spi_driver=
 	.id_table       = gpsspi_id,
 	.probe			= bcm4773_spi_probe,
 	.remove			= bcm4773_spi_remove,
+#if 1
 	.suspend		= bcm4773_suspend,
 	.resume			= bcm4773_resume,
-	.shutdown 		= bcm4773_spi_shutdown,
+#endif
+	.shutdown		= bcm4773_spi_shutdown,
 
 
 	.driver=
@@ -1832,5 +1973,4 @@ module_exit( bcm4773_spi_exit );
 
 MODULE_LICENSE("GPL");
 MODULE_DESCRIPTION("BCM4773 SPI/SSI UART Driver");
-
 

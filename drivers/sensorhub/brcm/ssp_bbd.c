@@ -55,6 +55,7 @@ int bbd_do_transfer(struct ssp_data *data, struct ssp_msg *msg,
 
 	if (ssp_down) {
 		pr_err("[SSPBBD]: ssp_down == true. returning\n");
+		clean_msg(msg);
 		mdelay(5);
 		return -1;
 	}
@@ -241,19 +242,18 @@ retries:
 	if (ret != SUCCESS) {
 		data->uResetCnt++;
 		mdelay(100);
-		if(++retries > 3) { 
+		if(++retries > 3) {
 			pr_err("[SSPBBD] fail to initialize mcu\n");
-			pr_err("[SSPBBD] MCU reset request\n");
-			bbd_mcu_reset();
+			ssp_enable(data, false);
 			return;
 		}
 		goto retries;
-		ssp_enable(data, false);
 	}
 	dprint("mcu is initiialized (retries=%d)\n", retries);
 
 	/* recover previous state */
 	sync_sensor_state(data);
+	ssp_sensorhub_report_notice(data, MSG2SSP_AP_STATUS_RESET);
 
 	if (data->uLastAPState != 0)
 		ssp_send_cmd(data, data->uLastAPState, 0);
@@ -280,9 +280,9 @@ void bbd_on_packet_work_func(struct work_struct *work)
 	int iRet = 0;
 	unsigned char *pData = NULL, *p, *q;
 	int nDataLen = 0;
-
-	if(data == NULL)
-		return;
+	struct timespec ts;
+	ts = ktime_to_timespec(ktime_get_boottime());
+	data->timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
 
 	iRet = bbd_pull_packet(rBuff, sizeof(rBuff), BBD_PULL_TIMEOUT);
 	if (iRet <= 0) {

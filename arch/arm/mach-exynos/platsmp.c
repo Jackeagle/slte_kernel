@@ -126,7 +126,7 @@ static int exynos_power_up_cpu(unsigned int phys_cpu)
 		}
 	}
 
-#if !defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if !defined(CONFIG_SOC_EXYNOS5433)
 #define A7_RESET_NUM	3
 
 	if (phys_cpu < 4) {
@@ -150,27 +150,18 @@ static int exynos_power_up_cpu(unsigned int phys_cpu)
 					__raw_writel(0, EXYNOS_PMU_SPARE2);
 				__raw_writel((0x1 << 1), EXYNOS_ARM_CORE_RESET(4 + phys_cpu));
 			}
-		} else {
+		} else if (soc_is_exynos5422()) {
 			u32 val;
+
 			while(!__raw_readl(EXYNOS_PMU_SPARE2))
 				udelay(10);
 
 			udelay(10);
 
-			if (soc_is_exynos5433()) {
-				val = __raw_readl(EXYNOS_ARM_CORE_STATUS(4 + phys_cpu));
-				val |= (0xF << 8);
-				__raw_writel(val, EXYNOS_ARM_CORE_STATUS(4 + phys_cpu));
+			printk(KERN_DEBUG "cpu%d: SWRESET\n", phys_cpu);
 
-				pr_debug("cpu%d: SWRESEET\n", phys_cpu);
-
-				__raw_writel((0x1 << 1), EXYNOS_ARM_CORE_RESET(4 + phys_cpu));
-			} else if (soc_is_exynos5422()) {
-				printk(KERN_DEBUG "cpu%d: SWRESET\n", phys_cpu);
-
-				val = ((1 << 20) | (1 << 8)) << phys_cpu;
-				__raw_writel(val, EXYNOS_SWRESET);
-			}
+			val = ((1 << 20) | (1 << 8)) << phys_cpu;
+			__raw_writel(val, EXYNOS_SWRESET);
 		}
 	}
 #endif
@@ -305,7 +296,7 @@ static void __init exynos_smp_prepare_cpus(unsigned int max_cpus)
 			__raw_writel(boot_addr, cpu_boot_reg(phys_cpu));
 	}
 
-	if (soc_is_exynos5430() || soc_is_exynos5433()) {
+	if (soc_is_exynos5430()) {
 		void __iomem *noncpu_config_reg;
 		unsigned int tmp;
 		unsigned int cluster

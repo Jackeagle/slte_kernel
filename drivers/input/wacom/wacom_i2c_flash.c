@@ -526,7 +526,6 @@ int wacom_i2c_flash(struct wacom_i2c *wac_i2c)
 	bool valid_hex = false;
 	int cnt = 0;
 
-	fw_data = wac_i2c->fw_img->data;
 	if (fw_data == NULL) {
 		printk(KERN_ERR"epen:Data is NULL. Exit.\n");
 		return -1;

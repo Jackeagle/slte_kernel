@@ -32,6 +32,7 @@
 #include "mali_kbase_defs.h"
 #include "mali_kbase_debug.h"
 
+#include "mali_kbase_config_defaults.h"
 #include "mali_kbase_js_ctx_attr.h"
 
 /**
@@ -140,9 +141,9 @@ void kbasep_js_kctx_term(struct kbase_context *kctx);
  *
  * The Policy's Queue can be updated by this in the following ways:
  * - In the above case that this is the first job on the context
- * - If the job is high priority and the context is not scheduled, then it
- * could cause the Policy to schedule out a low-priority context, allowing
- * this context to be scheduled in.
+ * - If the context is high priority and not scheduled, then it could cause the
+ * Policy to schedule out a low-priority context, allowing this context to be
+ * scheduled in.
  *
  * If the context is already scheduled on the RunPool, then adding a job to it
  * is guarenteed not to update the Policy Queue. And so, the caller is
@@ -531,7 +532,7 @@ void kbasep_js_release_privileged_ctx(struct kbase_device *kbdev, struct kbase_c
  * Normally, the time calculated from end_timestamp is rounded up to the
  * minimum time precision. Therefore, to ensure the job is recorded as not
  * spending any time, then set end_timestamp to NULL. For example, this is necessary when
- * evicting jobs from JSn_HEAD_NEXT (because they didn't actually run).
+ * evicting jobs from JS_HEAD_NEXT (because they didn't actually run).
  *
  * NOTE: It's possible to move the steps (2) and (3) (inc calculating job's time
  * used) into the worker (outside of IRQ context), but this may allow a context
@@ -624,7 +625,6 @@ void kbasep_js_suspend(struct kbase_device *kbdev);
  * - Resumes running atoms on the GPU
  */
 void kbasep_js_resume(struct kbase_device *kbdev);
-
 
 /*
  * Helpers follow
@@ -752,6 +752,7 @@ static INLINE void kbasep_js_atom_retained_state_copy(struct kbasep_js_atom_reta
 	retained_state->event_code = katom->event_code;
 	retained_state->core_req = katom->core_req;
 	retained_state->retry_submit_on_slot = katom->retry_submit_on_slot;
+	retained_state->sched_priority = katom->sched_priority;
 	retained_state->device_nr = katom->device_nr;
 }
 
@@ -922,6 +923,49 @@ static INLINE u32 kbasep_js_convert_gpu_ticks_to_us_max_freq(struct kbase_device
 	u32 gpu_freq = kbdev->gpu_props.props.core_props.gpu_freq_khz_max;
 	KBASE_DEBUG_ASSERT(0 != gpu_freq);
 	return ticks / gpu_freq * 1000;
+}
+
+extern const int kbasep_js_atom_priority_to_relative[BASE_JD_NR_PRIO_LEVELS];
+extern const base_jd_prio kbasep_js_relative_priority_to_atom[KBASE_JS_ATOM_SCHED_PRIO_RANGE];
+
+/**
+ * Convert atom priority (base_jd_prio) to relative ordering
+ *
+ * Atom priority values for @ref base_jd_prio cannot be compared directly to
+ * find out which are higher or lower.
+ *
+ * This function will convert base_jd_prio values for successively lower
+ * priorities into a monotonically increasing sequence. That is, the lower the
+ * base_jd_prio priority, the higher the value produced by this function. This
+ * is in accordance with how the rest of the kernel treates priority.
+ *
+ * The mapping is 1:1 and the size of the valid input range is the same as the
+ * size of the valid output range, i.e.
+ * KBASE_JS_ATOM_SCHED_PRIO_RANGE == BASE_JD_NR_PRIO_LEVELS
+ *
+ * @note This must be kept in sync with BASE_JD_PRIO_<...> definitions
+ *
+ * @return success: a value in the inclusive range
+ *                  KBASE_JS_ATOM_LOWEST_PRIO..KBASE_JS_ATOM_HIGHEST_PRIO
+ * @return failure: KBASE_JS_ATOM_INVALID_PRIO
+ */
+static INLINE int kbasep_js_atom_prio_to_sched_prio(base_jd_prio atom_prio)
+{
+	if (atom_prio >= BASE_JD_NR_PRIO_LEVELS)
+		return KBASE_JS_ATOM_SCHED_PRIO_INVALID;
+
+	return kbasep_js_atom_priority_to_relative[atom_prio];
+}
+
+static INLINE base_jd_prio kbasep_js_sched_prio_to_atom_prio(int sched_prio)
+{
+	unsigned int prio_idx;
+	KBASE_DEBUG_ASSERT(KBASE_JS_ATOM_SCHED_PRIO_MIN <= sched_prio
+			&& sched_prio <= KBASE_JS_ATOM_SCHED_PRIO_MAX);
+
+	prio_idx = (unsigned int)(sched_prio - KBASE_JS_ATOM_SCHED_PRIO_MIN);
+
+	return kbasep_js_relative_priority_to_atom[prio_idx];
 }
 
 	  /** @} *//* end group kbase_js */

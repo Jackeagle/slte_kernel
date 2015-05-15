@@ -64,7 +64,6 @@ struct bcm_bt_lpm {
 
 	struct wake_lock host_wake_lock;
 	struct wake_lock bt_wake_lock;
-	char wake_lock_name[100];
 } bt_lpm;
 
 struct bcm_bt_gpio {
@@ -237,15 +236,10 @@ static int bcm_bt_lpm_init(struct platform_device *pdev)
 
 	bt_lpm.host_wake = 0;
 
-	snprintf(bt_lpm.wake_lock_name, sizeof(bt_lpm.wake_lock_name),
-			"BT_host_wake");
 	wake_lock_init(&bt_lpm.host_wake_lock, WAKE_LOCK_SUSPEND,
-			 bt_lpm.wake_lock_name);
-
-	snprintf(bt_lpm.wake_lock_name, sizeof(bt_lpm.wake_lock_name),
-			"BT_bt_wake");
+			 "BT_host_wake");
 	wake_lock_init(&bt_lpm.bt_wake_lock, WAKE_LOCK_SUSPEND,
-			 bt_lpm.wake_lock_name);
+			 "BT_bt_wake");
 
 	s3c2410_serial_wake_peer[BT_UPORT] = (s3c_wake_peer_t) bcm_bt_lpm_exit_lpm_locked;
 

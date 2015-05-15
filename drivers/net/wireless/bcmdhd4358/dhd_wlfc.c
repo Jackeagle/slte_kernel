@@ -1,7 +1,7 @@
 /*
  * DHD PROP_TXSTATUS Module.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_wlfc.c 490028 2014-07-09 05:58:25Z $
+ * $Id: dhd_wlfc.c 496585 2014-08-13 16:37:50Z $
  *
  */
 
@@ -573,8 +573,7 @@ _dhd_wlfc_find_table_entry(athost_wl_status_info_t* ctx, void* p)
 	 * STA/GC gets the Mac Entry for TDLS destinations, TDLS destinations
 	 * have their own entry.
 	 */
-	if ((iftype == WLC_E_IF_ROLE_STA || ETHER_ISMULTI(dstn) ||
-		iftype == WLC_E_IF_ROLE_P2P_CLIENT) &&
+	if ((DHD_IF_ROLE_STA(iftype) || ETHER_ISMULTI(dstn)) &&
 		(ctx->destination_entries.interfaces[ifid].occupied)) {
 			entry = &ctx->destination_entries.interfaces[ifid];
 	}
@@ -2513,7 +2512,8 @@ int dhd_wlfc_enable(dhd_pub_t *dhd)
 	}
 
 	/* allocate space to track txstatus propagated from firmware */
-	dhd->wlfc_state = MALLOC(dhd->osh, sizeof(athost_wl_status_info_t));
+	dhd->wlfc_state = DHD_OS_PREALLOC(dhd, DHD_PREALLOC_DHD_WLFC_INFO,
+		sizeof(athost_wl_status_info_t));
 	if (dhd->wlfc_state == NULL) {
 		rc = BCME_NOMEM;
 		goto exit;
@@ -2530,7 +2530,8 @@ int dhd_wlfc_enable(dhd_pub_t *dhd)
 	if (!WLFC_GET_AFQ(dhd->wlfc_mode)) {
 		wlfc->hanger = _dhd_wlfc_hanger_create(dhd->osh, WLFC_HANGER_MAXITEMS);
 		if (wlfc->hanger == NULL) {
-			MFREE(dhd->osh, dhd->wlfc_state, sizeof(athost_wl_status_info_t));
+			DHD_OS_PREFREE(dhd, dhd->wlfc_state,
+				sizeof(athost_wl_status_info_t));
 			dhd->wlfc_state = NULL;
 			rc = BCME_NOMEM;
 			goto exit;
@@ -3359,7 +3360,8 @@ dhd_wlfc_deinit(dhd_pub_t *dhd)
 
 
 	/* free top structure */
-	MFREE(dhd->osh, dhd->wlfc_state, sizeof(athost_wl_status_info_t));
+	DHD_OS_PREFREE(dhd, dhd->wlfc_state,
+		sizeof(athost_wl_status_info_t));
 	dhd->wlfc_state = NULL;
 	dhd->proptxstatus_mode = hostreorder ?
 		WLFC_ONLY_AMPDU_HOSTREORDER : WLFC_FCMODE_NONE;

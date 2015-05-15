@@ -556,9 +556,10 @@ static void m2m1shot_finish_task(struct m2m1shot_device *m21dev,
 				struct m2m1shot_task *task)
 {
 	m2m1shot_finish_buffer(m21dev, ctx,
-			&task->task.buf_cap, &task->dma_buf_cap, DMA_TO_DEVICE);
+			&task->task.buf_cap, &task->dma_buf_cap,
+			DMA_FROM_DEVICE);
 	m2m1shot_finish_buffer(m21dev, ctx,
-		&task->task.buf_out, &task->dma_buf_out, DMA_FROM_DEVICE);
+		&task->task.buf_out, &task->dma_buf_out, DMA_TO_DEVICE);
 }
 
 static void m2m1shot_destroy_context(struct kref *kref)
@@ -587,6 +588,8 @@ static int m2m1shot_process(struct m2m1shot_context *ctx,
 
 	kref_get(&ctx->kref);
 
+	mutex_lock(&ctx->mutex);
+
 	ret = m2m1shot_prepare_task(m21dev, ctx, task);
 	if (ret)
 		goto err;
@@ -595,7 +598,7 @@ static int m2m1shot_process(struct m2m1shot_context *ctx,
 	task->state = M2M1SHOT_BUFSTATE_READY;
 
 	spin_lock_irqsave(&m21dev->lock_task, flags);
-	list_add_tail(&m21dev->tasks, &task->task_node);
+	list_add_tail(&task->task_node, &m21dev->tasks);
 	spin_unlock_irqrestore(&m21dev->lock_task, flags);
 
 	m2m1shot_task_schedule(m21dev);
@@ -626,6 +629,9 @@ static int m2m1shot_process(struct m2m1shot_context *ctx,
 
 	m2m1shot_finish_task(m21dev, ctx, task);
 err:
+
+	mutex_unlock(&ctx->mutex);
+
 	kref_put(&ctx->kref, m2m1shot_destroy_context);
 
 	if (ret)

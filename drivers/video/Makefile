@@ -18,6 +18,8 @@ obj-y				  += backlight/
 
 obj-$(CONFIG_EXYNOS_VIDEO)        += exynos/
 
+obj-$(CONFIG_DECON_FB)            += decon_display/
+
 obj-$(CONFIG_SAMSUNG_MHL_8240) += mhl/sii8240/
 obj-$(CONFIG_SEC_MHL_SII8620) += mhl/sii8620/
 

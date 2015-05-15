@@ -1,7 +1,7 @@
 /*
  * Driver O/S-independent utility routines
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -20,7 +20,7 @@
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
- * $Id: bcmutils.c 488316 2014-06-30 15:22:21Z $
+ * $Id: bcmutils.c 526869 2015-01-15 08:20:09Z $
  */
 
 #include <bcm_cfg.h>
@@ -1516,8 +1516,6 @@ bcm_format_flags(const bcm_bit_desc_t *bd, uint32 flags, char* buf, int len)
 
 	/* indicate the str was too short */
 	if (flags != 0) {
-		if (len < 2)
-			p -= 2 - len;	/* overwrite last char */
 		p += snprintf(p, 2, ">");
 	}
 
@@ -1814,6 +1812,9 @@ bcm_bitcount(uint8 *bitmap, uint length)
 
 #ifdef BCMDRIVER
 
+/* triggers bcm_bprintf to print to kernel log */
+bool bcm_bprintf_bypass = FALSE;
+
 /* Initialization of bcmstrbuf structure */
 void
 bcm_binit(struct bcmstrbuf *b, char *buf, uint size)
@@ -1832,6 +1833,10 @@ bcm_bprintf(struct bcmstrbuf *b, const char *fmt, ...)
 	va_start(ap, fmt);
 
 	r = vsnprintf(b->buf, b->size, fmt, ap);
+	if (bcm_bprintf_bypass == TRUE) {
+		printf(b->buf);
+		goto exit;
+	}
 
 	/* Non Ansi C99 compliant returns -1,
 	 * Ansi compliant return r >= b->size,
@@ -1847,6 +1852,7 @@ bcm_bprintf(struct bcmstrbuf *b, const char *fmt, ...)
 		b->buf += r;
 	}
 
+exit:
 	va_end(ap);
 
 	return r;
@@ -2737,6 +2743,45 @@ id16_map_fini(osl_t *osh, void * id16_map_hndl)
 	MFREE(osh, id16_map, ID16_MAP_SZ(total_ids));
 
 	return NULL;
+}
+
+void
+id16_map_clear(void * id16_map_hndl, uint16 total_ids, uint16 start_val16)
+{
+	uint16 idx, val16;
+	id16_map_t * id16_map;
+
+	ASSERT(total_ids > 0);
+	ASSERT((start_val16 + total_ids) < ID16_INVALID);
+
+	id16_map = (id16_map_t *)id16_map_hndl;
+	if (id16_map == NULL) {
+		return;
+	}
+
+	id16_map->total = total_ids;
+	id16_map->start = start_val16;
+	id16_map->failures = 0;
+
+	/* Populate stack with 16bit id values, commencing with start_val16 */
+	id16_map->stack_idx = 0;
+	val16 = start_val16;
+
+	for (idx = 0; idx < total_ids; idx++, val16++) {
+		id16_map->stack_idx = idx;
+		id16_map->stack[id16_map->stack_idx] = val16;
+	}
+
+#if defined(BCM_DBG) && defined(BCM_DBG_ID16)
+	if (id16_map->dbg) {
+		id16_map_dbg_t *id16_map_dbg = (id16_map_dbg_t *)id16_map->dbg;
+
+		id16_map_dbg->total = total_ids;
+		for (idx = 0; idx < total_ids; idx++) {
+			id16_map_dbg->avail[idx] = TRUE;
+		}
+	}
+#endif /* BCM_DBG && BCM_DBG_ID16 */
 }
 
 uint16 BCMFASTPATH /* Allocate a unique 16bit id */

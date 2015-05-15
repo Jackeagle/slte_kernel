@@ -34,8 +34,10 @@ enum connector_type {
 };
 
 enum mhl_attached_type {
-	MHL_DETTACHED = 0,
-	MHL_ATTACHED,
+	MHL_UNHANDLED = 0,
+	MHL_MUIC_DEV,
+	MHL_SMART_DOCK,
+	MHL_MM_DOCK,
 };
 
 enum mhl_sleep_state {
@@ -74,6 +76,7 @@ struct sii8620_platform_data {
 	u8 power_state;
 	u32 swing_level_v2;
 	u32 swing_level_v3;
+	u32 ref_current;
 #ifdef CONFIG_TESTONLY_SYSFS_SW_REG_TUNING
 	u32 m_offset[MAX_ELEC_TUNING_CNT];
 	u32 m_page[MAX_ELEC_TUNING_CNT];

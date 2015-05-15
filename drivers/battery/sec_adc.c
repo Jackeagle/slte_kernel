@@ -42,6 +42,7 @@ static int sec_bat_adc_ap_read(int channel)
 	case SEC_BAT_ADC_CHANNEL_NUM:
 		break;
 	case SEC_BAT_ADC_CHANNEL_CHG_TEMP:
+	case SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE:
 		ret = iio_read_channel_raw(&temp_adc[1], &data);
 		if (ret < 0)
 			pr_info("read channel error[%d]\n", ret);

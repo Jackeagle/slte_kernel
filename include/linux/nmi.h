@@ -39,9 +39,6 @@ static inline void touch_nmi_watchdog(void)
 #ifdef arch_trigger_all_cpu_backtrace
 static inline bool trigger_all_cpu_backtrace(void)
 {
-#ifdef CONFIG_EXYNOS_CORESIGHT_PC_INFO
-	exynos_cs_show_pcval();
-#endif
 	arch_trigger_all_cpu_backtrace();
 
 	return true;

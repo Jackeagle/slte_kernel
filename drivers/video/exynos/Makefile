@@ -8,4 +8,5 @@ obj-$(CONFIG_EXYNOS_LCD_S6E8AX0)	+= s6e8ax0.o
 obj-$(CONFIG_EXYNOS_DP)			+= exynos_dp_core.o exynos_dp_reg.o
 obj-$(CONFIG_EXYNOS_DECON_DISPLAY)	+= decon_display/
 obj-$(CONFIG_EXYNOS_DECON_TV_DISPLAY)	+= decon_tv_display/
+obj-$(CONFIG_EXYNOS_DECON_DUAL_DISPLAY)	+= decon_display_ext/
 obj-y					+= panels/

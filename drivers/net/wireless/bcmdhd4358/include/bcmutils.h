@@ -1,7 +1,7 @@
 /*
  * Misc useful os-independent macros and functions.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmutils.h 490934 2014-07-14 07:54:42Z $
+ * $Id: bcmutils.h 517450 2014-11-25 10:23:13Z $
  */
 
 #ifndef	_bcmutils_h_
@@ -670,7 +670,7 @@ typedef struct bcm_bit_desc_ex {
 #define ETHER_ADDR_STR_LEN	18	/* 18-bytes of Ethernet address buffer length */
 
 static INLINE uint32 /* 32bit word aligned xor-32 */
-bcm_compute_xor32(uint32 *u32, int num_u32)
+bcm_compute_xor32(volatile uint32 *u32, int num_u32)
 {
 	int i;
 	uint32 xor32 = 0;
@@ -972,6 +972,7 @@ extern void bcm_mwbmap_audit(struct bcm_mwbmap * mwbmap_hdl);
  */
 extern void * id16_map_init(osl_t *osh, uint16 total_ids, uint16 start_val16);
 extern void * id16_map_fini(osl_t *osh, void * id16_map_hndl);
+extern void id16_map_clear(void * id16_map_hndl, uint16 total_ids, uint16 start_val16);
 
 /* Allocate a unique 16bit id */
 extern uint16 id16_map_alloc(void * id16_map_hndl);
@@ -1083,7 +1084,7 @@ dll_next_p(dll_t *node_p)
 static INLINE dll_t *
 dll_prev_p(dll_t *node_p)
 {
-	return (node_p)->next_p;
+	return (node_p)->prev_p;
 }
 
 
@@ -1169,5 +1170,9 @@ typedef struct _counter_tbl_t {
 
 void counter_printlog(counter_tbl_t *ctr_tbl);
 #endif /* DEBUG_COUNTER */
+
+/* below MACRO use on GSCAN, RTT */
+#define TIMESPEC_TO_US(ts)  (((uint64)(ts).tv_sec * USEC_PER_SEC) + \
+		(ts).tv_nsec / NSEC_PER_USEC)
 
 #endif	/* _bcmutils_h_ */

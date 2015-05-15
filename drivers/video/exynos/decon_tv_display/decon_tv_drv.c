@@ -25,6 +25,7 @@
 
 #include <plat/fb.h>
 
+#include <mach/smc.h>
 #include <mach/videonode-exynos5.h>
 #include <media/exynos_mc.h>
 
@@ -49,13 +50,14 @@ struct pm_qos_request exynos5_decon_tv_int_qos;
 static int prev_overlap_bw = 0;
 #endif
 
-int dex_log_level = 5;
+static bool dex_streaming;
+int dex_log_level = 6;
 module_param(dex_log_level, int, 0644);
 
 static int dex_runtime_suspend(struct device *dev);
 static int dex_runtime_resume(struct device *dev);
 
-static const struct decon_tv_porch decon_tv_porchs[] =
+static struct decon_tv_porch decon_tv_porchs[] =
 {
 	{"DECONTV_720x480P60", 720, 480, 43, 1, 1, 92, 10, 36, V4L2_FIELD_NONE, 60},
 	{"DECONTV_720x576P50", 720, 576, 47, 1, 1, 92, 10, 42, V4L2_FIELD_NONE, 50},
@@ -73,9 +75,9 @@ static const struct decon_tv_porch decon_tv_porchs[] =
 	{"DECONTV_4096x2160P24", 4096, 2160, 88, 1, 1, 1302, 10, 92, V4L2_FIELD_NONE, 24},
 };
 
-const struct decon_tv_porch *find_porch(struct v4l2_mbus_framefmt mbus_fmt)
+struct decon_tv_porch *find_porch(struct v4l2_mbus_framefmt mbus_fmt)
 {
-	const struct decon_tv_porch *porch;
+	struct decon_tv_porch *porch;
 	unsigned int i;
 
 	for (i = 0; i < ARRAY_SIZE(decon_tv_porchs); ++i) {
@@ -107,23 +109,20 @@ static int dex_set_output(struct dex_device *dex)
 	mbus_fmt.colorspace = 0;
 
 	/* find sink pad of output via enabled link*/
-	if (dex->wb_path) {
-		dex->porch = &decon_tv_porchs[DEX_WB_PORCH];
-	} else {
-		hdmi_sd = dex_remote_subdev(dex->windows[DEX_DEFAULT_WIN]);
-		if (hdmi_sd == NULL)
-			return -EINVAL;
+	hdmi_sd = dex_remote_subdev(dex->windows[DEX_DEFAULT_WIN]);
+	if (hdmi_sd == NULL)
+		return -EINVAL;
 
-		ret = v4l2_subdev_call(hdmi_sd, video, g_mbus_fmt, &mbus_fmt);
-		WARN(ret, "failed to get mbus_fmt for output %s\n", hdmi_sd->name);
+	ret = v4l2_subdev_call(hdmi_sd, video, g_mbus_fmt, &mbus_fmt);
+	WARN(ret, "failed to get mbus_fmt for output %s\n", hdmi_sd->name);
 
-		dex->porch = find_porch(mbus_fmt);
-		dex_dbg("find porch for %s\n", dex->porch->name);
-		if (!dex->porch)
-			return -EINVAL;
-	}
+	dex->porch = find_porch(mbus_fmt);
+	dex_dbg("find porch for %s\n", dex->porch->name);
+	if (!dex->porch)
+		return -EINVAL;
 
 	dex_reg_porch(dex);
+
 	return 0;
 }
 
@@ -164,14 +163,14 @@ static int dex_enable(struct dex_device *dex)
 	/* start decon-tv */
 	dex_reg_streamon(dex);
 
-	/* get timing information for decon-tv porch */
-	ret = dex_set_output(dex);
-	if (ret) {
-		dex_err("failed get timings information\n");
-		goto out;
-	}
-
 	if (!dex->wb_path) {
+		/* get timing information for decon-tv porch */
+		ret = dex_set_output(dex);
+		if (ret) {
+			dex_err("failed get timings information\n");
+			goto out;
+		}
+
 		/* standalone sholud be set before tg_enable */
 		if (dex->ip_ver == IP_VER_TV_5HP)
 			dex_tv_update(dex);
@@ -189,8 +188,9 @@ static int dex_enable(struct dex_device *dex)
 	}
 
 	dex->n_streamer++;
+	dex_streaming = true;
 	mutex_unlock(&dex->s_mutex);
-	dex_dbg("enabled decon_tv and HDMI successfully\n");
+	dex_info("enabled decon_tv successfully\n");
 	return 0;
 
 out:
@@ -229,7 +229,7 @@ static int dex_disable(struct dex_device *dex)
 	if (timecnt == 0)
 		dex_err("Failed to disable DECON-TV");
 	else
-		dev_info(dex->dev, "DECON-TV has stopped");
+		dex_dbg("DECON-TV has stopped");
 
 	if (dex->ip_ver == IP_VER_TV_5H)
 		dex_reg_sw_reset(dex);
@@ -249,8 +249,9 @@ static int dex_disable(struct dex_device *dex)
 	}
 
 	dex->n_streamer--;
+	dex_streaming = false;
 	mutex_unlock(&dex->s_mutex);
-	dex_dbg("diabled decon_tv and HDMI successfully\n");
+	dex_info("diabled decon_tv successfully\n");
 
 	return 0;
 
@@ -306,8 +307,6 @@ static int dex_blank(int blank_mode, struct fb_info *info)
 			dex_err("fail to enable decon_tv");
 #if defined(CONFIG_DECONTV_USE_BUS_DEVFREQ)
 		pm_qos_add_request(&exynos5_decon_tv_int_qos, PM_QOS_DEVICE_THROUGHPUT, 400000);
-		exynos5_update_media_layers(TYPE_TV, 1);
-		prev_overlap_bw = 1;
 #endif
 		break;
 	default:
@@ -411,7 +410,7 @@ static int dex_set_hdmi_config(struct dex_device *dex,
 		ret = v4l2_subdev_call(hdmi_sd, core, s_ctrl, &ctrl);
 		if (ret)
 			dex_err("failed to enable HDCP\n");
-		dex_dbg("HDCP %s\n", ctrl.value ? "enabled" : "disabled");
+		dex_info("HDCP %s\n", ctrl.value ? "enabled" : "disabled");
 		break;
 	case EXYNOS_HDMI_STATE_AUDIO:
 		ctrl.id = V4L2_CID_TV_SET_NUM_CHANNELS;
@@ -728,6 +727,22 @@ static bool dex_validate_x_alignment(struct dex_device *dex, int x, u32 w,
 	return 1;
 }
 
+static void dex_set_protected_content(struct dex_device *dex, bool enable)
+{
+	int  ret;
+
+	if (dex->protected_content == enable)
+		return;
+
+	ret = exynos_smc(SMC_PROTECTION_SET, 0, DEV_DECON_TV, enable);
+	if (ret)
+		WARN(1, "decon-tv protection Enable failed. ret(%d)\n", ret);
+	else
+		dex_dbg("DRM %s\n", enable ? "enabled" : "disabled");
+
+	dex->protected_content = enable;
+}
+
 #if defined(CONFIG_DECONTV_USE_BUS_DEVFREQ)
 static int dex_get_overlap_bw(struct dex_device *dex,
 			struct s3c_fb_win_config *win_config)
@@ -833,16 +848,19 @@ static void dex_update(struct dex_device *dex, struct dex_reg_data *regs)
 	bool wait_for_vsync;
 	int count = 100;
 	int i, ret = 0;
+	int protection = 0;
 
 	memset(&old_dma_bufs, 0, sizeof(old_dma_bufs));
 
 	for (i = 1; i < DEX_MAX_WINDOWS; i++) {
 		if (!dex->windows[i]->local) {
+			protection += regs->protection[i];
 			old_dma_bufs[i] = dex->windows[i]->dma_buf_data;
 			if (regs->dma_buf_data[i].fence)
 				dex_fence_wait(regs->dma_buf_data[i].fence);
 		}
 	}
+	dex_set_protected_content(dex, !!protection);
 
 #if defined(CONFIG_DECONTV_USE_BUS_DEVFREQ)
 	if (prev_overlap_bw < regs->win_overlap_bw) {
@@ -936,10 +954,11 @@ static void dex_set_wb_frame(struct dex_device *dex, struct dex_reg_data *regs)
 	}
 #endif
 
+	dex_reg_set_lineval(dex);
 	dex_update_regs(dex, regs);
-	sw_sync_timeline_inc(dex->timeline, 1);
 
 	dex_reg_wb_swtrigger(dex);
+	sw_sync_timeline_inc(dex->wb_timeline, 1);
 	ret = dex_wait_update(dex);
 	if (ret < 0) {
 		dex_reg_dump(dex);
@@ -982,9 +1001,11 @@ static int dex_set_win_buffer(struct dex_device *dex, struct dex_win *win,
 		return -EINVAL;
 	}
 
-	if (win_config->w == 0 || win_config->h == 0) {
-		dex_err("window is size 0 (w = %u, h = %u)\n",
-				win_config->w, win_config->h);
+	if (win_config->w == 0 || win_config->h == 0 ||
+		win_config->x < 0 || win_config->y < 0) {
+		dex_err("win[%d] size is abnormal (w:%d, h:%d, x:%d, y:%d)\n",
+				idx, win_config->w, win_config->h,
+				win_config->x, win_config->y);
 		return -EINVAL;
 	}
 
@@ -1087,7 +1108,7 @@ static int dex_set_win_buffer(struct dex_device *dex, struct dex_win *win,
 				win->fbinfo->var.transp.length,
 				win->fbinfo->var.red.length);
 	regs->wincon[idx] |= dex_rgborder(win_config->format);
-	regs->wincon[idx] |= WINCONx_BURSTLEN_16WORD;
+	regs->wincon[idx] |= WINCONx_BURSTLEN_8WORD;
 	regs->vidosd_a[idx] = VIDOSDxA_TOPLEFT_X(win_config->x);
 	regs->vidosd_a[idx] |= VIDOSDxA_TOPLEFT_Y(win_config->y);
 	regs->vidosd_b[idx] = VIDOSDxB_BOTRIGHT_X(win_config->x
@@ -1104,6 +1125,7 @@ static int dex_set_win_buffer(struct dex_device *dex, struct dex_win *win,
 	regs->buf_end[idx] = regs->buf_start[idx] + window_size;
 	regs->buf_size[idx] = VIDW_BUF_SIZE_OFFSET(win_config->stride - pagewidth) |
 				VIDW_BUF_SIZE_PAGEWIDTH(pagewidth);
+	regs->protection[idx] = win_config->protection;
 
 	if (idx > 1) {
 		if ((win_config->plane_alpha > 0) && (win_config->plane_alpha < 0xFF)) {
@@ -1119,6 +1141,9 @@ static int dex_set_win_buffer(struct dex_device *dex, struct dex_win *win,
 		regs->blendeq[idx - 1] = blendeq(win_config->blending,
 		win->fbinfo->var.transp.length, win_config->plane_alpha);
 	}
+	dex_dbg("[%d] (%d,%d) %dx%d, %u, %u\n", idx, win_config->x, win_config->y,
+			win_config->w, win_config->h, win_config->stride,
+			win_config->offset);
 
 	return 0;
 
@@ -1154,6 +1179,16 @@ static int dex_set_win_config(struct dex_device *dex,
 		return fd;
 
 	mutex_lock(&dex->mutex);
+	if (!dex->n_streamer) {
+		dex->timeline_max++;
+		pt = sw_sync_pt_create(dex->timeline, dex->timeline_max);
+		fence = sync_fence_create("tv", pt);
+		sync_fence_install(fence, fd);
+		win_data->fence = fd;
+
+		sw_sync_timeline_inc(dex->timeline, 1);
+		goto err;
+	}
 
 	regs = kzalloc(sizeof(struct dex_reg_data), GFP_KERNEL);
 	if (!regs) {
@@ -1200,20 +1235,46 @@ static int dex_set_win_config(struct dex_device *dex,
 		for (i = 1; i < DEX_MAX_WINDOWS; i++)
 			if (!dex->windows[i]->local)
 				dex_free_dma_buf(dex, &regs->dma_buf_data[i]);
-		put_unused_fd(fd);
-		kfree(regs);
-		dex_err("unrecognized request, buffer freed\n");
+		goto err_free;
 	} else {
-		dex->timeline_max++;
-		pt = sw_sync_pt_create(dex->timeline, dex->timeline_max);
-		fence = sync_fence_create("tv", pt);
-		sync_fence_install(fence, fd);
-		win_data->fence = fd;
-
 		if (dex->wb_path) {
+			dex->wb_timeline_max++;
+			pt = sw_sync_pt_create(dex->wb_timeline, dex->wb_timeline_max);
+			if (!pt) {
+				dex_err("failed to create sync_pt\n");
+				ret = -ENOMEM;
+				goto err_free;
+			}
+			fence = sync_fence_create("tv", pt);
+			if (!fence) {
+				sync_pt_free(pt);
+				dex_err("failed to craete fence\n");
+				ret = -ENOMEM;
+				goto err_free;
+			}
+			sync_fence_install(fence, fd);
+			win_data->fence = fd;
+
 			dex_set_wb_frame(dex, regs);
 			kfree(regs);
 		} else {
+			dex->timeline_max++;
+			pt = sw_sync_pt_create(dex->timeline, dex->timeline_max);
+			if (!pt) {
+				dex_err("failed to create sync_pt\n");
+				ret = -ENOMEM;
+				goto err_free;
+			}
+			fence = sync_fence_create("tv", pt);
+			if (!fence) {
+				sync_pt_free(pt);
+				dex_err("failed to craete fence\n");
+				ret = -ENOMEM;
+				goto err_free;
+			}
+			sync_fence_install(fence, fd);
+			win_data->fence = fd;
+
 			mutex_lock(&dex->update_list_lock);
 			list_add_tail(&regs->list, &dex->update_list);
 			mutex_unlock(&dex->update_list_lock);
@@ -1221,6 +1282,12 @@ static int dex_set_win_config(struct dex_device *dex,
 					&dex->update_work);
 		}
 	}
+	goto err;
+
+err_free:
+	put_unused_fd(fd);
+	kfree(regs);
+	dex_err("unrecognized request, buffer freed\n");
 
 err:
 	mutex_unlock(&dex->mutex);
@@ -1297,11 +1364,59 @@ static int dex_ioctl(struct fb_info *info, unsigned int cmd,
 	return ret;
 }
 
+static int dex_release(struct fb_info *info, int user)
+{
+	struct dex_win *win = info->par;
+	struct dex_device *dex = win->dex;
+	int ret = 0;
+	struct media_entity *source = NULL;
+	struct media_entity *sink = NULL;
+	struct media_link *link;
+
+	mutex_lock(&dex->s_mutex);
+
+	if (dex->wb_path && dex->n_streamer) {
+		dex_info("decon-tv stopped forcibly\n");
+		flush_kthread_worker(&dex->update_worker);
+#ifdef CONFIG_PM_RUNTIME
+		ret = pm_runtime_put_sync(dex->dev);
+		if (ret < 0)
+			dex_err("fail to pm_runtime_put_sync()");
+#else
+		dex_runtime_suspend(dex->dev);
+#endif
+#if defined(CONFIG_DECONTV_USE_BUS_DEVFREQ)
+		pm_qos_remove_request(&exynos5_decon_tv_int_qos);
+		exynos5_update_media_layers(TYPE_TV, 0);
+		prev_overlap_bw = 0;
+#endif
+
+
+		source = &dex->wb_sd.entity;
+		sink = &dex->mdev->gsc_wb_sd->entity;
+		link = media_entity_find_link(source->pads, sink->pads);
+		dex_info("%s - %s link disabled\n",
+				source->name, sink->name);
+		ret = media_entity_setup_link(link, 0);
+		if (ret < 0)
+			dex_err("fail to link disable\n");
+		kfree(dex->porch);
+
+		dex->n_streamer--;
+	}
+
+	mutex_unlock(&dex->s_mutex);
+	dex->wb_path = false;
+
+	return ret;
+}
+
 /* ---------- FREAMBUFFER INTERFACE ----------- */
 static struct fb_ops dex_fb_ops = {
 	.owner		= THIS_MODULE,
 	.fb_blank	= dex_blank,
 	.fb_ioctl	= dex_ioctl,
+	.fb_release	= dex_release,
 };
 
 /* ---------- POWER MANAGEMENT ----------- */
@@ -1420,6 +1535,42 @@ static const struct dev_pm_ops dex_pm_ops = {
 };
 
 /* ---------- MEDIA CONTROLLER MANAGEMENT ----------- */
+static int dex_set_fmt(struct v4l2_subdev *sd, struct v4l2_subdev_fh *fh,
+		       struct v4l2_subdev_format *format)
+{
+	struct dex_device *dex = v4l2_subdev_to_dex_device(sd);
+	struct decon_tv_porch *porch;
+
+	if (format->pad != DEX_PAD_WB) {
+		dex_err("it is possible only output format setting\n");
+		return -EINVAL;
+	}
+
+	if (format->format.width * format->format.height > 2560 * 1600) {
+		dex_err("size is bigger than 2560x1600\n");
+		return -EINVAL;
+	}
+
+	if (format->format.width % 4) {
+		dex_err("width size should be kept to 4 pixel aligned\n");
+		return -EINVAL;
+	}
+
+	porch = kzalloc(sizeof(struct decon_tv_porch), GFP_KERNEL);
+	if (!porch) {
+		dex_err("could not allocate decon_tv_porch\n");
+		return -ENOMEM;
+	}
+
+	dex->porch = porch;
+	dex->porch->xres = format->format.width;
+	dex->porch->yres = format->format.height;
+	dex->porch->fps = 60;
+	dex_dbg("decon-tv output size for writeback %dx%d\n",
+			dex->porch->xres, dex->porch->yres);
+
+	return 0;
+}
 
 static int dex_s_stream(struct v4l2_subdev *sd, int enable)
 {
@@ -1434,6 +1585,7 @@ static int dex_s_stream(struct v4l2_subdev *sd, int enable)
 	return 0;
 }
 
+/* sub-device for GSC - DECON_TV - HDMI */
 static const struct v4l2_subdev_video_ops dex_sd_video_ops = {
 	.s_stream = dex_s_stream,
 };
@@ -1442,12 +1594,18 @@ static const struct v4l2_subdev_ops dex_sd_ops = {
 	.video = &dex_sd_video_ops,
 };
 
+/* sub-device for DECON_TV - GSC */
 static const struct v4l2_subdev_video_ops dex_wb_video_ops = {
 	.s_stream = dex_s_stream,
 };
 
+static const struct v4l2_subdev_pad_ops	dex_wb_pad_ops = {
+	.set_fmt = dex_set_fmt,
+};
+
 static const struct v4l2_subdev_ops dex_writeback_ops = {
 	.video = &dex_wb_video_ops,
+	.pad = &dex_wb_pad_ops,
 };
 
 static int dex_link_setup(struct media_entity *entity,
@@ -1486,7 +1644,7 @@ static int dex_link_setup(struct media_entity *entity,
 	return 0;
 }
 
-static int wb_link_setup(struct media_entity *entity,
+static int dex_wb_link_setup(struct media_entity *entity,
 		      const struct media_pad *local,
 		      const struct media_pad *remote, u32 flags)
 {
@@ -1496,10 +1654,10 @@ static int wb_link_setup(struct media_entity *entity,
 
 	if (flags & MEDIA_LNK_FL_ENABLED) {
 		dex->wb_path = true;
-		dex_dbg("link setup enabled\n");
+		dex_info("link setup enabled\n");
 	} else {
 		dex->wb_path = false;
-		dex_dbg("link setup disabled\n");
+		dex_info("link setup disabled\n");
 	}
 
 	return 0;
@@ -1510,7 +1668,7 @@ static const struct media_entity_operations dex_entity_ops = {
 };
 
 static const struct media_entity_operations wb_entity_ops = {
-	.link_setup = wb_link_setup,
+	.link_setup = dex_wb_link_setup,
 };
 
 static int dex_register_subdev_nodes(struct dex_device *dex)
@@ -1784,6 +1942,7 @@ static int dex_probe(struct platform_device *pdev)
 	struct fb_info *fbinfo;
 	int i;
 	int ret = 0;
+	char device_name[MAX_NAME_SIZE];
 
 	dev_info(dev, "probe start\n");
 
@@ -1795,6 +1954,7 @@ static int dex_probe(struct platform_device *pdev)
 
 	/* setup pointer to master device */
 	dex->dev = dev;
+	dex_streaming = false;
 
 	/* store platform data ptr to decon_tv context */
 	of_property_read_u32(dev->of_node, "ip_ver", &dex->ip_ver);
@@ -1889,8 +2049,21 @@ static int dex_probe(struct platform_device *pdev)
 	}
 	init_kthread_work(&dex->update_work, dex_update_handler);
 
-	dex->timeline = sw_sync_timeline_create(DEX_DRIVER_NAME);
+	snprintf(device_name, MAX_NAME_SIZE, "decon-tv");
+	dex->timeline = sw_sync_timeline_create(device_name);
+	if (!dex->timeline) {
+		dex_err("failed to create timeline\n");
+		goto fail_ion;
+	}
 	dex->timeline_max = 1;
+
+	snprintf(device_name, MAX_NAME_SIZE, "decon-tv-wb");
+	dex->wb_timeline = sw_sync_timeline_create(device_name);
+	if (!dex->timeline) {
+		dex_err("failed to create wb timeline\n");
+		goto fail_ion;
+	}
+	dex->wb_timeline_max = 0;
 
 	dex->ion_client = ion_client_create(ion_exynos, "decon_tv");
 	if (IS_ERR(dex->ion_client)) {
@@ -2019,6 +2192,12 @@ static int dex_remove(struct platform_device *pdev)
 	dev_info(dev, "remove sucessful\n");
 	return 0;
 }
+
+int check_decon_tv_op(void)
+{
+	return dex_streaming;
+}
+EXPORT_SYMBOL(check_decon_tv_op);
 
 static struct platform_driver dex_driver __refdata = {
 	.probe		= dex_probe,

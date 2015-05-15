@@ -32,6 +32,8 @@
 #include <linux/mfd/max77843-private.h>
 #include <linux/regulator/machine.h>
 
+#include <linux/muic/muic.h>
+#include <linux/muic/max77843-muic-hv-typedef.h>
 #include <linux/muic/max77843-muic.h>
 
 #if defined (CONFIG_OF)

@@ -117,6 +117,7 @@ obj-$(CONFIG_MFD_MAX77804K)	+= max77804.o max77804k-irq.o
 obj-$(CONFIG_MFD_MAX77823)	+= max77823.o
 obj-$(CONFIG_MFD_MAX77828)	+= max77828.o max77828-irq.o
 obj-$(CONFIG_MFD_MAX77843)	+= max77843.o max77843-irq.o
+obj-$(CONFIG_MFD_MAX77849)	+= max77849.o max77849-irq.o
 obj-$(CONFIG_MFD_MAX77888)	+= max77888.o max77888-irq.o
 obj-$(CONFIG_MFD_MAX8907)	+= max8907.o
 max8925-objs			:= max8925-core.o max8925-i2c.o
@@ -167,3 +168,5 @@ obj-$(CONFIG_MFD_LM3533)	+= lm3533-core.o lm3533-ctrlbank.o
 obj-$(CONFIG_VEXPRESS_CONFIG)	+= vexpress-config.o vexpress-sysreg.o
 obj-$(CONFIG_MFD_RETU)		+= retu-mfd.o
 obj-$(CONFIG_MFD_AS3711)	+= as3711.o
+
+obj-$(CONFIG_MFD_SM5703)	+= sm5703_core.o sm5703_irq.o

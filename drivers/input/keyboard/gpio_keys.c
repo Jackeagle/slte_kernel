@@ -34,6 +34,10 @@
 #include <linux/sec_sysfs.h>
 #include <linux/sec_debug.h>
 
+#ifdef CONFIG_INPUT_BOOSTER
+#include <linux/input/input_booster.h>
+#endif
+
 struct device *sec_key;
 EXPORT_SYMBOL(sec_key);
 
@@ -440,6 +444,10 @@ static void gpio_keys_gpio_report_event(struct gpio_button_data *bdata)
 				irqd_is_wakeup_set(&desc->irq_data) ? 1 : !!state);
 	}
 	input_sync(input);
+#ifdef CONFIG_INPUT_BOOSTER
+	if (button->code == KEY_HOMEPAGE)
+		input_booster_send_event(BOOSTER_DEVICE_KEY, !!state);
+#endif
 }
 
 static void gpio_keys_gpio_work_func(struct work_struct *work)
@@ -669,9 +677,20 @@ static void gpio_keys_close(struct input_dev *input)
 {
 	struct gpio_keys_drvdata *ddata = input_get_drvdata(input);
 	const struct gpio_keys_platform_data *pdata = ddata->pdata;
+#if defined (CONFIG_INPUT_BOOSTER)
+	int i;
+#endif
 
 	if (pdata->disable)
 		pdata->disable(input->dev.parent);
+#if defined (CONFIG_INPUT_BOOSTER)
+	for (i = 0; i < ddata->pdata->nbuttons; i++) {
+		struct gpio_button_data *bdata = &ddata->data[i];
+		if (bdata->button->code == KEY_HOMEPAGE) {
+			input_booster_send_event(BOOSTER_DEVICE_KEY, BOOSTER_MODE_FORCE_OFF);
+		}
+	}
+#endif
 }
 
 /*

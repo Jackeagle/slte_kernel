@@ -28,8 +28,11 @@
 #include <linux/suspend.h>
 #include <linux/debugfs.h>
 
-
+#ifdef CONFIG_SOC_EXYNOS5433
+#define MAX_WAKEUP_REASON_IRQS 64
+#else
 #define MAX_WAKEUP_REASON_IRQS 32
+#endif
 static int irq_list[MAX_WAKEUP_REASON_IRQS];
 static int irqcount;
 static struct kobject *wakeup_reason;
@@ -140,7 +143,11 @@ int __init wakeup_reason_init(void)
 late_initcall(wakeup_reason_init);
 
 #ifdef CONFIG_ARCH_EXYNOS
+#ifdef CONFIG_SOC_EXYNOS5433
+#define NR_EINT		64
+#else
 #define NR_EINT		32
+#endif
 struct wakeup_reason_stats {
 	int irq;
 	unsigned int wakeup_count;
@@ -149,6 +156,11 @@ static struct wakeup_reason_stats wakeup_reason_stats[NR_EINT] = {{0,},};
 
 void update_wakeup_reason_stats(int irq, int eint)
 {
+	if (eint >= NR_EINT) {
+		pr_info("%s : can't update wakeup reason stat infomation\n", __func__);
+		return;
+	}
+
 	wakeup_reason_stats[eint].irq = irq;
 	wakeup_reason_stats[eint].wakeup_count++;
 }
@@ -162,6 +174,9 @@ static int wakeup_reason_stats_show(struct seq_file *s, void *unused)
 	for (i = 0; i < NR_EINT; i++) {
 		struct irq_desc *desc = irq_to_desc(wakeup_reason_stats[i].irq);
 		const char *irq_name = NULL;
+
+		if (!wakeup_reason_stats[i].irq)
+			continue;
 
 		if (desc && desc->action && desc->action->name)
 			irq_name = desc->action->name;

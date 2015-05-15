@@ -115,6 +115,8 @@
 
 #define SYNAPTICS_DEFAULT_UMS_FW "/sdcard/synaptics.fw"
 
+#define DEFAULT_DEVICE_NUM	1
+
 /* Define for Firmware file image format */
 #define FIRMWARE_IMG_HEADER_MAJOR_VERSION_OFFSET	(0x07)
 #define NEW_IMG_MAJOR_VERSION	(0x10)
@@ -192,6 +194,18 @@
 #define OBJECT_UNCLASSIFIED		(0x04)
 #define OBJECT_HOVER			(0x05)
 #define OBJECT_GLOVE			(0x06)
+
+/* Define for object type report enable Mask(F12_2D_CTRL23) */
+#define OBJ_TYPE_FINGER			(1 << 0)
+#define OBJ_TYPE_PASSIVE_STYLUS	(1 << 1)
+#define OBJ_TYPE_PALM			(1 << 2)
+#define OBJ_TYPE_UNCLASSIFIED	(1 << 3)
+#define OBJ_TYPE_HOVER			(1 << 4)
+#define OBJ_TYPE_GLOVE			(1 << 5)
+#define OBJ_TYPE_NARROW_SWIPE	(1 << 6)
+#define OBJ_TYPE_HANDEDGE		(1 << 7)
+#define OBJ_TYPE_DEFAULT		(0x85)
+/*OBJ_TYPE_FINGER, OBJ_TYPE_UNCLASSIFIED, OBJ_TYPE_HANDEDGE*/
 
 /* Define for Data report enable Mask(F12_2D_CTRL28) */
 #define RPT_TYPE (1 << 0)
@@ -287,7 +301,6 @@
 
 #ifdef EDGE_SWIPE
 #define EDGE_SWIPE_WIDTH_MAX	255
-#define EDGE_SWIPE_SUMSIZE_MAX	255
 #define EDGE_SWIPE_PALM_MAX		1
 
 #define EDGE_SWIPE_WITDH_X_OFFSET	5
@@ -365,7 +378,10 @@ enum synaptics_product_ids {
 	SYNAPTICS_PRODUCT_ID_S5000,
 	SYNAPTICS_PRODUCT_ID_S5050,
 	SYNAPTICS_PRODUCT_ID_S5100,
+	SYNAPTICS_PRODUCT_ID_S5200,
 	SYNAPTICS_PRODUCT_ID_S5700,
+	SYNAPTICS_PRODUCT_ID_S5707,
+	SYNAPTICS_PRODUCT_ID_S5710,
 	SYNAPTICS_PRODUCT_ID_MAX
 };
 
@@ -564,7 +580,8 @@ struct synaptics_rmi4_f12_handle {
 /* CTRL */
 	unsigned short ctrl11_addr;		/* F12_2D_CTRL11 : for jitter level*/
 	unsigned short ctrl15_addr;		/* F12_2D_CTRL15 : for finger amplitude threshold */
-
+	unsigned short ctrl23_addr;		/* F12_2D_CTRL23 : object report enable */
+	unsigned char obj_report_enable;	/* F12_2D_CTRL23 */
 	unsigned short ctrl26_addr;		/* F12_2D_CTRL26 : for glove mode */
 	unsigned char feature_enable;	/* F12_2D_CTRL26 */
 	unsigned short ctrl28_addr;		/* F12_2D_CTRL28 : for report data */
@@ -962,6 +979,8 @@ struct synaptics_rmi4_data {
 	bool stay_awake;
 	bool staying_awake;
 	bool tsp_probe;
+	bool tsp_pwr_enabled;
+	unsigned char fingers_already_present;
 
 	enum synaptics_product_ids product_id;			/* product id of ic */
 	int ic_revision_of_ic;		/* revision of reading from IC */
@@ -969,7 +988,7 @@ struct synaptics_rmi4_data {
 	int ic_revision_of_bin;		/* revision of reading from binary */
 	int fw_version_of_bin;		/* firmware version of binary */
 	int fw_release_date_of_ic;	/* Config release data from IC */
-	int panel_revision;			/* Octa panel revision */
+	u32 panel_revision;			/* Octa panel revision */
 	unsigned char bootloader_id[SYNAPTICS_BOOTLOADER_ID_SIZE];	/* Bootloader ID */
 	bool doing_reflash;
 	int rebootcount;

@@ -62,6 +62,7 @@ enum {
 	SWITCH_SEL_USB_MASK	= 0x1,
 	SWITCH_SEL_UART_MASK	= 0x2,
 	SWITCH_SEL_RUSTPROOF_MASK	= 0x8,
+	SWITCH_SEL_AFC_DISABLE_MASK	= 0x100,
 };
 
 /* MUIC ADC table */
@@ -71,10 +72,13 @@ typedef enum {
 	ADC_REMOTE_S11		= 0x0c, /* 0x01100 20.5K ohm */
 	ADC_REMOTE_S12		= 0x0d, /* 0x01101 24.07K ohm */
 	ADC_RESERVED_VZW	= 0x0e, /* 0x01110 28.7K ohm */
+	ADC_INCOMPATIBLE_VZW	= 0x0f, /* 0x01111 34K ohm */
 	ADC_SMARTDOCK		= 0x10, /* 0x10000 40.2K ohm */
 	ADC_HMT			= 0x11, /* 0x10001 49.9K ohm */
 	ADC_AUDIODOCK		= 0x12, /* 0x10010 64.9K ohm */
+	ADC_USB_LANHUB		= 0x13, /* 0x10011 80.07K ohm */
 	ADC_CHARGING_CABLE	= 0x14,	/* 0x10100 102K ohm */
+	ADC_UNIVERSAL_MMDOCK	= 0x15, /* 0x10101 121K ohm */
 	ADC_UART_CABLE		= 0x16, /* 0x10110 150K ohm */
 	ADC_CEA936ATYPE1_CHG	= 0x17,	/* 0x10111 200K ohm */
 	ADC_JIG_USB_OFF		= 0x18, /* 0x11000 255K ohm */
@@ -85,13 +89,13 @@ typedef enum {
 	ADC_JIG_UART_ON		= 0x1d, /* 0x11101 619K ohm */
 	ADC_AUDIOMODE_W_REMOTE	= 0x1e, /* 0x11110 1000K ohm */
 	ADC_OPEN		= 0x1f,
-	ADC_OPEN_219		= 0xfc, /* ADC open and 219.3K ohm */
+	ADC_OPEN_219		= 0xfb, /* ADC open or 219.3K ohm */
+	ADC_219			= 0xfc, /* ADC open or 219.3K ohm */
 
 	ADC_UNDEFINED		= 0xfd, /* Undefied range */
 	ADC_DONTCARE		= 0xfe, /* ADC don't care for MHL */
 	ADC_ERROR		= 0xff, /* ADC value read error */
 } muic_adc_t;
-
 
 /* MUIC attached device type */
 typedef enum {
@@ -100,8 +104,13 @@ typedef enum {
 	ATTACHED_DEV_CDP_MUIC,
 	ATTACHED_DEV_OTG_MUIC,
 	ATTACHED_DEV_TA_MUIC,
-	ATTACHED_DEV_UNOFFICIAL_TA_MUIC,
 	ATTACHED_DEV_UNOFFICIAL_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_TA_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_ID_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_ID_TA_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_ID_ANY_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_ID_USB_MUIC,
+	ATTACHED_DEV_UNOFFICIAL_ID_CDP_MUIC,
 	ATTACHED_DEV_UNDEFINED_CHARGING_MUIC,
 	ATTACHED_DEV_DESKDOCK_MUIC,
 	ATTACHED_DEV_DESKDOCK_VB_MUIC,
@@ -117,13 +126,32 @@ typedef enum {
 	ATTACHED_DEV_SMARTDOCK_VB_MUIC,
 	ATTACHED_DEV_SMARTDOCK_TA_MUIC,
 	ATTACHED_DEV_SMARTDOCK_USB_MUIC,
+	ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC,
 	ATTACHED_DEV_AUDIODOCK_MUIC,
 	ATTACHED_DEV_MHL_MUIC,
 	ATTACHED_DEV_CHARGING_CABLE_MUIC,
 	ATTACHED_DEV_AFC_CHARGER_PREPARE_MUIC,
+	ATTACHED_DEV_AFC_CHARGER_PREPARE_DUPLI_MUIC,
 	ATTACHED_DEV_AFC_CHARGER_5V_MUIC,
+	ATTACHED_DEV_AFC_CHARGER_5V_DUPLI_MUIC,
 	ATTACHED_DEV_AFC_CHARGER_9V_MUIC,
+	ATTACHED_DEV_AFC_CHARGER_ERR_V_MUIC,
+	ATTACHED_DEV_AFC_CHARGER_ERR_V_DUPLI_MUIC,
+	ATTACHED_DEV_QC_CHARGER_PREPARE_MUIC,
+	ATTACHED_DEV_QC_CHARGER_5V_MUIC,
+	ATTACHED_DEV_QC_CHARGER_ERR_V_MUIC,
+	ATTACHED_DEV_QC_CHARGER_9V_MUIC,
+	ATTACHED_DEV_HV_ID_ERR_UNDEFINED_MUIC,
+	ATTACHED_DEV_HV_ID_ERR_UNSUPPORTED_MUIC,
+	ATTACHED_DEV_HV_ID_ERR_SUPPORTED_MUIC,
 	ATTACHED_DEV_HMT_MUIC,
+
+	ATTACHED_DEV_VZW_ACC_MUIC,
+	ATTACHED_DEV_VZW_INCOMPATIBLE_MUIC,
+	ATTACHED_DEV_USB_LANHUB_MUIC,
+	ATTACHED_DEV_TYPE2_CHG_MUIC,
+
+	ATTACHED_DEV_UNSUPPORTED_ID_VB_MUIC,
 	ATTACHED_DEV_UNKNOWN_MUIC,
 
 	ATTACHED_DEV_NUM,
@@ -135,11 +163,17 @@ typedef enum {
 struct muic_platform_data {
 	int irq_gpio;
 
+	int switch_sel;
+
 	/* muic current USB/UART path */
 	int usb_path;
 	int uart_path;
 
+	/* muic path status value (suspend/resume) for rustproof */
+	u8 path_status;
+
 	bool rustproof_on;
+	bool afc_disable;
 
 	/* muic switch dev register function for DockObserver */
 	void (*init_switch_dev_cb) (void);
@@ -151,9 +185,11 @@ struct muic_platform_data {
 	int (*set_gpio_uart_sel) (int uart_path);
 	int (*set_safeout) (int safeout_path);
 
-	/* muic path switch function for waterproof */
+	/* muic path switch function for rustproof */
 	void (*set_path_switch_suspend) (struct device *dev);
 	void (*set_path_switch_resume) (struct device *dev);
 };
+
+int get_switch_sel(void);
 
 #endif /* __MUIC_H__ */

@@ -501,10 +501,16 @@ config LEDS_TCA6507
 	  Driver support brightness control and hardware-assisted blinking.
 
 config LEDS_MAX77804
-        bool "LED support for the MAX77804"
-        depends on LEDS_CLASS
-        help
-          This option enables support for the LEDs on the MAX77804.
+	bool "LED support for the MAX77804"
+	depends on LEDS_CLASS
+	help
+	  This option enables support for the LEDs on the MAX77804.
+
+config LEDS_MAX77888
+	bool "LED support for the MAX77888"
+	depends on LEDS_CLASS
+	help
+	  This option enables support for the LEDs on the MAX77888.
 
 config LEDS_MAX8997
 	tristate "LED support for MAX8997 PMIC"
@@ -570,6 +576,11 @@ config LEDS_KTD2692
 	help
 	  If you say yes here you will get support for
 	  for the KTD2692 FLASH led chip.
+
+config LEDS_USE_ED28
+	bool "LED support for ED28_concept"
+	help
+	  This option enables support for ED28_concept
 
 config LEDS_BLUE_BRIGHTNESS_OFFSET
 	bool "LED support for blue brightness offset_concept"

@@ -1544,6 +1544,7 @@ void TransportLayer_OnInternalPacket(struct sTransportLayer* p,
     }
 }
 
+static unsigned char _ucBuf[MAX_OUTGOING_PACKET_SIZE];
 void TransportLayer_SendInternalPacket(struct sTransportLayer* p,
                 unsigned char ucId,
                 const unsigned char *pucData,
@@ -1556,13 +1557,12 @@ void TransportLayer_SendInternalPacket(struct sTransportLayer* p,
      * but code readability is the preffered path, especially
      * as the internal packet are rarely used, and little data is exchanged.
      */
-    unsigned char ucBuf[MAX_OUTGOING_PACKET_SIZE];
-    ucBuf[0] = ucId;
-    ASSERT_RET(usSize < sizeof(ucBuf));
-    memcpy(&ucBuf[1], pucData, usSize);
-  
-    TransportLayer_BuildAndSendPacket(p, usFlags, ucBuf,
-                        usSize+1, 0/*ucReliableTxSeqId*/); 
+    _ucBuf[0] = ucId;
+    ASSERT_RET(usSize < sizeof(_ucBuf));
+    memcpy(&_ucBuf[1], pucData, usSize);
+
+    TransportLayer_BuildAndSendPacket(p, usFlags, _ucBuf,
+                        usSize+1, 0/*ucReliableTxSeqId*/);
 }
 
 

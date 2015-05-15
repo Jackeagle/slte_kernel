@@ -278,7 +278,7 @@ static int usb_dev_suspend(struct device *dev)
 
 static int usb_dev_resume(struct device *dev)
 {
-#ifndef CONFIG_LTE_MODEM_SHANNON
+#if !defined(CONFIG_LTE_MODEM_SHANNON) && !defined(CONFIG_SEC_MODEM_M74XX)
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 	struct usb_device *udev = to_usb_device(dev);
 	struct device *pdev = dev->parent;

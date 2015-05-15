@@ -338,6 +338,7 @@
 			cypress,boot_on_ldo;
 			cypress,led_by_ldo;
 			cypress,glove_mode_keep_status;
+			cypress,multi-touchkey-fw-version = <0x0d>;
 		};
 	};
 
@@ -571,6 +572,29 @@
 			timing,hsync-2h-cycle = <1>;
 			type_of_ddi = <1>; /* 0:Samsung Mobile, 1:MAGNA, 2:Normal(Etc) */
 		};
+
+		enable_display_driver_power {
+			type = "REGULATOR", "GPIO", "REGULATOR", "DELAY", "PINCTRL", "PINCTRL";
+			subtype = "ENABLE", "HIGH", "ENABLE", "USLEEP", "default", "turnon_tes";
+			desc = "Turn on VDDI(VDD3): 1.8", "Turn on VDDR(VDDI_REG): 1.5", "Turn on VCI: 3.0", "Wait 10ms", "default", "turnon_tes";
+			gpios = <&gpf1 5 0x1>;
+			delay = <10000 11000>;
+			regulator = "VCC_1.8V_LCD_AP", "VCC_3.0V_LCD_AP";
+		};
+		disable_display_driver_power {
+			type = "GPIO", "REGULATOR", "GPIO", "DELAY", "REGULATOR", "PINCTRL";
+			subtype = "LOW", "DISABLE", "LOW", "USLEEP", "DISABLE", "turnoff_tes";
+			desc = "", "Turn off VCI: 3.0", "Turn on VDDR(VDDI_REG): 1.5", "Wait 3ms", "Turn off VDDI(VDD3): 1.8", "turnoff_tes";
+			gpios = <&gpv7 2 0x1>, <&gpf1 5 0x1>;
+			delay = <3000 5000>;
+			regulator = "VCC_3.0V_LCD_AP", "VCC_1.8V_LCD_AP";
+		};
+		reset_display_driver_panel {
+			type = "GPIO", "DELAY", "GPIO", "DELAY", "GPIO", "DELAY";
+			subtype = "HIGH", "USLEEP", "LOW", "USLEEP", "HIGH", "USLEEP";
+			gpios = <&gpv7 2 0x1>, <&gpv7 2 0x1>, <&gpv7 2 0x1>;
+			delay = <5000 6000>, <5000 6000>, <10000 11000>;
+		};
 	};
 
 	usb@15400000 {
@@ -708,6 +732,8 @@
 
 		scenario = <0>;
 		mclk_ch = <0>;
+		sensor_id = <15>;
+
 		gpios_cam_en = <&gpc0 5 0x1>;
 		gpio_reset = <&gpc0 4 0x1>;
 		gpios_comp_en = <&gpf1 7 0x1>; /* COMP_EN */
@@ -760,6 +786,7 @@
 		companion_spi_channel = <0>;
 		use_vision = <1>;
 		use_sensor_dynamic_voltage_mode = <1>;
+		use_module_check;
 		fimc_is_dvfs {
 			default_int = <543000>; /* L0_A */
 			default_cam = <466000>; /* L0 */
@@ -815,6 +842,11 @@
 			rear_camcording_fhd_cam = <333000>; /* L4 */
 			rear_camcording_fhd_mif = <413000>; /* L2 */
 			rear_camcording_fhd_i2c = <0>;
+
+			rear_camcording_whd_int = <543000>; /* L0_A */
+			rear_camcording_whd_cam = <466000>; /* L0 */
+			rear_camcording_whd_mif = <825000>; /* L0 */
+			rear_camcording_whd_i2c = <0>;
 
 			rear_camcording_uhd_int = <543000>; /* L0_A */
 			rear_camcording_uhd_cam = <450000>; /* L1 */
@@ -941,7 +973,7 @@
 	};
 
 	i2s_dummy: dummy-i2s {
-		compatible = "samsung,dummy-i2s";
+		compatible = "snd-soc-dummy";
 		status = "okay";
 	};
 
@@ -952,16 +984,17 @@
 
 	sound {
 		compatible = "samsung,pacific-arizona";
-		samsung,audio-cpu = <&i2s0		/* primary */
-				     &i2s_dummy
-				     &i2s_dummy
-				     &i2s0		/* secondary */
-				     &i2s1>;
+		samsung,audio-cpu = <&i2s0>;
 		samsung,audio-codec = <&audio_codec
+				       &audio_codec /* NULL */
+				       &audio_codec /* NULL */
 				       &audio_codec
 				       &audio_codec
 				       &audio_codec
-				       &codec_dummy>;
+				       &audio_codec
+				       &audio_codec
+				       &audio_codec
+				       &audio_codec>;
 		clocks = <&clock 5050>;
 		clock-names = "mclk";
 		status = "okay";
@@ -1184,16 +1217,16 @@
 			net_boost,label="IPC";
 			net_boost,node="rmnet0 rmnet1 rmnet2 rmnet3 rmnet4 rmnet5 rmnet6 rmnet7";
 			net_boost,table_size = <2>;
-			net_boost,table= <100 0 0 1100000 0 825000 100000 0 1
-					  130 0 0 1300000 0 825000 100000 0 1>;
+			net_boost,table= <100 0 0 1100000 0 825000 100000 0 1 0
+					  130 0 0 1300000 0 825000 100000 0 1 0>;
 		};
 		 boot_device@2 {
 			 net_boost,label="EMMC";
 			 net_boost,node="";
 			 net_boost,sysnode="/sys/class/mmc_host/mmc0/trans_count";
 			 net_boost,table_size = <1>;
-			/* <Throughput(Mbps) ARM_min ARM_max KFC_min KFC_max MIF INT Task Irq> */
-			 net_boost,table= <64 0 0 1300000 0 825000 0 0 0>;
+			/* <Throughput(Mbps) ARM_min ARM_max KFC_min KFC_max MIF INT Task Irq HMPBoost> */
+			 net_boost,table= <64 0 0 1300000 0 825000 0 0 0 0>;
 		 };
 	};
 

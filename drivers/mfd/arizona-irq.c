@@ -163,7 +163,7 @@ static int arizona_irq_map(struct irq_domain *h, unsigned int virq,
 	struct regmap_irq_chip_data *data = h->host_data;
 
 	irq_set_chip_data(virq, data);
-	irq_set_chip_and_handler(virq, &arizona_irq_chip, handle_edge_irq);
+	irq_set_chip_and_handler(virq, &arizona_irq_chip, handle_simple_irq);
 	irq_set_nested_thread(virq, 1);
 
 	/* ARM needs us to explicitly flag the IRQ as valid
@@ -203,7 +203,15 @@ int arizona_irq_init(struct arizona *arizona)
 	case WM8280:
 	case WM5110:
 		aod = &florida_aod;
-		irq = &florida_irq;
+
+		switch (arizona->rev) {
+		case 0 ... 2:
+			irq = &florida_irq;
+			break;
+		default:
+			irq = &florida_revd_irq;
+			break;
+		}
 
 		ctrlif_error = false;
 		break;

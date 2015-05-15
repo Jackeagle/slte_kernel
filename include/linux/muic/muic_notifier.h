@@ -41,7 +41,8 @@ typedef enum {
 	MUIC_NOTIFY_DEV_USB,
 	MUIC_NOTIFY_DEV_TSP,
 	MUIC_NOTIFY_DEV_CHARGER,
-	MUIC_NOTIFY_DEV_CPUIDLE
+	MUIC_NOTIFY_DEV_CPUIDLE,
+	MUIC_NOTIFY_DEV_CPUFREQ
 } muic_notifier_device_t;
 
 struct muic_notifier_struct {

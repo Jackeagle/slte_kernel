@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_custom_interface.c
+/* drivers/gpu/arm/.../platform/gpu_custom_interface.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 DVFS driver
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -30,6 +30,26 @@
 
 extern struct kbase_device *pkbdev;
 
+int gpu_pmqos_dvfs_min_lock(int level)
+{
+#ifdef CONFIG_MALI_DVFS
+	int clock;
+	struct exynos_context *platform = (struct exynos_context *)pkbdev->platform_context;
+
+	if (!platform) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "%s: platform context is not initialized\n", __func__);
+		return -ENODEV;
+	}
+
+	clock = gpu_dvfs_get_clock(level);
+	if (clock < 0)
+		gpu_dvfs_clock_lock(GPU_DVFS_MIN_UNLOCK, PMQOS_LOCK, 0);
+	else
+		gpu_dvfs_clock_lock(GPU_DVFS_MIN_LOCK, PMQOS_LOCK, clock);
+#endif /* CONFIG_MALI_DVFS */
+	return 0;
+}
+
 static ssize_t show_clock(struct device *dev, struct device_attribute *attr, char *buf)
 {
 	ssize_t ret = 0;
@@ -38,7 +58,10 @@ static ssize_t show_clock(struct device *dev, struct device_attribute *attr, cha
 	if (!platform)
 		return -ENODEV;
 
-	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_is_power_on() * gpu_get_cur_clock(platform));
+	if (platform->dvs_is_enabled)
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_control_is_power_on(pkbdev) * platform->cur_clock);
+	else
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_control_is_power_on(pkbdev) * gpu_get_cur_clock(platform));
 
 	if (ret < PAGE_SIZE - 1) {
 		ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
@@ -102,7 +125,7 @@ static ssize_t set_clock(struct device *dev, struct device_attribute *attr, cons
 		if (platform->dvfs_status)
 			gpu_dvfs_on_off(false);
 #endif /* CONFIG_MALI_DVFS */
-		gpu_set_target_clk_vol(clk);
+		gpu_set_target_clk_vol(clk, false);
 		cur_state = true;
 	}
 
@@ -274,7 +297,7 @@ static ssize_t show_utilization(struct device *dev, struct device_attribute *att
 	if (!platform)
 		return -ENODEV;
 
-	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_is_power_on() * platform->env_data.utilization);
+	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_control_is_power_on(pkbdev) * platform->env_data.utilization);
 
 	if (ret < PAGE_SIZE - 1) {
 		ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
@@ -295,7 +318,7 @@ static ssize_t show_perf(struct device *dev, struct device_attribute *attr, char
 	if (!platform)
 		return -ENODEV;
 
-	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_is_power_on() * platform->env_data.perf);
+	ret += snprintf(buf+ret, PAGE_SIZE-ret, "%d", gpu_control_is_power_on(pkbdev) * platform->env_data.perf);
 
 	if (ret < PAGE_SIZE - 1) {
 		ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
@@ -379,7 +402,7 @@ static ssize_t set_governor(struct device *dev, struct device_attribute *attr, c
 
 	ret = kstrtoint(buf, 0, &next_governor_type);
 
-	if ((next_governor_type < 0) && (next_governor_type >= G3D_MAX_GOVERNOR_NUM)) {
+	if ((next_governor_type < 0) || (next_governor_type >= G3D_MAX_GOVERNOR_NUM)) {
 		GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "%s: invalid value\n", __func__);
 		return -ENOENT;
 	}
@@ -393,6 +416,66 @@ static ssize_t set_governor(struct device *dev, struct device_attribute *attr, c
 	}
 
 	return count;
+}
+
+static ssize_t show_max_lock_status(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	unsigned long flags;
+	int i;
+	int max_lock_status[NUMBER_LOCK];
+	struct exynos_context *platform = (struct exynos_context *)pkbdev->platform_context;
+
+	if (!platform)
+		return -ENODEV;
+
+	spin_lock_irqsave(&platform->gpu_dvfs_spinlock, flags);
+	for (i = 0; i < NUMBER_LOCK; i++)
+		max_lock_status[i] = platform->user_max_lock[i];
+	spin_unlock_irqrestore(&platform->gpu_dvfs_spinlock, flags);
+
+	for (i = 0; i < NUMBER_LOCK; i++)
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "[%d:%d]", i,  max_lock_status[i]);
+
+	if (ret < PAGE_SIZE - 1) {
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
+	} else {
+		buf[PAGE_SIZE-2] = '\n';
+		buf[PAGE_SIZE-1] = '\0';
+		ret = PAGE_SIZE-1;
+	}
+
+	return ret;
+}
+
+static ssize_t show_min_lock_status(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	ssize_t ret = 0;
+	unsigned long flags;
+	int i;
+	int min_lock_status[NUMBER_LOCK];
+	struct exynos_context *platform = (struct exynos_context *)pkbdev->platform_context;
+
+	if (!platform)
+		return -ENODEV;
+
+	spin_lock_irqsave(&platform->gpu_dvfs_spinlock, flags);
+	for (i = 0; i < NUMBER_LOCK; i++)
+		min_lock_status[i] = platform->user_min_lock[i];
+	spin_unlock_irqrestore(&platform->gpu_dvfs_spinlock, flags);
+
+	for (i = 0; i < NUMBER_LOCK; i++)
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "[%d:%d]", i,  min_lock_status[i]);
+
+	if (ret < PAGE_SIZE - 1) {
+		ret += snprintf(buf+ret, PAGE_SIZE-ret, "\n");
+	} else {
+		buf[PAGE_SIZE-2] = '\n';
+		buf[PAGE_SIZE-1] = '\0';
+		ret = PAGE_SIZE-1;
+	}
+
+	return ret;
 }
 
 static ssize_t show_max_lock_dvfs(struct device *dev, struct device_attribute *attr, char *buf)
@@ -510,6 +593,9 @@ static ssize_t set_min_lock_dvfs(struct device *dev, struct device_attribute *at
 			return -ENOENT;
 		}
 
+		if (clock > platform->gpu_max_clock_limit)
+			clock = platform->gpu_max_clock_limit;
+
 		if (clock == platform->gpu_min_clock)
 			gpu_dvfs_clock_lock(GPU_DVFS_MIN_UNLOCK, SYSFS_LOCK, 0);
 		else
@@ -626,7 +712,6 @@ static ssize_t show_tmu(struct device *dev, struct device_attribute *attr, char 
 
 static ssize_t set_tmu_control(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-	int voltage = 0;
 	struct exynos_context *platform = (struct exynos_context *)pkbdev->platform_context;
 
 	if (!platform)
@@ -635,9 +720,7 @@ static ssize_t set_tmu_control(struct device *dev, struct device_attribute *attr
 	if (sysfs_streq("0", buf)) {
 		if (platform->voltage_margin != 0) {
 			platform->voltage_margin = 0;
-			voltage = MAX(gpu_dvfs_get_voltage(platform->cur_clock), platform->cold_min_vol);
-			gpu_control_set_voltage_locked(pkbdev, voltage);
-			GPU_LOG(DVFS_DEBUG, DUMMY, 0u, 0u, "we set the voltage: %d\n", voltage);
+			gpu_set_target_clk_vol(platform->cur_clock, false);
 		}
 		gpu_dvfs_clock_lock(GPU_DVFS_MAX_UNLOCK, TMU_LOCK, 0);
 		platform->tmu_status = false;
@@ -868,7 +951,7 @@ static ssize_t show_hwcnt_dvfs(struct device *dev, struct device_attribute *attr
 	}
 #else
 	GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "G3D DVFS build config is disabled. You can not see\n");
-#endif /* CONFIG_MALI_T6XX_DVFS */
+#endif /* CONFIG_MALI_DVFS */
 	return ret;
 }
 
@@ -900,7 +983,7 @@ static ssize_t set_hwcnt_dvfs(struct device *dev, struct device_attribute *attr,
 	mutex_unlock(&kbdev->hwcnt.mlock);
 #else
 	GPU_LOG(DVFS_WARNING, DUMMY, 0u, 0u, "G3D DVFS build config is disabled. You can not set\n");
-#endif /* CONFIG_MALI_T6XX_DVFS */
+#endif /* CONFIG_MALI_DVFS */
 	return count;
 }
 
@@ -980,7 +1063,7 @@ static ssize_t show_hwcnt_bt_state(struct device *dev, struct device_attribute *
 
 /** The sysfs file @c clock, fbdev.
  *
- * This is used for obtaining information about the mali t6xx operating clock & framebuffer address,
+ * This is used for obtaining information about the mali t series operating clock & framebuffer address,
  */
 
 DEVICE_ATTR(clock, S_IRUGO|S_IWUSR, show_clock, set_clock);
@@ -994,6 +1077,8 @@ DEVICE_ATTR(perf, S_IRUGO, show_perf, NULL);
 #ifdef CONFIG_MALI_DVFS
 DEVICE_ATTR(dvfs, S_IRUGO|S_IWUSR, show_dvfs, set_dvfs);
 DEVICE_ATTR(dvfs_governor, S_IRUGO|S_IWUSR, show_governor, set_governor);
+DEVICE_ATTR(dvfs_max_lock_status, S_IRUGO, show_max_lock_status, NULL);
+DEVICE_ATTR(dvfs_min_lock_status, S_IRUGO, show_min_lock_status, NULL);
 DEVICE_ATTR(dvfs_max_lock, S_IRUGO|S_IWUSR, show_max_lock_dvfs, set_max_lock_dvfs);
 DEVICE_ATTR(dvfs_min_lock, S_IRUGO|S_IWUSR, show_min_lock_dvfs, set_min_lock_dvfs);
 DEVICE_ATTR(wakeup_lock, S_IRUGO|S_IWUSR, show_wakeup_lock, set_wakeup_lock);
@@ -1063,6 +1148,16 @@ int gpu_create_sysfs_file(struct device *dev)
 
 	if (device_create_file(dev, &dev_attr_dvfs_governor)) {
 		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "couldn't create sysfs file [dvfs_governor]\n");
+		goto out;
+	}
+
+	if (device_create_file(dev, &dev_attr_dvfs_max_lock_status)) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "couldn't create sysfs file [dvfs_max_lock_status]\n");
+		goto out;
+	}
+
+	if (device_create_file(dev, &dev_attr_dvfs_min_lock_status)) {
+		GPU_LOG(DVFS_ERROR, DUMMY, 0u, 0u, "couldn't create sysfs file [dvfs_min_lock_status]\n");
 		goto out;
 	}
 
@@ -1155,6 +1250,8 @@ void gpu_remove_sysfs_file(struct device *dev)
 #ifdef CONFIG_MALI_DVFS
 	device_remove_file(dev, &dev_attr_dvfs);
 	device_remove_file(dev, &dev_attr_dvfs_governor);
+	device_remove_file(dev, &dev_attr_dvfs_max_lock_status);
+	device_remove_file(dev, &dev_attr_dvfs_min_lock_status);
 	device_remove_file(dev, &dev_attr_dvfs_max_lock);
 	device_remove_file(dev, &dev_attr_dvfs_min_lock);
 	device_remove_file(dev, &dev_attr_wakeup_lock);

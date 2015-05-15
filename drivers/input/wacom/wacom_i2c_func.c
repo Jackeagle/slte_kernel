@@ -56,7 +56,7 @@ int wacom_i2c_send(struct wacom_i2c *wac_i2c,
 		wac_i2c->client_boot : wac_i2c->client;
 
 	if (wac_i2c->boot_mode && !mode) {
-		printk(KERN_DEBUG
+		printk(KERN_ERR
 			"epen:failed to send\n");
 		return 0;
 	}
@@ -71,7 +71,7 @@ int wacom_i2c_recv(struct wacom_i2c *wac_i2c,
 		wac_i2c->client_boot : wac_i2c->client;
 
 	if (wac_i2c->boot_mode && !mode) {
-		printk(KERN_DEBUG
+		printk(KERN_ERR
 			"epen:failed to send\n");
 		return 0;
 	}
@@ -158,23 +158,28 @@ int wacom_i2c_query(struct wacom_i2c *wac_i2c)
 {
 	struct wacom_g5_platform_data *pdata = wac_i2c->pdata;
 	struct wacom_features *wac_feature = wac_i2c->wac_feature;
-	u8 data[COM_QUERY_NUM] = {0, };
+	u8 data[COM_QUERY_BUFFER] = {0, };
+	u8 *query = data + COM_QUERY_POS;
+	int read_size = COM_QUERY_BUFFER;
 	u8 buf = COM_QUERY;
 	int ret;
 	int i;
 	int max_x, max_y, pressure;
 
 	for (i = 0; i < COM_QUERY_RETRY; i++) {
-		ret = wacom_i2c_send(wac_i2c, &buf, 1, false);
-		if (ret < 0) {
-			printk(KERN_ERR"epen:I2C send failed(%d)\n", ret);
+		if (unlikely(pdata->use_query_cmd)) {
+			ret = wacom_i2c_send(wac_i2c, &buf, 1, false);
+			if (ret < 0) {
+				printk(KERN_ERR"epen:I2C send failed(%d)\n", ret);
+				msleep(50);
+				continue;
+			}
+			read_size = COM_QUERY_NUM;
+			query = data;
 			msleep(50);
-			continue;
 		}
 
-		msleep(50);
-
-		ret = wacom_i2c_recv(wac_i2c, data, COM_QUERY_NUM, false);
+		ret = wacom_i2c_recv(wac_i2c, data, read_size, false);
 		if (ret < 0) {
 			printk(KERN_ERR"epen:I2C recv failed(%d)\n", ret);
 			continue;
@@ -183,28 +188,28 @@ int wacom_i2c_query(struct wacom_i2c *wac_i2c)
 		printk(KERN_INFO "epen:%s: %dth ret of wacom query=%d\n",
 		       __func__, i, ret);
 
-		if (COM_QUERY_NUM != ret) {
-			printk(KERN_ERR"epen:failed to read i2c(%d)\n", ret);
+		if (read_size != ret) {
+			printk(KERN_ERR"epen:read size error %d of %d\n", ret, read_size);
 			continue;
 		}
 
-		if (0x0f == data[0]) {
+		if (0x0f == query[EPEN_REG_HEADER]) {
 			wac_feature->fw_version =
-				((u16) data[7] << 8) + (u16) data[8];
+				((u16) query[EPEN_REG_FWVER1] << 8) + (u16) query[EPEN_REG_FWVER2];
 			break;
 		}
 
 		printk(KERN_ERR
 				"epen:%X, %X, %X, %X, %X, %X, %X, fw=0x%x\n",
-				data[0], data[1], data[2], data[3],
-				data[4], data[5], data[6],
+				query[0], query[1], query[2], query[3],
+				query[4], query[5], query[6],
 				wac_feature->fw_version);
 	}
 
 	printk(KERN_NOTICE
-		"epen:%X, %X, %X, %X, %X, %X, %X, %X, %X\n", data[0],
-		data[1], data[2], data[3], data[4], data[5], data[6],
-		data[7], data[8]);
+		"epen:%X, %X, %X, %X, %X, %X, %X, %X, %X, %X, %X, %X, %X, %X\n", query[0],
+		query[1], query[2], query[3], query[4], query[5], query[6],
+		query[7], query[8], query[9], query[10], query[11], query[12], query[13]);
 
 	if (i == COM_QUERY_RETRY || ret < 0) {
 		printk(KERN_ERR"epen:%s:failed to read query\n", __func__);
@@ -214,22 +219,42 @@ int wacom_i2c_query(struct wacom_i2c *wac_i2c)
 	}
 	wac_i2c->query_status = true;
 
-	max_x = ((u16) data[1] << 8) + (u16) data[2];
-	max_y = ((u16) data[3] << 8) + (u16) data[4];
-	pressure = (u16) data[6] + ((u16) data[5] << 8);
+	max_x = ((u16) query[EPEN_REG_X1] << 8) + (u16) query[EPEN_REG_X2];
+	max_y = ((u16) query[EPEN_REG_Y1] << 8) + (u16) query[EPEN_REG_Y2];
+	pressure = ((u16) query[EPEN_REG_PRESSURE1] << 8) + (u16) query[EPEN_REG_PRESSURE2];
 
 	printk(KERN_NOTICE"epen:q max_x=%d max_y=%d, max_pressure=%d\n",
 		max_x, max_y, pressure);
 	printk(KERN_NOTICE"epen:p max_x=%d max_y=%d, max_pressure=%d\n",
 		pdata->max_x, pdata->max_y, pdata->max_pressure);
 	printk(KERN_NOTICE "epen:fw_version=0x%X (d7:0x%X,d8:0x%X)\n",
-	       wac_feature->fw_version, data[7], data[8]);
-	printk(KERN_NOTICE "epen:%X, %X, %X, %X, %X, %X, %X, %X, %X\n",
-	       data[0], data[1], data[2], data[3], data[4], data[5], data[6],
-	       data[7], data[8]);
+	       wac_feature->fw_version, query[EPEN_REG_FWVER1], query[EPEN_REG_FWVER2]);
+	printk(KERN_NOTICE "epen:mpu %#x, bl %#x, tx %d, ty %d, h %d\n",
+		query[EPEN_REG_MPUVER], query[EPEN_REG_BLVER],
+		query[EPEN_REG_TILT_X], query[EPEN_REG_TILT_Y],
+		query[EPEN_REG_HEIGHT]);
 
 	return ret;
 }
+
+
+int wacom_i2c_modecheck(struct wacom_i2c *wac_i2c)
+{
+	u8 buf = COM_QUERY;
+	int ret;
+	int mode = WACOM_I2C_MODE_NORMAL;
+
+	ret = wacom_i2c_send(wac_i2c, &buf, 1, false);
+	if (ret < 0) {
+		mode = WACOM_I2C_MODE_BOOT;
+	}
+	else{
+		mode = WACOM_I2C_MODE_NORMAL;
+	}
+	printk(KERN_DEBUG "epen:I2C send at usermode(%d)\n", ret);
+	return mode;
+}
+
 
 #ifdef WACOM_IMPORT_FW_ALGO
 #ifdef WACOM_USE_OFFSET_TABLE
@@ -613,28 +638,15 @@ void wacom_i2c_softkey(struct wacom_i2c *wac_i2c, s16 key, s16 pressed)
 }
 
 #ifdef LCD_FREQ_SYNC
-u32 wacom_i2c_get_lcd_freq(u32 freq_cnt)
-{
-#ifdef CONFIG_HA
-	return 2000000000 / (freq_cnt + 1);
-#elif defined(CONFIG_V1A)  || defined(CONFIG_CHAGALL)
-	return (freq_cnt + 231) * 125000 / 15624;
-#endif
-
-	return 0;
-}
-
 void wacom_i2c_lcd_freq_check(struct wacom_i2c *wac_i2c, u8 *data)
 {
 	u32 lcd_freq = 0;
 
 	if (wac_i2c->lcd_freq_wait == false) {
 		lcd_freq = ((u16) data[10] << 8) + (u16) data[11];
-		wac_i2c->lcd_freq = wacom_i2c_get_lcd_freq(lcd_freq);
-		if (wac_i2c->lcd_freq < LCD_FREQ_BOTTOM || wac_i2c->lcd_freq > LCD_FREQ_TOP) {
-			wac_i2c->lcd_freq_wait = true;
-			schedule_work(&wac_i2c->lcd_freq_work);
-		}
+		wac_i2c->lcd_freq = 2000000000 / (lcd_freq + 1);
+		wac_i2c->lcd_freq_wait = true;
+		schedule_work(&wac_i2c->lcd_freq_work);
 	}
 }
 #endif
@@ -642,8 +654,9 @@ void wacom_i2c_lcd_freq_check(struct wacom_i2c *wac_i2c, u8 *data)
 int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 {
 	struct wacom_g5_platform_data *pdata = wac_i2c->pdata;
-	u8 data[COM_QUERY_NUM] = {0, };
+	u8 data[COM_COORD_NUM] = {0, };
 	bool prox = false;
+	bool rdy = false;
 	int ret = 0;
 	int stylus;
 	s16 x, y, pressure;
@@ -652,11 +665,18 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 	s16 softkey, pressed, keycode;
 	s8 tilt_x = 0;
 	s8 tilt_y = 0;
+	s8 retry = 3;
 
-	ret = wacom_i2c_recv(wac_i2c, data, COM_COORD_NUM, false);
+	while (retry--) {
+		ret = wacom_i2c_recv(wac_i2c, data, COM_COORD_NUM, false);
+		if (ret >= 0)
+			break;
+
+		printk(KERN_ERR "epen:%s failed to read i2c.retry %d.L%d\n",
+			__func__, retry, __LINE__);
+	}
 	if (ret < 0) {
-		printk(KERN_ERR "epen:%s failed to read i2c.L%d\n", __func__,
-		       __LINE__);
+		printk(KERN_ERR"epen:i2c err, exit %s\n", __func__);
 		return -1;
 	}
 
@@ -666,15 +686,19 @@ int wacom_i2c_coord(struct wacom_i2c *wac_i2c)
 		data[7], data[8], data[9], data[10], data[11]);*/
 #endif
 
+	rdy = data[0] & 0x80;
+
 #ifdef LCD_FREQ_SYNC
-	if (likely(wac_i2c->use_lcd_freq_sync)) {
-		if (unlikely(!wac_i2c->pen_prox)) {
-			wacom_i2c_lcd_freq_check(wac_i2c, data);
+	if (!rdy && !data[1] && !data[2] && !data[3] && !data[4]) {
+		if (likely(wac_i2c->use_lcd_freq_sync)) {
+			if (unlikely(!wac_i2c->pen_prox)) {
+				wacom_i2c_lcd_freq_check(wac_i2c, data);
+			}
 		}
 	}
 #endif
 
-	if (data[0] & 0x80) {
+	if (rdy) {
 		/* checking softkey */
 		softkey = !!(data[5] & 0x80);
 		if (unlikely(softkey)) {

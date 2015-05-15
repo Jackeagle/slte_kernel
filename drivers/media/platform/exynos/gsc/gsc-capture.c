@@ -149,6 +149,29 @@ static void gsc_capture_buf_queue(struct vb2_buffer *vb)
 	}
 
 	if (!test_and_set_bit(ST_CAPT_RUN, &gsc->state)) {
+		ret = gsc_set_scaler_info(ctx);
+		if (ret) {
+			gsc_err("Scaler setup error");
+			return;
+		}
+		gsc_hw_set_in_size(ctx);
+		gsc_hw_set_out_size(ctx);
+		gsc_hw_set_prescaler(ctx);
+		gsc_hw_set_mainscaler(ctx);
+		gsc_hw_set_h_coef(ctx);
+		gsc_hw_set_v_coef(ctx);
+
+		gsc_hw_set_output_rotation(ctx);
+
+		gsc_hw_set_global_alpha(ctx);
+		if (is_rotation) {
+			ret = gsc_check_rotation_size(ctx);
+			if (ret < 0) {
+				gsc_err("Scaler setup error");
+				return;
+			}
+		}
+
 		gsc_hw_set_sfr_update(ctx);
 		gsc_hw_enable_control(gsc, true);
 		ret = gsc_wait_operating(gsc);
@@ -156,7 +179,7 @@ static void gsc_capture_buf_queue(struct vb2_buffer *vb)
 			gsc_err("gscaler wait operating timeout");
 			return;
 		}
-		gsc_info("gsc-wb start");
+		gsc_dbg("gsc-wb start");
 	} else {
 		gsc_err();
 	}
@@ -189,7 +212,7 @@ static int gsc_capture_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 		gsc_hw_set_deadlock_irq_mask(gsc, false);
 		gsc_hw_set_read_slave_error_mask(gsc, false);
 		gsc_hw_set_write_slave_error_mask(gsc, false);
-		gsc_hw_set_overflow_irq_mask(gsc, false);
+		gsc_hw_set_overflow_irq_mask(gsc, true);
 		gsc_hw_set_gsc_irq_enable(gsc, true);
 		gsc_hw_set_one_frm_mode(gsc, true);
 		gsc_hw_set_freerun_clock_mode(gsc, false);
@@ -207,10 +230,7 @@ static int gsc_capture_subdev_s_stream(struct v4l2_subdev *sd, int enable)
 		gsc_hw_set_h_coef(ctx);
 		gsc_hw_set_v_coef(ctx);
 
-		if (ctx->scaler.is_scaled_down)
-			gsc_hw_set_output_rotation(ctx);
-		else
-			gsc_hw_set_input_rotation(ctx);
+		gsc_hw_set_output_rotation(ctx);
 
 		gsc_hw_set_global_alpha(ctx);
 		if (is_rotation) {
@@ -369,7 +389,7 @@ static int gsc_capture_reqbufs(struct file *file, void *priv,
 	ret = vb2_reqbufs(&cap->vbq, reqbufs);
 	if (!ret)
 		cap->reqbufs_cnt = reqbufs->count;
-	gsc_info("ret : %d", ret);
+
 	return ret;
 }
 
@@ -464,6 +484,44 @@ static int gsc_capture_ctrls_create(struct gsc_dev *gsc)
 	return 0;
 }
 
+static int gsc_clk_enable_for_wb(struct gsc_dev *gsc)
+{
+	struct clk *gsd;
+	int ret = 0;
+
+	gsd = devm_clk_get(&gsc->pdev->dev, "gate_gsd");
+	if (IS_ERR(gsd)) {
+		gsc_err("fail to get gsd clock");
+		return PTR_ERR(gsd);
+	}
+
+	ret = clk_prepare_enable(gsd);
+	if (ret) {
+		gsc_err("fail to enable gsd");
+		return -EINVAL;
+	}
+
+	clk_put(gsd);
+
+	return 0;
+}
+
+static int gsc_clk_disable_for_wb(struct gsc_dev *gsc)
+{
+	struct clk *gsd;
+
+	gsd = devm_clk_get(&gsc->pdev->dev, "gate_gsd");
+	if (IS_ERR(gsd)) {
+		gsc_err("fail to get gsd clock");
+		return PTR_ERR(gsd);
+	}
+
+	clk_disable_unprepare(gsd);
+	clk_put(gsd);
+
+	return 0;
+}
+
 static int gsc_capture_open(struct file *file)
 {
 	struct gsc_dev *gsc = video_drvdata(file);
@@ -487,6 +545,10 @@ static int gsc_capture_open(struct file *file)
 			gsc_err("failed to create controls\n");
 			goto err;
 		}
+
+		ret = gsc_clk_enable_for_wb(gsc);
+		if (ret)
+			return ret;
 	}
 
 	gsc->isr_cnt = 0;
@@ -504,8 +566,13 @@ err:
 static int gsc_capture_close(struct file *file)
 {
 	struct gsc_dev *gsc = video_drvdata(file);
+	struct vb2_queue *q = &gsc->cap.vbq;
+	int ret = 0;
 
-	gsc_info("pid: %d, state: 0x%lx", task_pid_nr(current), gsc->state);
+	gsc_dbg("pid: %d, state: 0x%lx", task_pid_nr(current), gsc->state);
+
+	if (q->streaming)
+		gsc_capture_stop_streaming(q);
 
 	if (--gsc->cap.refcnt == 0) {
 		clear_bit(ST_CAPT_OPEN, &gsc->state);
@@ -513,6 +580,9 @@ static int gsc_capture_close(struct file *file)
 		clear_bit(ST_CAPT_RUN, &gsc->state);
 		vb2_queue_release(&gsc->cap.vbq);
 		gsc_ctrls_delete(gsc->cap.ctx);
+		ret = gsc_clk_disable_for_wb(gsc);
+		if (ret)
+			return ret;
 	}
 
 	pm_runtime_put_sync(&gsc->pdev->dev);
@@ -539,19 +609,10 @@ static int gsc_capture_streamon(struct file *file, void *priv,
 				enum v4l2_buf_type type)
 {
 	struct gsc_dev *gsc = video_drvdata(file);
-	struct gsc_pipeline *p = &gsc->pipeline;
-	int ret;
 
 	if (gsc_cap_active(gsc)) {
 		gsc_err("gsc didn't stop complete");
 		return -EBUSY;
-	}
-
-	ret = media_entity_pipeline_start(&p->disp->entity,
-						p->pipe);
-	if (ret) {
-		gsc_err("media entity pipeline start fail");
-		return ret;
 	}
 
 	return vb2_streamon(&gsc->cap.vbq, type);
@@ -561,13 +622,9 @@ static int gsc_capture_streamoff(struct file *file, void *priv,
 			    enum v4l2_buf_type type)
 {
 	struct gsc_dev *gsc = video_drvdata(file);
-	struct gsc_pipeline *p = &gsc->pipeline;
 	int ret;
 
 	ret = vb2_streamoff(&gsc->cap.vbq, type);
-
-	gsc_info("ret : %d", ret);
-	media_entity_pipeline_stop(&p->disp->entity);
 
 	return ret;
 }
@@ -692,51 +749,37 @@ static struct v4l2_mbus_framefmt *__gsc_cap_get_format(struct gsc_dev *gsc,
 	else
 		return &gsc->cap.mbus_fmt[pad];
 }
-static void gsc_cap_check_limit_size(struct gsc_dev *gsc, unsigned int pad,
+static int gsc_cap_check_limit_size(struct gsc_dev *gsc, unsigned int pad,
 				   struct v4l2_mbus_framefmt *fmt)
 {
 	struct gsc_variant *variant = gsc->variant;
-	struct gsc_ctx *ctx = gsc->cap.ctx;
-	u32 min_w = 0, min_h = 0, max_w = 0, max_h = 0;
-
+	u32 src_crop = fmt->width * fmt->height;
+	u32 max_src_size =
+		variant->pix_max->otf_w * variant->pix_max->otf_h;
 	switch (pad) {
 	case GSC_PAD_SINK:
-		if (gsc_cap_opened(gsc) &&
-		    (ctx->gsc_ctrls.rotate->val == 90 ||
-		    ctx->gsc_ctrls.rotate->val == 270)) {
-			min_w = variant->pix_min->real_w;
-			min_h = variant->pix_min->real_h;
-			max_w = variant->pix_max->rot_w;
-			max_h = variant->pix_max->rot_h;
-		} else {
-			min_w = variant->pix_min->real_w;
-			min_h = variant->pix_min->real_h;
-			max_w = variant->pix_max->real_w;
-			max_h = variant->pix_max->real_h;
+		if (src_crop > max_src_size) {
+			gsc_err("%d x %d is not supported",
+					fmt->width, fmt->height);
+			return -EINVAL;
 		}
-		break;
-
-	case GSC_PAD_SOURCE:
-		min_w = variant->pix_min->target_w;
-		min_h = variant->pix_min->target_h;
-		max_w = variant->pix_max->target_w;
-		max_h = variant->pix_max->target_h;
-		break;
+	break;
 
 	default:
 		gsc_err("unsupported pad");
-		return;
+		return -EINVAL;
 	}
 
-	fmt->width = clamp_t(u32, fmt->width, min_w, max_w);
-	fmt->height = clamp_t(u32, fmt->height , min_h, max_h);
+	return 0;
 }
-static void gsc_cap_try_format(struct gsc_dev *gsc,
+
+static int gsc_cap_try_format(struct gsc_dev *gsc,
 			       struct v4l2_subdev_fh *fh, unsigned int pad,
 			       struct v4l2_mbus_framefmt *fmt,
 			       enum v4l2_subdev_format_whence which)
 {
 	struct gsc_fmt *gfmt;
+	int ret = 0;
 
 	gfmt = find_format(NULL, &fmt->code, 0);
 	WARN_ON(!gfmt);
@@ -748,10 +791,14 @@ static void gsc_cap_try_format(struct gsc_dev *gsc,
 		frame->fmt = gfmt;
 	}
 
-	gsc_cap_check_limit_size(gsc, pad, fmt);
+	ret = gsc_cap_check_limit_size(gsc, pad, fmt);
+	if (ret)
+		return -EINVAL;
 
 	fmt->colorspace = V4L2_COLORSPACE_JPEG;
 	fmt->field = V4L2_FIELD_NONE;
+
+	return ret;
 }
 
 static int gsc_capture_subdev_set_fmt(struct v4l2_subdev *sd,
@@ -852,6 +899,10 @@ static int gsc_capture_subdev_set_crop(struct v4l2_subdev *sd,
 	struct gsc_ctx *ctx = gsc->cap.ctx;
 	struct gsc_frame *frame = gsc_capture_get_frame(ctx, crop->pad);
 
+	if ((crop->pad == GSC_PAD_SINK) && (crop->rect.width % 8)) {
+		gsc_err("%d is not aligned 8", crop->rect.width);
+		return -EINVAL;
+	}
 	gsc_cap_try_crop(gsc, &crop->rect, crop->pad);
 
 	if (crop->which == V4L2_SUBDEV_FORMAT_ACTIVE)
@@ -941,68 +992,15 @@ static const struct v4l2_subdev_internal_ops gsc_cap_v4l2_internal_ops = {
 	.unregistered = gsc_capture_subdev_unregistered,
 };
 
-static int gsc_clk_enable_for_wb(struct gsc_dev *gsc)
-{
-	struct clk *gsd;
-	int ret = 0;
-
-	gsd = devm_clk_get(&gsc->pdev->dev, "gate_gsd");
-	if (IS_ERR(gsd)) {
-		gsc_err("fail to get gsd clock");
-		return PTR_ERR(gsd);
-	}
-
-	ret = clk_prepare_enable(gsd);
-	if (ret) {
-		gsc_err("fail to enable gsd");
-		return -EINVAL;
-	}
-
-	clk_put(gsd);
-
-	return 0;
-}
-
-static int gsc_clk_disable_for_wb(struct gsc_dev *gsc)
-{
-	struct clk *gsd;
-
-	gsd = devm_clk_get(&gsc->pdev->dev, "gate_gsd");
-	if (IS_ERR(gsd)) {
-		gsc_err("fail to get gsd clock");
-		return PTR_ERR(gsd);
-	}
-
-	clk_disable_unprepare(gsd);
-	clk_put(gsd);
-
-	return 0;
-}
-
 static int gsc_capture_link_setup(struct media_entity *entity,
 				  const struct media_pad *local,
 				  const struct media_pad *remote, u32 flags)
 {
-	struct v4l2_subdev *sd = media_entity_to_v4l2_subdev(entity);
-	struct gsc_dev *gsc = v4l2_get_subdevdata(sd);
-	int ret = 0;
-
 	if (local->flags == MEDIA_PAD_FL_SINK) {
-		if (flags & MEDIA_LNK_FL_ENABLED) {
+		if (flags & MEDIA_LNK_FL_ENABLED)
 			gsc_info("gsc-wb link enable");
-			gsc->pipeline.disp =
-				media_entity_to_v4l2_subdev(remote->entity);
-
-			ret = gsc_clk_enable_for_wb(gsc);
-			if (ret)
-				return ret;
-		} else {
+		else
 			gsc_info("gsc-wb link disable");
-			gsc->pipeline.disp = NULL;
-			ret = gsc_clk_disable_for_wb(gsc);
-			if (ret)
-				return ret;
-		}
 	}
 
 	return 0;

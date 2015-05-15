@@ -254,6 +254,10 @@ config MIGRATION
 	  pages as migration can relocate pages to satisfy a huge page
 	  allocation instead of reclaiming.
 
+config SEC_SLOWPATH
+	bool "slowpath allocation"
+	def_bool n
+
 config PHYS_ADDR_T_64BIT
 	def_bool 64BIT || ARCH_PHYS_ADDR_T_64BIT
 
@@ -553,6 +557,24 @@ config SWAP_ENABLE_READAHEAD
 	  This behaviour is good at disk-based system, but not on in-memory
 	  compression (e.g. zram).
 
+config ZOOM_KILLER
+	bool "Samsung extension. Selet victim who has largest lowmem with same score"
+	depends on !OOM_KILLER_TIMEOUT && !SEC_OOM_KILLER
+	default y
+	help
+	  When OOM select victim, choose process which has largest lowmem
+
+config ACCURATE_FREE_PAGES_CHECK
+	bool "Samsung WA: prevent process overkill"
+		default n
+	help
+		zone_watermark_ok function called for checking zone free page
+		status at page alloc/free. In this function, zone NR_FREE_PAGES
+		state and free_area[o].nr_free is used for determin free space.
+		But, two vaules sometimes imbalance cause by zone state update
+		buffering feature. this patch fix free_pages to actual buddy sysem
+		value.
+
 config OOM_SCAN_WA_PREVENT_WRONG_SEARCH
     bool "Samsung WA: prevent to search the wrong thread"
 	default n
@@ -562,4 +584,18 @@ config OOM_SCAN_WA_PREVENT_WRONG_SEARCH
 	  this malfunction, the threads are skipped to be scaned, which are
 	  linked to the process that is exiting, "task->exit_state" is
 	  EXIT_ZOMBIE or EXIT_DEAD.
-	
+
+config SDP_CACHE_CLEANUP
+	bool "SDP requirement. cache cleanup"
+	depends on SDP
+	default n
+
+config MIN_DIRTY_THRESH_PAGES
+	int "The lower bound of VM dirty_thresh value in number of pages"
+	default 7680
+	help
+	  Setting this to certain positive number guaranttees
+	  the VM Dirty-Thresh valus is always larger than that value.
+	  It is only effective when dirty_ratio is used. (Setting dirty_bytes
+	  disables this option.)
+	  Do not use it if you unsure.

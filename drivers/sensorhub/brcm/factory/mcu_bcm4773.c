@@ -18,22 +18,15 @@
 /* factory Sysfs                                                         */
 /*************************************************************************/
 
-#define MODEL_NAME			"BCM4773"
+#define MODEL_NAME			"BCM4773IUB2G"
 
 ssize_t mcu_revision_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-#ifdef CONFIG_SENSORS_SSP_BBD
 	struct ssp_data *data = dev_get_drvdata(dev);
 
 	return sprintf(buf, "BR01%u,BR01%u\n", data->uCurFirmRev,
-		get_module_rev(data));
-#else
-	struct ssp_data *data = dev_get_drvdata(dev);
-
-	return sprintf(buf, "ST01%u,ST01%u\n", data->uCurFirmRev,
-		get_module_rev(data));
-#endif
+			get_module_rev(data));
 }
 
 ssize_t mcu_model_name_show(struct device *dev,
@@ -45,97 +38,25 @@ ssize_t mcu_model_name_show(struct device *dev,
 ssize_t mcu_update_kernel_bin_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	bool bSuccess = false;
-	int iRet = 0;
-#ifndef CONFIG_SENSORS_SSP_BBD
-	struct ssp_data *data = dev_get_drvdata(dev);
-#endif
-
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
-
-#ifdef CONFIG_SENSORS_SSP_BBD
-	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n", __func__, __LINE__);
-	iRet = FAIL;
-#else
-	iRet = forced_to_download_binary(data, UMS_BINARY);
-#endif
-	if (iRet == SUCCESS) {
-		bSuccess = true;
-		goto out;
-	}
-
-#ifdef CONFIG_SENSORS_SSP_BBD
-	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n", __func__, __LINE__);
-	iRet = FAIL;
-#else
-	iRet = forced_to_download_binary(data, KERNEL_BINARY);
-#endif
-	if (iRet == SUCCESS)
-		bSuccess = true;
-	else
-		bSuccess = false;
-out:
-	return sprintf(buf, "%s\n", (bSuccess ? "OK" : "NG"));
+	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n",
+		__func__, __LINE__);
+	return sprintf(buf, "NG\n");
 }
 
 ssize_t mcu_update_kernel_crashed_bin_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	bool bSuccess = false;
-	int iRet = 0;
-#ifndef CONFIG_SENSORS_SSP_BBD
-	struct ssp_data *data = dev_get_drvdata(dev);
-#endif
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
-
-#ifdef CONFIG_SENSORS_SSP_BBD
-	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n", __func__, __LINE__);
-	iRet = FAIL;
-#else
-	iRet = forced_to_download_binary(data, UMS_BINARY);
-#endif
-	if (iRet == SUCCESS) {
-		bSuccess = true;
-		goto out;
-	}
-
-#ifdef CONFIG_SENSORS_SSP_BBD
-	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n", __func__, __LINE__);
-	iRet = FAIL;
-#else
-	iRet = forced_to_download_binary(data, KERNEL_CRASHED_BINARY);
-#endif
-	if (iRet == SUCCESS)
-		bSuccess = true;
-	else
-		bSuccess = false;
-out:
-	return sprintf(buf, "%s\n", (bSuccess ? "OK" : "NG"));
+	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n",
+		__func__, __LINE__);
+	return sprintf(buf, "NG\n");
 }
 
 ssize_t mcu_update_ums_bin_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	bool bSuccess = false;
-	int iRet = 0;
-#ifndef CONFIG_SENSORS_SSP_BBD
-	struct ssp_data *data = dev_get_drvdata(dev);
-#endif
-
-	ssp_dbg("[SSP]: %s - mcu binany update!\n", __func__);
-
-#ifdef CONFIG_SENSORS_SSP_BBD
-	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n", __func__, __LINE__);
-	iRet = FAIL;
-#else
-	iRet = forced_to_download_binary(data, UMS_BINARY);
-#endif
-	if (iRet == SUCCESS)
-		bSuccess = true;
-	else
-		bSuccess = false;
-
-	return sprintf(buf, "%s\n", (bSuccess ? "OK" : "NG"));
+	ssp_dbg("[SSPBBD]: %s:%d: Ignored some code section.\n",
+		__func__, __LINE__);
+	return sprintf(buf, "NG\n");
 }
 
 ssize_t mcu_reset_show(struct device *dev,
@@ -148,8 +69,9 @@ ssize_t mcu_reset_show(struct device *dev,
 	return sprintf(buf, "OK\n");
 }
 
-ssize_t mcu_dump_show(struct device *dev, struct device_attribute *attr,
-		char *buf) {
+ssize_t mcu_dump_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
 	struct ssp_data *data = dev_get_drvdata(dev);
 	int status = 1, iDelaycnt = 0;
 
@@ -178,7 +100,8 @@ ssize_t mcu_factorytest_store(struct device *dev,
 	if (sysfs_streq(buf, "1")) {
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 		if (msg == NULL) {
-			pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+			pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
+				__func__);
 			return -ENOMEM;
 		}
 		msg->cmd = MCU_FACTORY;
@@ -240,7 +163,8 @@ ssize_t mcu_sleep_factorytest_store(struct device *dev,
 	if (sysfs_streq(buf, "1")) {
 		msg = kzalloc(sizeof(*msg), GFP_KERNEL);
 		if (msg == NULL) {
-			pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n", __func__);
+			pr_err("[SSP] %s, failed to alloc memory for ssp_msg\n",
+				__func__);
 			return -ENOMEM;
 		}
 		msg->cmd = MCU_SLEEP_FACTORY;

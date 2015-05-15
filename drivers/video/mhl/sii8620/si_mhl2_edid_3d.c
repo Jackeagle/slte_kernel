@@ -2044,7 +2044,9 @@ static void si_mhl_tx_prune_edid(struct edid_3d_data_t *mhl_edid_3d_data)
 		struct CEA_extension_t *p_CEA_extensionDest =
 			(struct CEA_extension_t *) p_block_map;
 		*p_CEA_extensionDest = *p_CEA_extension;
+		p_CEA_extension = p_CEA_extensionDest;
 	}
+	p_EDID_block_0->extension_flag = p_EDID_block_0->extension_flag ? 1 : 0;
 
 	p_EDID_block_0->checksum =
 		calculate_generic_checksum((uint8_t *)p_EDID_block_0, 0,
@@ -3488,6 +3490,10 @@ void SiiMhlTxMakeItDVI(struct edid_3d_data_t *mhl_edid_3d_data,
 		for (counter = 0; counter < EDID_BLOCK_SIZE; counter++)
 			p_EDID_block_data[counter] = 0xFF;
 	}
+#ifdef CONFIG_MHL3_DVI_WR
+	if (mhl_edid_3d_data->dev_context->peer_mhl3_version >= 0x30)
+		mhl_edid_3d_data->dev_context->mhl3_to_mhl1_2 = true;
+#endif
 
 	MHL_TX_DBG_ERR("EDID: second block now all 0xFF\n");
 }
@@ -3861,6 +3867,11 @@ static uint8_t parse_861_short_descriptors(
 				    "EDID indicates %s3D support\n",
 				    mhl_edid_3d_data->parse_data.
 				    _3D_supported ? "" : "NO ");
+			} else if ((p_vsdb->IEEE_OUI[0] == 0xD8)
+					&& (p_vsdb->IEEE_OUI[1] == 0x5D)
+					&& (p_vsdb->IEEE_OUI[2] == 0xC4)
+					) {
+				MHL_TX_DBG_ERR("EDID -> 0xD85DC4\n");
 			} else {
 				mhl_edid_3d_data->parse_data.HDMI_sink = false;
 			}

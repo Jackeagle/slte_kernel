@@ -201,6 +201,13 @@ config SENSORS_HALL_IRQ_CTRL
 	help
 	  Say Y here to enable the IRQ control function
 
+config INPUT_EXPANDED_ABS
+	tristate "Expanded ABS"
+	help
+	  Say Y here if you want to use expanded ABS event.
+	  ABS_MAX change from 0x3f to 0x4f.
+	  This feature must synchronize with input framework and uinput.
+
 comment "Input Device Drivers"
 
 source "drivers/input/keyboard/Kconfig"

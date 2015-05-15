@@ -67,12 +67,111 @@
 #endif
 
 #if defined(CONFIG_GPS_BCMxxxxx) && !defined(CONFIG_GPS_BCM4773)
-#if defined(CONFIG_SOC_EXYNOS5430)
+#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 /* Devices	*/
 #define CONFIG_GPS_S3C_UART	0
 #else
 #define CONFIG_GPS_S3C_UART	1
 #endif
+#endif
+
+#if defined(CONFIG_SEC_FACTORY) && (CONFIG_SERIAL_SEC_FACTORY_PORT >= 0)
+#define DUMP_UART_PACKET
+#define is_factory_port(port) (CONFIG_SERIAL_SEC_FACTORY_PORT == (port)->line)
+#endif
+
+
+#define DUALWAVE_ENABLE
+
+#ifdef DUALWAVE_ENABLE
+#define MAX_DW_MESSAGE_SIZE 128
+
+#include <linux/syscalls.h>
+#include <asm/uaccess.h>
+
+#define DW_INACTIVE	0
+#define DW_PLAYBACK	1
+#define DW_CAPTURE	2
+
+extern int send_uevent_wh_ble_info(char *prEnvInfoLists[3]);
+extern int checkDualWaveStatus(void);
+
+static char rx_buf_t[256];
+static int rx_buf_count_t;
+
+#define GET_CUR_TIME_ON(tCurTimespec)											\
+	do {																		\
+		long int llErrTime = 0;													\
+		struct timespec tMyTime;												\
+		mm_segment_t tOldfs;													\
+		tOldfs = get_fs();														\
+		set_fs(KERNEL_DS);														\
+																				\
+		llErrTime = sys_clock_gettime(CLOCK_REALTIME, &tMyTime);				\
+		set_fs(tOldfs);															\
+																				\
+		tCurTimespec = tMyTime;													\
+	}while(0)
+
+char *g_szSysTime;
+char *g_szRefTime;
+
+inline void UpdateTime(char *pchBuffer, int iLen)
+{
+	struct timespec tSysTimespec;
+	char *pEnv[3];
+
+	int iRead = 0;
+	int iEventLength = 0;
+	int iNumHciCmdPackets = 0;
+	unsigned short *psCmdOpCode =NULL;
+	int iStatus = 0;
+	unsigned int *puiBtClock;
+
+	GET_CUR_TIME_ON(tSysTimespec);
+
+	g_szSysTime = kzalloc(MAX_DW_MESSAGE_SIZE, GFP_KERNEL);
+	g_szRefTime = kzalloc(MAX_DW_MESSAGE_SIZE, GFP_KERNEL);
+
+	pEnv[0] = g_szSysTime;
+	pEnv[1] = g_szRefTime;
+	pEnv[2] = NULL;
+
+	switch (pchBuffer[iRead++])
+	{
+		case 0x04:
+		{
+			if(pchBuffer[iRead++] == 0x0E)
+			{
+				iEventLength = pchBuffer[iRead++];
+				iNumHciCmdPackets = pchBuffer[iRead++];
+				psCmdOpCode = (short*) (pchBuffer+iRead); iRead += 2;
+				iStatus = pchBuffer[iRead++];
+				puiBtClock = (unsigned int*)(pchBuffer+iRead); iRead +=4;
+				if ( *psCmdOpCode == (unsigned short)0xFCEE && iStatus == 0x00)
+				{
+					sprintf(g_szSysTime,"SYS_TIME=%ld.%09ld",tSysTimespec.tv_sec,tSysTimespec.tv_nsec);
+					sprintf(g_szRefTime,"BT_CLK=%d",*puiBtClock);
+					send_uevent_wh_ble_info(pEnv);
+				}
+			}
+		}
+		break;
+		default:
+		break;
+	}
+
+	kfree(g_szSysTime);
+	kfree(g_szRefTime);
+}
+
+#endif
+
+#if defined(DUMP_UART_PACKET)
+static char rx_buf[16];
+static char tx_buf[16];
+static int rx_buf_count;
+static int tx_buf_count;
 #endif
 
 #include "samsung.h"
@@ -541,6 +640,22 @@ s3c24xx_serial_rx_chars(int irq, void *dev_id)
 	unsigned int ufcon, ch, flag, ufstat, uerstat;
 	int max_count = 64;
 
+#ifdef DUALWAVE_ENABLE
+	if (checkDualWaveStatus() != DW_INACTIVE) {
+		if (rx_buf_count_t == 0) {
+			memset(rx_buf_t, 0xFF, 16);
+		}
+	}
+#endif
+
+#if defined(DUMP_UART_PACKET)
+	if (is_factory_port(port)) {
+		if (rx_buf_count == 0) {
+			memset(rx_buf, 0xFF, 16);
+		}
+	}
+#endif
+
 	spin_lock_irqsave(&port->lock, flags);
 #else
 	struct exynos_uart_dma *uart_dma = &ourport->uart_dma;
@@ -649,9 +764,51 @@ rx_use_cpu:
 		uart_insert_char(port, uerstat, S3C2410_UERSTAT_OVERRUN,
 				 ch, flag);
 
+#ifdef DUALWAVE_ENABLE
+	if (checkDualWaveStatus() != DW_INACTIVE) {
+		memcpy(rx_buf_t + rx_buf_count_t, &ch, 1);
+		rx_buf_count_t++;
+	}
+#endif
+
+#if defined(DUMP_UART_PACKET)
+		if (is_factory_port(port)) {
+			memcpy(rx_buf + rx_buf_count, &ch, 1);
+			rx_buf_count++;
+			if (rx_buf_count >= 16) {
+				print_hex_dump(KERN_DEBUG, "RX UART: ",
+					 DUMP_PREFIX_ADDRESS, 16, 1,
+					rx_buf, rx_buf_count, 1);
+				rx_buf_count = 0;
+				memset(rx_buf, 0xFF, 16);
+			}
+		}
+#endif
+
  ignore_char:
 		continue;
 	}
+
+#if defined(DUMP_UART_PACKET)
+	/* print remains */
+	if (is_factory_port(port)) {
+		if (rx_buf_count) {
+			print_hex_dump(KERN_DEBUG, "RX UART: ",
+				DUMP_PREFIX_ADDRESS, 16, 1,
+				rx_buf, rx_buf_count, 1);
+			rx_buf_count = 0;
+			memset(rx_buf, 0xFF, 16);
+		}
+	}
+#endif
+
+#ifdef DUALWAVE_ENABLE
+	if (checkDualWaveStatus() != DW_INACTIVE) {
+		UpdateTime(rx_buf_t, rx_buf_count_t);
+		rx_buf_count_t=0;
+	}
+#endif
+
 	tty_flip_buffer_push(&port->state->port);
 
  out:
@@ -672,6 +829,16 @@ static irqreturn_t s3c24xx_serial_tx_chars(int irq, void *id)
 #endif
 	unsigned long flags;
 	int count = 256;
+
+#if defined(DUMP_UART_PACKET)
+	unsigned char ch = 0;
+
+	if (is_factory_port(port)) {
+		if (tx_buf_count == 0) {
+			memset(tx_buf, 0xFF, 16);
+		}
+	}
+#endif
 
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -744,6 +911,23 @@ tx_use_cpu:
 			break;
 
 		wr_regb(port, S3C2410_UTXH, xmit->buf[xmit->tail]);
+
+#if defined(DUMP_UART_PACKET)
+		if (is_factory_port(port)) {
+			ch = xmit->buf[xmit->tail];
+			memcpy(tx_buf + tx_buf_count, &ch, 1);
+			tx_buf_count++;
+			if (ch == 0x0d || /* CR */
+				tx_buf_count >= 16) {
+				print_hex_dump(KERN_DEBUG, "TX UART: ",
+					DUMP_PREFIX_ADDRESS, 16, 1,
+					tx_buf, tx_buf_count, 1);
+				tx_buf_count = 0;
+				memset(tx_buf, 0xFF, 16);
+			}
+		}
+#endif
+
 		xmit->tail = (xmit->tail + 1) & (UART_XMIT_SIZE - 1);
 		port->icount.tx++;
 	}
@@ -781,13 +965,16 @@ static void s3c64xx_serial_qos_func(struct work_struct *work)
 		container_of(work, struct s3c24xx_uart_port, qos_work.work);
 	struct uart_port *port = &ourport->port;
 
-	pm_qos_update_request_timeout(&ourport->s3c24xx_uart_mif_qos,
-			ourport->mif_qos_val, ourport->qos_timeout);
+	if (ourport->mif_qos_val)
+		pm_qos_update_request_timeout(&ourport->s3c24xx_uart_mif_qos,
+				ourport->mif_qos_val, ourport->qos_timeout);
 
-	pm_qos_update_request_timeout(&ourport->s3c24xx_uart_cpu_qos,
-			ourport->cpu_qos_val, ourport->qos_timeout);
+	if (ourport->cpu_qos_val)
+		pm_qos_update_request_timeout(&ourport->s3c24xx_uart_cpu_qos,
+				ourport->cpu_qos_val, ourport->qos_timeout);
 
-	irq_set_affinity(port->irq, cpumask_of(ourport->uart_irq_affinity));
+	if (ourport->uart_irq_affinity)
+		irq_set_affinity(port->irq, cpumask_of(ourport->uart_irq_affinity));
 }
 #endif
 

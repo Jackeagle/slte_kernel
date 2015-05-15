@@ -700,6 +700,7 @@ static int fimg2d_probe(struct platform_device *pdev)
 	pdata = kzalloc(sizeof(*pdata), GFP_KERNEL);
 	if (!pdata) {
 		fimg2d_err("failed to allocate memory for controller\n");
+		kfree(ctrl);
 		return -ENOMEM;
 	}
 	ctrl->pdata = pdata;
@@ -813,6 +814,9 @@ drv_free:
 		destroy_workqueue(ctrl->work_q);
 #endif
 	mutex_destroy(&ctrl->drvlock);
+#ifdef CONFIG_OF
+	kfree(pdata);
+#endif
 	kfree(ctrl);
 
 	return ret;

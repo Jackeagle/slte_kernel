@@ -256,6 +256,13 @@ config SERIAL_SAMSUNG_CONSOLE
 	  your boot loader about how to pass options to the kernel at
 	  boot time.)
 
+config SERIAL_SEC_FACTORY_PORT
+	int "Set the number of factory port"
+	depends on SERIAL_SAMSUNG_CONSOLE && SEC_FACTORY
+	default -1
+	help
+	  Set the number of port which is used for console.
+
 config SERIAL_SIRFSOC
         tristate "SiRF SoC Platform Serial port support"
         depends on ARCH_PRIMA2

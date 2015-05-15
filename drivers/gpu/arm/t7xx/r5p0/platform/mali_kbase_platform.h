@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/mali_kbase_platform.h
+/* drivers/gpu/arm/.../platform/mali_kbase_platform.h
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 platform-dependent codes
+ * Samsung SoC Mali-T Series platform-dependent codes
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -79,6 +79,8 @@ typedef enum {
 #ifdef CONFIG_CPU_THERMAL_IPA
 	IPA_LOCK,
 #endif /* CONFIG_CPU_THERMAL_IPA */
+	BOOST_LOCK,
+	PMQOS_LOCK,
 	NUMBER_LOCK
 } gpu_dvfs_lock_type;
 
@@ -115,6 +117,8 @@ typedef enum {
 	GPU_TEMP_THROTTLING3,
 	GPU_TEMP_THROTTLING4,
 	GPU_TEMP_TRIPPING,
+	GPU_BOOST_MIN_LOCK,
+	GPU_BOOST_EGL_MIN_LOCK,
 	GPU_POWER_COEFF,
 	GPU_DVFS_TIME_INTERVAL,
 	GPU_DEFAULT_WAKEUP_LOCK,
@@ -184,6 +188,9 @@ struct exynos_context {
 	int step;
 	gpu_dvfs_env_data env_data;
 	struct workqueue_struct *dvfs_wq;
+#if defined(SET_MINLOCK)
+	int custom_cpu_max_lock;
+#endif
 #ifdef CONFIG_MALI_DVFS
 	bool dvfs_status;
 	int utilization;
@@ -194,6 +201,7 @@ struct exynos_context {
 	int down_requirement;
 	int governor_type;
 	bool wakeup_lock;
+	int dvfs_pending;
 #ifdef CONFIG_CPU_THERMAL_IPA
 	int norm_utilisation;
 	int freq_for_normalisation;
@@ -218,6 +226,11 @@ struct exynos_context {
 	int gpu_min_clock;
 	int gpu_dvfs_start_clock;
 	int gpu_dvfs_config_clock;
+
+	/* gpu boost lock */
+	int boost_gpu_min_lock;
+	int boost_egl_min_lock;
+	bool boost_is_enabled;
 
 	bool tmu_status;
 	int tmu_lock_clk[TMU_LOCK_CLK_END];

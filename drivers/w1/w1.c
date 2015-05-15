@@ -41,6 +41,11 @@
 
 #include <linux/input.h>
 
+#include <linux/pm_qos.h>
+
+#include <linux/pm_runtime.h>
+#include <linux/suspend.h>
+
 #include "w1.h"
 #include "w1_log.h"
 #include "w1_int.h"
@@ -55,24 +60,26 @@ MODULE_DESCRIPTION("Driver for 1-wire Dallas network protocol.");
 static int w1_timeout = 2;
 int w1_max_slave_count = 1;
 #ifdef CONFIG_W1_KTHREAD
-int w1_max_slave_ttl = 2;
+int w1_max_slave_ttl = 1;
 #else
 int w1_max_slave_ttl = 1;
 #endif
 
 static struct w1_master *master_dev = NULL;
 extern int w1_ds28el15_verifymac(struct w1_slave *sl);
-extern int verification, id, color, model;
+extern int w1_verification, w1_id, w1_color, w1_model, detect;
 extern bool w1_is_suspended;
-extern char g_sn[14];
+extern char w1_g_sn[14];
 #ifdef CONFIG_W1_CF
-extern int cf_node;
+extern int w1_cf_node;
 #endif	/* CONFIG_W1_CF */
 #else
 static int w1_timeout = 10;
 int w1_max_slave_count = 10;
 int w1_max_slave_ttl = 10;
 #endif
+
+static struct pm_qos_request mif_handle;
 
 module_param_named(timeout, w1_timeout, int, 0);
 module_param_named(max_slave_count, w1_max_slave_count, int, 0);
@@ -453,20 +460,30 @@ static int w1_atoreg_num(struct device *dev, const char *buf, size_t count,
 /* Searches the slaves in the w1_master and returns a pointer or NULL.
  * Note: must hold the mutex
  */
+
+static bool w1_kthread_flag = true;
+static bool w1_check_id_flag = false;
+
 static struct w1_slave *w1_slave_search_device(struct w1_master *dev,
 	struct w1_reg_num *rn)
 {
 	struct w1_slave *sl = NULL;
 	list_for_each_entry(sl, &dev->slist, w1_slave_entry) {
-		if (w1_is_suspended) {
-			pr_info("%s: is_suspended true\n", __func__);
-			w1_is_suspended = false;
+		if (w1_check_id_flag) {
+			pr_info("%s: w1 check_id_flag true\n", __func__);
+			w1_check_id_flag = false;
 
 			if (sl->reg_num.family == rn->family &&
 					sl->reg_num.id == rn->id &&
 					sl->reg_num.crc == rn->crc) {
 				return sl;
 			} else {
+				printk("%s: fid(%x) id(%llx) crc(%x)\n",
+					__func__,
+					(unsigned int) rn->family,
+					(unsigned long long) rn->id,
+					(unsigned int) rn->crc);
+
 				w1_slave_detach(sl);
 				return NULL;
 			}
@@ -547,10 +564,6 @@ static ssize_t w1_master_attribute_show_verify_mac(struct device *dev, struct de
 
 	struct w1_master *md = dev_to_w1_master(dev);
 
-#if !defined(CONFIG_W1_WORKQUEUE) && !defined(CONFIG_W1_KTHREAD)
-	w1_master_search();
-#endif /* No polling method */
-
 #if defined(CONFIG_W1_WORKQUEUE)
 	cancel_delayed_work_sync(&w1_gdev->w1_dwork);
 
@@ -559,6 +572,9 @@ static ssize_t w1_master_attribute_show_verify_mac(struct device *dev, struct de
 	msleep(10);
 #endif /* W1_WORKQUEUE */
 
+#if (defined(CONFIG_SEC_FACTORY) && defined(CONFIG_W1_DETECT_PIN)) || defined(CONFIG_W1_DETECT_HALL)
+	w1_master_search();
+#endif
 	/* there is a slave or not */
 	if (md->slave_count > 0)
 		result = 0;
@@ -573,35 +589,46 @@ static ssize_t w1_master_attribute_show_verify_mac(struct device *dev, struct de
 #ifdef CONFIG_W1_CF
 static ssize_t w1_master_attribute_show_cf(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	pr_info("%s: cf_node = %d\n", __func__, cf_node);
-	return sprintf(buf, "%d\n", cf_node);
+	pr_info("%s: cf_node = %d\n", __func__, w1_cf_node);
+	return sprintf(buf, "%d\n", w1_cf_node);
 }
 #endif	/* CONFIG_W1_CF */
 
 static ssize_t w1_master_attribute_show_check_id(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	pr_info("COVER ACT 2 %s %d\n", __func__, id);
-	return sprintf(buf, "%d\n", id);
+	pr_info("COVER ACT 2 %s %d\n", __func__, w1_id);
+	return sprintf(buf, "%d\n", w1_id);
 }
 
 static ssize_t w1_master_attribute_show_check_color(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	pr_info("COVER ACT 2 %s %d\n", __func__, color);
-	return sprintf(buf, "%d\n", color);
+	pr_info("COVER ACT 2 %s %d\n", __func__, w1_color);
+	return sprintf(buf, "%d\n", w1_color);
 }
 
 static ssize_t w1_master_attribute_show_check_model(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	pr_info("COVER ACT 2 %s %d\n", __func__, model);
-	return sprintf(buf, "%d\n", model);
+	pr_info("COVER ACT 2 %s %d\n", __func__, w1_model);
+	return sprintf(buf, "%d\n", w1_model);
+}
+
+static ssize_t w1_master_attribute_show_check_detect(struct device *dev, struct device_attribute *attr, char *buf)
+{
+#if defined(CONFIG_W1_SLAVE_DS28EL35)
+	detect =  w1_read_detect_state();
+#else
+	detect = -1;
+#endif
+	pr_info("COVER ACT 2 %s %d\n", __func__, detect);
+	return sprintf(buf, "%d\n", detect);
 }
 
 static ssize_t w1_master_attribute_show_check_sn(struct device *dev, struct device_attribute *attr, char *buf)
 {
-	pr_info("COVER ACT 3 %s\n", g_sn);
+	pr_info("COVER ACT 3 %s\n", w1_g_sn);
 
-	if (g_sn[0])
-		return snprintf(buf, 15, "%s\n", g_sn);
+	if (w1_g_sn[0])
+		return snprintf(buf, 15, "%s\n", w1_g_sn);
 	else
 		return snprintf(buf, 1, "%s", "");
 }
@@ -637,6 +664,7 @@ static W1_MASTER_ATTR_RO(cf, S_IRUGO);
 static W1_MASTER_ATTR_RO(check_id, S_IRUGO);
 static W1_MASTER_ATTR_RO(check_color, S_IRUGO);
 static W1_MASTER_ATTR_RO(check_model, S_IRUGO);
+static W1_MASTER_ATTR_RO(check_detect, S_IRUGO);
 static W1_MASTER_ATTR_RO(check_sn, S_IRUGO);
 
 static struct attribute *w1_master_default_attrs[] = {
@@ -674,6 +702,18 @@ int w1_create_master_attributes(struct w1_master *master)
 void w1_destroy_master_attributes(struct w1_master *master)
 {
 	sysfs_remove_group(&master->dev.kobj, &w1_master_defattr_group);
+}
+
+int w1_create_additional_attributes(struct w1_master *master)
+{
+	return sysfs_create_file(&master->dev.kobj,
+			&w1_master_attribute_check_detect.attr);
+}
+
+void w1_destroy_additional_attributes(struct w1_master *master)
+{
+	sysfs_remove_file(&master->dev.kobj,
+			&w1_master_attribute_check_detect.attr);
 }
 
 #ifdef CONFIG_HOTPLUG
@@ -995,7 +1035,7 @@ void w1_slave_found(struct w1_master *dev, u64 rn)
 			(unsigned int) tmp->crc);
 #endif
 	} else {
-		printk(KERN_ERR "%s : (ELSE) fid(%x) id(%llx) crc(%x)\n", __func__,
+		printk("%s: fid(%x) id(%llx) crc(%x)\n", __func__,
 			(unsigned int) tmp->family,
 			(unsigned long long) tmp->id,
 			(unsigned int) tmp->crc);
@@ -1147,10 +1187,13 @@ int w1_process(void *data)
 	const unsigned long jtime = msecs_to_jiffies(w1_timeout * 1000);
 
 	while (!kthread_should_stop()) {
-		if (dev->search_count) {
+		if (dev->search_count && w1_kthread_flag) {
+			pm_qos_add_request(&mif_handle,
+					PM_QOS_BUS_THROUGHPUT, 825000);
 			mutex_lock(&dev->mutex);
 			w1_search_process(dev, W1_SEARCH);
 			mutex_unlock(&dev->mutex);
+			pm_qos_remove_request(&mif_handle);
 		}
 
 		try_to_freeze();
@@ -1187,6 +1230,31 @@ void w1_work(struct work_struct *work)
 }
 #endif
 
+static int exynos_w1_notifier_event(struct notifier_block *this,
+					unsigned long event,
+					void *ptr)
+{
+	switch (event) {
+	case PM_SUSPEND_PREPARE:
+		printk("%s: kthread flag clear\n", __func__);
+		w1_kthread_flag = false;
+		return NOTIFY_OK;
+	case PM_POST_SUSPEND:
+		printk("%s: kthread & check id flag set\n", __func__);
+		w1_kthread_flag = true;
+		w1_check_id_flag = true;
+		return NOTIFY_OK;
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block exynos_w1_notifier = {
+	.notifier_call = exynos_w1_notifier_event,
+};
+
 static int __init w1_init(void)
 {
 	int retval;
@@ -1216,6 +1284,9 @@ static int __init w1_init(void)
 			retval);
 		goto err_out_master_unregister;
 	}
+
+	register_pm_notifier(&exynos_w1_notifier);
+	printk("%s: Register pm notifier\n", __func__);
 
 	return 0;
 

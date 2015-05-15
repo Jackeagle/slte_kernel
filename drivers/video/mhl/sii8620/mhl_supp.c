@@ -1935,10 +1935,12 @@ void si_mhl_tx_process_events(struct mhl_dev_context *dev_context)
 			break;
 
 		case MHL_MSC_MSG_RCP:
+#ifdef CONFIG_MHL3_SEC_FEATURE
 			if ((uint8_t)dev_context->msc_msg_data == 0x7E) {
-				pr_info("sii8620 : MHL switch event sent : 1\n");
-				switch_set_state(&dev_context->mhl_event_switch, 1);
+				pr_info("sii8620 : MHL switch event sent : %d\n", MHL_EVENT_HOMETHEATER);
+				switch_set_state(&dev_context->mhl_event_switch, MHL_EVENT_HOMETHEATER);
 			}
+#endif
 			/*
 			 * If we get a RCP key that we do NOT support,
 			 * send back RCPE. Do not notify app layer.
@@ -2387,7 +2389,7 @@ static void sii8620_setup_charging(struct mhl_dev_context *dev_context)
 		if (dev_context->pdata->charger_mhl_cb)
 			dev_context->pdata->charger_mhl_cb(false, plim);
 
-		pr_info("sii8620:%s:%d: version: 0x%02x, plim(%d)\n", __func__, __LINE__,
+		pr_info("sii8620 : %s:%d: version: 0x%02x, plim(%d)\n", __func__, __LINE__,
 			version, plim);
 	} else if ((version & 0xf0) == 0x10) {
 		u16 adopter_id = dev_context->dev_cap_cache.mdc.adopterIdLow |
@@ -2399,14 +2401,42 @@ static void sii8620_setup_charging(struct mhl_dev_context *dev_context)
 			if (dev_context->pdata->charger_mhl_cb)
 				dev_context->pdata->charger_mhl_cb(false, 0x00);
 		}
-		pr_info("sii8620:%s:%d: version: 0x%02x, id:%d, reserved:%d\n",
+		pr_info("sii8620 : %s:%d: version: 0x%02x, id:%d, reserved:%d\n",
 				__func__, __LINE__, version, adopter_id, dev_context->dev_cap_cache.mdc.reserved);
 
 	} else {
-		pr_err("sii8620:%s:%d: MHL version error - 0x%02x\n", __func__, __LINE__,
+		pr_err("sii8620 : %s:%d: MHL version error - 0x%02x\n", __func__, __LINE__,
 				version);
 	}
 }
+
+static void si_mhl_tx_show_devcap(struct mhl_dev_context *dev_context)
+{
+	if (dev_context == NULL)
+		return;
+
+	MHL_TX_DBG_INFO("-------------------------------------\n");
+	MHL_TX_DBG_INFO("state(0x%02x)\n",dev_context->dev_cap_cache.mdc.state);
+	MHL_TX_DBG_INFO("mhl_version(0x%02x)\n",dev_context->dev_cap_cache.mdc.mhl_version);
+	MHL_TX_DBG_INFO("deviceCategory(0x%02x)\n",dev_context->dev_cap_cache.mdc.deviceCategory);
+	MHL_TX_DBG_INFO("adopterIdHigh(0x%02x)\n",dev_context->dev_cap_cache.mdc.adopterIdHigh);
+	MHL_TX_DBG_INFO("adopterIdLow(0x%02x)\n",dev_context->dev_cap_cache.mdc.adopterIdLow);
+	MHL_TX_DBG_INFO("vid_link_mode(0x%02x)\n",dev_context->dev_cap_cache.mdc.vid_link_mode);
+	MHL_TX_DBG_INFO("audLinkMode(0x%02x)\n",dev_context->dev_cap_cache.mdc.audLinkMode);
+	MHL_TX_DBG_INFO("videoType(0x%02x)\n",dev_context->dev_cap_cache.mdc.videoType);
+	MHL_TX_DBG_INFO("logicalDeviceMap(0x%02x)\n",dev_context->dev_cap_cache.mdc.logicalDeviceMap);
+	MHL_TX_DBG_INFO("bandWidth(0x%02x)\n",dev_context->dev_cap_cache.mdc.bandWidth);
+	MHL_TX_DBG_INFO("featureFlag(0x%02x)\n",dev_context->dev_cap_cache.mdc.featureFlag);
+	MHL_TX_DBG_INFO("deviceIdHigh(0x%02x)\n",dev_context->dev_cap_cache.mdc.deviceIdHigh);
+	MHL_TX_DBG_INFO("deviceIdLow(0x%02x)\n",dev_context->dev_cap_cache.mdc.deviceIdLow);
+	MHL_TX_DBG_INFO("scratchPadSize(0x%02x)\n",dev_context->dev_cap_cache.mdc.scratchPadSize);
+	MHL_TX_DBG_INFO("int_state_size(0x%02x)\n",dev_context->dev_cap_cache.mdc.int_state_size);
+	MHL_TX_DBG_INFO("reserved(0x%02x)\n",dev_context->dev_cap_cache.mdc.reserved);
+	MHL_TX_DBG_INFO("-------------------------------------\n");
+}
+
+extern int devtype_ssdongle_v4;
+
 #endif /* CONFIG_MHL3_SEC_FEATURE */
 
 /*
@@ -2551,9 +2581,7 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 					 * later devices
 					 */
 					MHL_TX_DBG_ERR(
-						"%sissuing CBUS_MODE_UP%s\n",
-						ANSI_ESC_GREEN_TEXT,
-						ANSI_ESC_RESET_TEXT)
+						"issuing CBUS_MODE_UP\n");
 					status = si_mhl_tx_rap_send(
 						dev_context,
 						MHL_RAP_CBUS_MODE_UP);
@@ -2568,11 +2596,54 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 		uint8_t temp;
 		int i;
 		union MHLDevCap_u old_devcap, devcap_changes;
-
+#ifdef CONFIG_MHL3_SEC_FEATURE
+		u16 dev_type;
+		u16 adopter_id;
+#endif
 		old_devcap = dev_context->dev_cap_cache;
 		si_mhl_tx_read_devcap_fifo((struct drv_hw_context *)
 			&dev_context->drv_context,
 			&dev_context->dev_cap_cache);
+
+#ifdef CONFIG_MHL3_SEC_FEATURE
+		/* Samsung TVs which support MHL 3.0 do not set the 16ppixel bit
+		 when connected by the MHL direct cable.
+		 in this case, always set the 16bppixel bit to 1.
+		 */
+		dev_type = 0x0F & dev_context->dev_cap_cache.mdc.
+			deviceCategory;
+		adopter_id = dev_context->dev_cap_cache.mdc.adopterIdLow |
+			dev_context->dev_cap_cache.mdc.adopterIdHigh << 8;
+		if (dev_type == MHL_DEV_CAT_SINK &&
+			dev_context->dev_cap_cache.mdc.mhl_version == 0x30) {
+			if (adopter_id == SAMSUNG_ADOPTER_ID) {
+				dev_context->dev_cap_cache.mdc.vid_link_mode |=
+					MHL_DEV_VID_LINK_SUPP_16BPP;
+			}
+		}
+
+		/* SS MHL3 dongle ver.4 or less sends 4K resolution at
+		 * both EDID and write burst packets. It's now fixed with latest SIMG
+		 * dongle firmware. In order to avoid malfunction with ver.4 or less,
+		 * Tx driver will ignore 4K resolution in write burst pkt.
+		 */
+		if (adopter_id == SAMSUNG_ADOPTER_ID &&
+			((dev_context->dev_cap_cache.mdc.mhl_version < 0x30) ||
+			(dev_context->dev_cap_cache.mdc.mhl_version >= 0x30 &&
+			dev_context->dev_cap_cache.mdc.reserved <= 4))) {
+			devtype_ssdongle_v4 = 1;
+		}
+		MHL_TX_DBG_INFO("devtype_ssdongle_v4: %d\n", devtype_ssdongle_v4);
+		si_mhl_tx_show_devcap(dev_context);
+#endif
+#ifdef CONFIG_MHL3_DVI_WR
+		if (force_ocbus_for_ects == 2) {
+			dev_context->dev_cap_cache.mdc.vid_link_mode
+				&= ~((uint8_t)(MHL_DEV_VID_LINK_SUPP_16BPP | MHL_DEV_VID_LINK_SUPP_PPIXEL));
+			dev_context->peer_mhl3_version = 0x10;
+			dev_context->dev_cap_cache.mdc.mhl_version = 0x10;
+		}
+#endif
 
 		if (dev_context->peer_mhl3_version < 0x30) {
 			struct drv_hw_context *hw_context =
@@ -2593,7 +2664,7 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 			 * a result never switch cbus to MHL3 eCBUS.
 			 */
 			{
-				if (force_ocbus_for_ects) {
+				if (force_ocbus_for_ects == 1 ) {
 					/* todo: what if the peer is MHL 1.x? */
 					dev_context->peer_mhl3_version = 0x20;
 					if (dev_context->dev_cap_cache.mdc.mhl_version > 0x20)
@@ -2603,8 +2674,9 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 #endif
 		}
 
-		MHL_TX_DBG_WARN("DEVCAP->MHL_VER = %02x\n",
-			       dev_context->peer_mhl3_version);
+		MHL_TX_DBG_ERR("DEVCAP->MHL_VER = %02x, reserved = %02x\n",
+			       dev_context->peer_mhl3_version,
+				   dev_context->dev_cap_cache.mdc.reserved);
 		/*
 		 *  Generate a change mask between the old and new devcaps
 		 */
@@ -2614,13 +2686,18 @@ void si_mhl_tx_msc_command_done(struct mhl_dev_context *dev_context,
 			    ^ old_devcap.devcap_cache[i];
 		}
 
-		MHL_TX_DBG_INFO("devcat: 0x%02X, devcat_changes: 0x%02X\n",
+		pr_info("sii8620 : devcat: 0x%02X, devcat_changes: 0x%02X\n",
 				dev_context->dev_cap_cache.mdc.deviceCategory,
 				devcap_changes.mdc.deviceCategory);
 
 #ifdef CONFIG_MHL3_SEC_FEATURE
 		if (MHL_DEV_CATEGORY_POW_BIT & dev_context->dev_cap_cache.mdc.deviceCategory)
 			sii8620_setup_charging(dev_context);
+		else if (0x30 <= dev_context->peer_mhl3_version &&
+				(dev_context->dev_cap_cache.mdc.deviceCategory & 0x0f) == 0x03) {
+			pr_info("sii8620 : MHL switch event sent : %d\n", MHL_EVENT_OTG);
+			switch_set_state(&dev_context->mhl_event_switch, MHL_EVENT_OTG);
+		}
 #endif
 
 		/* look for a change in the pow bit */
@@ -3899,10 +3976,9 @@ bool si_mhl_tx_rap_send(struct mhl_dev_context *dev_context,
 {
 	bool status;
 
-	MHL_TX_DBG_ERR("%sSend RAP{%s%s}%s\n", ANSI_ESC_GREEN_TEXT,
+	MHL_TX_DBG_ERR("Send RAP{%s%s}\n",
 		rap_strings_high[(rap_action_code>>4)&3],
-		rap_strings_low[(rap_action_code>>4)&3][rap_action_code & 1],
-		ANSI_ESC_RESET_TEXT);
+		rap_strings_low[(rap_action_code>>4)&3][rap_action_code & 1]);
 	/*
 	 * Make sure peer supports RAP and that the connection is
 	 * in a state where a RAP message can be sent.

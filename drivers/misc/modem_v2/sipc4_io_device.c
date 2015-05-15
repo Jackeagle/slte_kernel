@@ -1,4 +1,4 @@
-/* /linux/drivers/misc/modem_if/modem_io_device.c
+/* /linux/drivers/misc/modem_v2/sipc4_io_device.c
  *
  * Copyright (C) 2010 Google, Inc.
  * Copyright (C) 2010 Samsung Electronics.
@@ -425,12 +425,6 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 		/* If there has been no multiple frame with this ID */
 		if (!(fh->control & 0x80)) {
 			/* It is a single frame because the "more" bit is 0. */
-#if 0
-			mif_err("\n<%s> Rx FMT frame (len %d)\n",
-				iod->name, rcvd);
-			print_sipc4_fmt_frame(data);
-			mif_err("\n");
-#endif
 			skb_queue_tail(&iod->sk_rx_q,
 					fragdata(iod, ld)->skb_recv);
 			mif_debug("wake up wq of %s\n", iod->name);
@@ -465,12 +459,6 @@ static int rx_multi_fmt_frame(struct sk_buff *rx_skb)
 		/* It is the last frame because the "more" bit is 0. */
 		mif_info("The Last (ID %d, %d bytes received)\n",
 			id, skb->len);
-#if 0
-		mif_err("\n<%s> Rx FMT frame (len %d)\n",
-			iod->name, skb->len);
-		print_sipc4_fmt_frame(skb->data);
-		mif_err("\n");
-#endif
 		skb_queue_tail(&iod->sk_rx_q, skb);
 		iod->skb[id] = NULL;
 		mif_info("wake up wq of %s\n", iod->name);
@@ -501,18 +489,11 @@ static int rx_multi_fmt_frame_sipc42(struct sk_buff *rx_skb)
 		mif_err("wrong channel %d\n", ch);
 		return -1;
 	}
-	skbpriv(rx_skb)->real_iod = real_iod;
 
 	if (!skb) {
 		/* If there has been no multiple frame with this ID */
 		if (!(fh->control & 0x80)) {
 			/* It is a single frame because the "more" bit is 0. */
-#if 0
-			mif_err("\n<%s> Rx FMT frame (len %d)\n",
-				iod->name, rcvd);
-			print_sipc4_fmt_frame(data);
-			mif_err("\n");
-#endif
 			skb_queue_tail(&real_iod->sk_rx_q,
 					fragdata(iod, ld)->skb_recv);
 			mif_debug("wake up wq of %s\n", iod->name);
@@ -546,12 +527,6 @@ static int rx_multi_fmt_frame_sipc42(struct sk_buff *rx_skb)
 		/* It is the last frame because the "more" bit is 0. */
 		mif_err("The Last (ID %d, %d bytes received)\n",
 			id, skb->len);
-#if 0
-		mif_err("\n<%s> Rx FMT frame (len %d)\n",
-			iod->name, skb->len);
-		print_sipc4_fmt_frame(skb->data);
-		mif_err("\n");
-#endif
 		skb_queue_tail(&real_iod->sk_rx_q, skb);
 		real_iod->skb[id] = NULL;
 		mif_info("wake up wq of %s\n", real_iod->name);
@@ -564,7 +539,7 @@ static int rx_multi_fmt_frame_sipc42(struct sk_buff *rx_skb)
 static int rx_iodev_skb_raw(struct sk_buff *skb)
 {
 	int err = 0;
-	struct io_device *iod = skbpriv(skb)->real_iod;
+	struct io_device *iod = skbpriv(skb)->iod;
 	struct net_device *ndev = NULL;
 	struct iphdr *ip_header = NULL;
 	struct ethhdr *ehdr = NULL;
@@ -679,7 +654,8 @@ static int rx_multipdp(struct sk_buff *skb)
 		return -1;
 	}
 
-	skbpriv(skb)->real_iod = real_iod;
+	/* update skbpriv(skb)->iod */
+	skbpriv(skb)->iod = real_iod;
 	skb_queue_tail(&iod->sk_rx_q, skb);
 	mif_debug("sk_rx_qlen:%d\n", iod->sk_rx_q.qlen);
 
@@ -851,7 +827,6 @@ static int io_dev_recv_data_from_link_dev(struct io_device *iod,
 	unsigned int alloc_size, rest_len;
 	char *cur;
 
-
 	/* check the iod(except IODEV_DUMMY) is open?
 	 * if the iod is MULTIPDP, check this data on rx_iodev_skb_raw()
 	 * because, we cannot know the channel no in here.
@@ -938,7 +913,6 @@ static int io_dev_recv_skb_from_link_dev(struct io_device *iod,
 	unsigned len = skb_in->len;
 	char *data = (char *)skb_in->data;
 
-
 	/* check the iod(except IODEV_DUMMY) is open?
 	 * if the iod is MULTIPDP, check this data on rx_iodev_skb_raw()
 	 * because, we cannot know the channel no in here.
@@ -950,6 +924,9 @@ static int io_dev_recv_skb_from_link_dev(struct io_device *iod,
 		return -ENOENT;
 	}
 	*/
+
+	skbpriv(skb_in)->iod = iod;
+	skbpriv(skb_in)->ld = ld;
 
 	switch (iod->format) {
 	case IPC_RFS:
@@ -1233,8 +1210,7 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret < 0)
 			return -EFAULT;
 
-		mif_dump_log(iod->mc->msd, iod);
-		return 0;
+		return mif_dump_log(iod->mc->msd, iod);
 
 	case IOCTL_MIF_DPRAM_DUMP:
 #ifdef CONFIG_LINK_DEVICE_DPRAM
@@ -1325,31 +1301,6 @@ static ssize_t misc_write(struct file *filp, const char __user *buf,
 
 	}
 	skb_put(skb, calc_padding_size(iod, ld, skb->len));
-
-#if 0
-	if (iod->format == IPC_FMT) {
-		mif_err("\n<%s> Tx HDLC FMT frame (len %d)\n",
-			iod->name, skb->len);
-		print_sipc4_hdlc_fmt_frame(skb->data);
-		mif_err("\n");
-	}
-#endif
-#if 0
-	if (iod->format == IPC_RAW) {
-		mif_err("\n<%s> Tx HDLC RAW frame (len %d)\n",
-			iod->name, skb->len);
-		mif_print_data(skb->data, (skb->len < 64 ? skb->len : 64));
-		mif_err("\n");
-	}
-#endif
-#if 0
-	if (iod->format == IPC_RFS) {
-		mif_err("\n<%s> Tx HDLC RFS frame (len %d)\n",
-			iod->name, skb->len);
-		mif_print_data(skb->data, (skb->len < 64 ? skb->len : 64));
-		mif_err("\n");
-	}
-#endif
 
 	/* send data with sk_buff, link device will put sk_buff
 	 * into the specific sk_buff_q and run work-q to send data
@@ -1469,16 +1420,18 @@ static const struct file_operations misc_io_fops = {
 static int vnet_open(struct net_device *ndev)
 {
 	struct vnet *vnet = netdev_priv(ndev);
+	struct io_device *iod = vnet->iod;
+	struct modem_shared *msd = iod->msd;
 	struct link_device *ld;
-	struct modem_shared *msd = vnet->iod->msd;
 	int ret;
 
 	netif_start_queue(ndev);
-	atomic_inc(&vnet->iod->opened);
+	atomic_inc(&iod->opened);
+	list_add(&iod->node_ndev, &msd->activated_ndev_list);
 
 	list_for_each_entry(ld, &msd->link_dev_list, list) {
-		if (IS_CONNECTED(vnet->iod, ld) && ld->init_comm) {
-			ret = ld->init_comm(ld, vnet->iod);
+		if (IS_CONNECTED(iod, ld) && ld->init_comm) {
+			ret = ld->init_comm(ld, iod);
 			if (ret < 0) {
 				mif_err("%s: init_comm error: %d\n",
 						ld->name, ret);
@@ -1493,11 +1446,13 @@ static int vnet_open(struct net_device *ndev)
 static int vnet_stop(struct net_device *ndev)
 {
 	struct vnet *vnet = netdev_priv(ndev);
+	struct io_device *iod = vnet->iod;
+	struct modem_shared *msd = iod->msd;
 	struct link_device *ld;
-	struct modem_shared *msd = vnet->iod->msd;
 
-	atomic_dec(&vnet->iod->opened);
+	atomic_dec(&iod->opened);
 	netif_stop_queue(ndev);
+	list_del(&iod->node_ndev);
 
 	list_for_each_entry(ld, &msd->link_dev_list, list) {
 		if (IS_CONNECTED(vnet->iod, ld) && ld->terminate_comm)
@@ -1673,6 +1628,7 @@ int sipc4_init_io_device(struct io_device *iod)
 		INIT_DELAYED_WORK(&iod->rx_work, rx_iodev_work);
 		/*TODO: register ether device for NCN device*/
 		skb_queue_head_init(&iod->sk_rx_q);
+		INIT_LIST_HEAD(&iod->node_ndev);
 #ifdef CONFIG_LINK_ETHERNET
 		iod->ndev = alloc_etherdev(0);
 		if (!iod->ndev) {

@@ -24,3 +24,4 @@ config USB_NOTIFIER
 	help
 	  Added platform driver to call usb notify.
 	  The usb_notifier.c can be fixed for each models.
+

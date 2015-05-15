@@ -35,6 +35,7 @@
 #include "../fimc-is-core.h"
 #include "../fimc-is-device-sensor.h"
 #include "../fimc-is-resourcemgr.h"
+#include "../fimc-is-hw.h"
 #include "fimc-is-device-imx135.h"
 
 #define SENSOR_NAME "IMX135"
@@ -115,6 +116,8 @@ int sensor_imx135_probe(struct i2c_client *client,
 	module->pixel_width = module->active_width + 16;
 	module->pixel_height = module->active_height + 10;
 	module->max_framerate = 120;
+	module->sensor_maker = "SONY";
+	module->sensor_name = "IMX135";
 	module->setfile_name = "setfile_imx135.bin";
 	module->cfgs = ARRAY_SIZE(config_imx135);
 	module->cfg = config_imx135;

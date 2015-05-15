@@ -270,7 +270,7 @@ s32 fc8080_probe(HANDLE handle)
 s32 fc8080_init(HANDLE handle)
 {
 #ifdef FC8080_I2C
-	bbm_write(handle, BBM_TSO_SELREG, 0xc4);
+	bbm_write(handle, BBM_TSO_SELREG, 0xc0);
 #endif
 
 	fc8080_reset(handle);

@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_dvfs_handler.c
+/* drivers/gpu/arm/.../platform/gpu_dvfs_handler.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 DVFS driver
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -40,7 +40,7 @@ static void gpu_dvfs_event_proc(struct work_struct *q)
 	if (gpu_control_is_power_on(kbdev)) {
 		int clk = 0;
 		clk = gpu_dvfs_decide_next_freq(kbdev, platform->env_data.utilization);
-		gpu_set_target_clk_vol(clk);
+		gpu_set_target_clk_vol(clk, true);
 	}
 	mutex_unlock(&platform->gpu_dvfs_handler_lock);
 #endif /* CONFIG_MALI_DVFS */
@@ -76,7 +76,7 @@ int gpu_dvfs_handler_init(struct kbase_device *kbdev)
 
 	gpu_pm_qos_command(platform, GPU_CONTROL_PM_QOS_INIT);
 
-	gpu_set_target_clk_vol(platform->table[platform->step].clock);
+	gpu_set_target_clk_vol(platform->table[platform->step].clock, false);
 
 	GPU_LOG(DVFS_INFO, DUMMY, 0u, 0u, "dvfs handler initialized\n");
 	return 0;

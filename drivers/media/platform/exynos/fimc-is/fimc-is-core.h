@@ -171,6 +171,8 @@
 #define I2C_L2				(21600000)
 #endif
 
+#define I2C_RETRY_COUNT         5
+
 #define GET_FIMC_IS_NUM_OF_SUBIP(core, subip) \
 	(core->pdata->subip_info->_ ## subip.valid)
 #define GET_FIMC_IS_NUM_OF_SUBIP2(device, subip) \
@@ -295,7 +297,7 @@ struct fimc_is_core {
 	struct spi_device			*spi0;
 	struct spi_device			*spi1;
 
-#if defined(CONFIG_COMPANION_USE) || defined(CONFIG_CAMERA_EEPROM_SUPPORT)
+#if defined(CONFIG_COMPANION_USE)
 	struct i2c_client			*client0;
 #endif
 #if defined(CONFIG_OIS_USE)
@@ -304,6 +306,8 @@ struct fimc_is_core {
 #ifdef CONFIG_AF_HOST_CONTROL
 	struct i2c_client			*client2;
 #endif
+	struct i2c_client			*eeprom_client0;
+	struct i2c_client			*eeprom_client1;
 
 #ifdef CONFIG_COMPANION_USE
 	struct dcdc_power			companion_dcdc;
@@ -313,13 +317,18 @@ struct fimc_is_core {
 #endif
 	u32					use_sensor_dynamic_voltage_mode;
 	struct mutex				spi_lock;
+#ifdef CONFIG_OIS_USE
 	bool					use_ois;
+	int					pin_ois_en;
+	bool					ois_ver_read;
+#endif /* CONFIG_OIS_USE */
+	bool					use_ois_hsi2c;
+	bool					use_module_check;
 #ifdef USE_ION_ALLOC
 	struct ion_client    *fimc_ion_client;
 #endif
-#ifdef CONFIG_AF_HOST_CONTROL
-	bool					is_camera_run;
-#endif
+	bool					running_rear_camera;
+	bool					running_front_camera;
 };
 
 #if defined(CONFIG_VIDEOBUF2_CMA_PHYS)

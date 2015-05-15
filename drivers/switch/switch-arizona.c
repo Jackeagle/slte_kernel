@@ -31,6 +31,7 @@
 #include <linux/delay.h>
 #include <linux/regmap.h>
 #include <linux/switch-arizona.h>
+#include <linux/math64.h>
 
 #include <sound/soc.h>
 
@@ -65,6 +66,11 @@
 #define HP_LOW_IMPEDANCE        1
 
 #define HP_LOW_IMPEDANCE_LIMIT 13
+
+struct arizona_hpdet_d_trims {
+	int off;
+	int grad_x2;
+};
 
 struct arizona_extcon_info {
 	struct device *dev;
@@ -101,6 +107,7 @@ struct arizona_extcon_info {
 	int jack_flips;
 
 	int hpdet_ip;
+	const struct arizona_hpdet_d_trims *hpdet_d_trims;
 
 	struct switch_dev edev;
 
@@ -232,11 +239,12 @@ static void arizona_jds_timeout_work(struct work_struct *work)
 	mutex_unlock(&info->lock);
 }
 
-static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
-				    unsigned int magic)
+static void arizona_extcon_hp_clamp(struct arizona_extcon_info *info,
+				    bool clamp)
 {
 	struct arizona *arizona = info->arizona;
 	unsigned int mask, val = 0;
+	unsigned int cap_sel = 0;
 	int ret;
 
 	switch (arizona->type) {
@@ -246,25 +254,38 @@ static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
 		break;
 	case WM8280:
 	case WM5110:
-		mask = 0x0007;
-		if (magic)
-			val = 0x0001;
-		else
-			val = 0x0006;
+		mask = ARIZONA_HP1L_SHRTO | ARIZONA_HP1L_FLWR |
+		       ARIZONA_HP1L_SHRTI;
+		if (clamp) {
+			val = ARIZONA_HP1L_SHRTO;
+			cap_sel = 1;
+		} else {
+			val = ARIZONA_HP1L_FLWR | ARIZONA_HP1L_SHRTI;
+			cap_sel = 3;
+		}
+
+		ret = regmap_update_bits(arizona->regmap,
+					 ARIZONA_HP_TEST_CTRL_1,
+					 ARIZONA_HP1_TST_CAP_SEL_MASK,
+					 cap_sel);
+		if (ret != 0)
+			dev_warn(arizona->dev,
+				"Failed to set TST_CAP_SEL: %d\n",
+				 ret);
 		break;
 	default:
-		mask = 0x4000;
-		if (magic)
-			val = 0x4000;
+		mask = ARIZONA_RMV_SHRT_HP1L;
+		if (clamp)
+			val = ARIZONA_RMV_SHRT_HP1L;
 		break;
 	};
 
 	mutex_lock(&arizona->dapm->card->dapm_mutex);
 
-	arizona->hpdet_magic = magic;
+	arizona->hpdet_clamp = clamp;
 
-	/* Keep the HP output stages disabled while doing the magic */
-	if (magic) {
+	/* Keep the HP output stages disabled while doing the clamp */
+	if (clamp) {
 		ret = regmap_update_bits(arizona->regmap,
 					 ARIZONA_OUTPUT_ENABLES_1,
 					 ARIZONA_OUT1L_ENA |
@@ -276,19 +297,21 @@ static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
 	}
 
 	if (mask) {
-		ret = regmap_update_bits(arizona->regmap, 0x225, mask, val);
+		ret = regmap_update_bits(arizona->regmap, ARIZONA_HP_CTRL_1L,
+					 mask, val);
 		if (ret != 0)
-			dev_warn(arizona->dev, "Failed to do magic: %d\n",
+			dev_warn(arizona->dev, "Failed to do clamp: %d\n",
 				 ret);
 
-		ret = regmap_update_bits(arizona->regmap, 0x226, mask, val);
+		ret = regmap_update_bits(arizona->regmap, ARIZONA_HP_CTRL_1R,
+					 mask, val);
 		if (ret != 0)
-			dev_warn(arizona->dev, "Failed to do magic: %d\n",
+			dev_warn(arizona->dev, "Failed to do clamp: %d\n",
 				 ret);
 	}
 
-	/* Restore the desired state while not doing the magic */
-	if (!magic && (arizona->hp_impedance > arizona->pdata.hpdet_short_circuit_imp)) {
+	/* Restore the desired state while not doing the clamp */
+	if (!clamp && (arizona->hp_impedance > arizona->pdata.hpdet_short_circuit_imp)) {
 		ret = regmap_update_bits(arizona->regmap,
 					 ARIZONA_OUTPUT_ENABLES_1,
 					 ARIZONA_OUT1L_ENA |
@@ -472,6 +495,8 @@ static struct {
 	{ 169, 11065, 65460395 },
 };
 
+#define ARIZONA_HPDET_B_RANGE_MAX 0x3fb
+
 static struct {
 	int min;
 	int max;
@@ -481,6 +506,69 @@ static struct {
 	{ 100,   1000 },
 	{ 1000, 10000 },
 };
+
+static const struct {
+	int	min;
+	int	max;
+	s64	C0;		/* value * 1000000 */
+	s64	C1;		/* value * 10000 */
+	s64	C2;		/* not multiplied */
+	s64	C3;		/* value * 1000000 */
+	s64	C4_x_C3;	/* value * 1000000 */
+	s64	C5;		/* value * 1000000 */
+} arizona_hpdet_d_ranges[] = {
+	{ 0,       30, 1007000,   -7200,   4003, 69300000, 381150, 250000},
+	{ 8,      100, 1007000,   -7200,   7975, 69600000, 382800, 250000},
+	{ 100,   1000, 9696000,   -79500,  7300, 62900000, 345950, 250000},
+	{ 1000, 10000, 100684000, -949400, 7300, 63200000, 347600, 250000},
+};
+
+#ifdef ARIZONA_HPDET_USE_DEFAULT_TRIMS
+static struct arizona_hpdet_d_trims arizona_hpdet_d_trims_default[] = {
+	{ -1, 5},
+	{ 0,  5 },
+	{ -2, 12 },
+	{ -3, 12 },
+};
+#endif
+
+static int arizona_hpdet_d_calibrate(const struct arizona_extcon_info *info,
+					int dacval, int range)
+{
+	int gradx2 = info->hpdet_d_trims[range].grad_x2;
+	int off = info->hpdet_d_trims[range].off;
+	s64 val = dacval;
+	s64 n;
+
+	dev_warn(info->arizona->dev, "hpdet_d calib range %d dac %d\n", range, dacval);
+
+	val = (val * 1000000) + 1500000;
+	val = div64_s64(val, arizona_hpdet_d_ranges[range].C2);
+
+	n = div_s64(1000000000000, arizona_hpdet_d_ranges[range].C3 +
+			((arizona_hpdet_d_ranges[range].C4_x_C3 * gradx2) / 2));
+	n = val - n;
+	if (n == 0)
+		return ARIZONA_HPDET_MAX;
+
+	val = arizona_hpdet_d_ranges[range].C0 +
+		(arizona_hpdet_d_ranges[range].C1 * off);
+	val *= 1000000;
+
+	val = div_s64(val, n);
+	val -= arizona_hpdet_d_ranges[range].C5;
+
+	/* Round up */
+	val += 500000;
+	val = div_s64(val, 1000000);
+
+	if (val < 0)
+		return 0;
+	else if (val > ARIZONA_HPDET_MAX)
+		return ARIZONA_HPDET_MAX;
+
+	return (int)val;
+}
 
 static int arizona_hpdet_read(struct arizona_extcon_info *info)
 {
@@ -527,7 +615,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 
 		if (range < ARRAY_SIZE(arizona_hpdet_b_ranges) - 1 &&
 		    (val < arizona_hpdet_b_ranges[range].threshold ||
-		     val >= 0x3fb)) {
+		     val >= ARIZONA_HPDET_B_RANGE_MAX)) {
 			range++;
 			dev_dbg(arizona->dev, "Moving to HPDET range %d\n",
 				range);
@@ -541,7 +629,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 
 		/* If we go out of range report top of range */
 		if (val < arizona_hpdet_b_ranges[range].threshold ||
-		    val >= 0x3fb) {
+		    val >= ARIZONA_HPDET_B_RANGE_MAX) {
 			dev_dbg(arizona->dev, "Measurement out of range\n");
 			return ARIZONA_HPDET_MAX;
 		}
@@ -565,6 +653,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 		}
 
 		val &= ARIZONA_HP_LVL_B_MASK;
+		/* Convert to ohms, the value is in 0.5 ohm increments */
 		val /= 2;
 
 		regmap_read(arizona->regmap, ARIZONA_HEADPHONE_DETECT_1,
@@ -592,6 +681,50 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 				arizona_hpdet_c_ranges[range].min);
 			val = arizona_hpdet_c_ranges[range].min;
 		}
+		break;
+
+	case 3:
+		if (!(val & ARIZONA_HP_DONE_B)) {
+			dev_err(arizona->dev, "HPDET did not complete: %x\n",
+				val);
+			return -EAGAIN;
+		}
+
+		val &= ARIZONA_HP_LVL_B_MASK;
+		val /= 2;
+
+		regmap_read(arizona->regmap, ARIZONA_HEADPHONE_DETECT_1,
+			    &range);
+		range = (range & ARIZONA_HP_IMPEDANCE_RANGE_MASK)
+			   >> ARIZONA_HP_IMPEDANCE_RANGE_SHIFT;
+
+		/* Skip up a range, or report? */
+		if (range < ARRAY_SIZE(arizona_hpdet_d_ranges) - 1 &&
+		    (val >= arizona_hpdet_d_ranges[range].max)) {
+			range++;
+			dev_dbg(arizona->dev, "Moving to HPDET range %d-%d\n",
+				arizona_hpdet_d_ranges[range].min,
+				arizona_hpdet_d_ranges[range].max);
+			regmap_update_bits(arizona->regmap,
+					   ARIZONA_HEADPHONE_DETECT_1,
+					   ARIZONA_HP_IMPEDANCE_RANGE_MASK,
+					   range <<
+					   ARIZONA_HP_IMPEDANCE_RANGE_SHIFT);
+			return -EAGAIN;
+		}
+
+		ret = regmap_read(arizona->regmap,
+				  ARIZONA_HEADPHONE_DETECT_3,
+				  &val);
+		if (ret != 0) {
+			dev_err(arizona->dev, "Failed to read HP value: %d\n",
+				ret);
+			return -EAGAIN;
+		}
+
+		val = (val >> ARIZONA_HP_DACVAL_SHIFT) & ARIZONA_HP_DACVAL_MASK;
+		val = arizona_hpdet_d_calibrate(info, val, range);
+		break;
 	}
 
 	if (info->arizona->pdata.hpdet_ext_res) {
@@ -789,6 +922,28 @@ int arizona_wm1814_tune_headphone(struct arizona_extcon_info *info,
 	return 0;
 }
 
+void arizona_set_headphone_imp(struct arizona_extcon_info *info, int imp)
+{
+	struct arizona *arizona = info->arizona;
+
+	arizona->hp_impedance = imp;
+
+	if (arizona->pdata.hpdet_cb)
+		arizona->pdata.hpdet_cb(arizona->hp_impedance);
+
+	switch (arizona->type) {
+	case WM5110:
+		arizona_wm5110_tune_headphone(info, arizona->hp_impedance);
+		break;
+	case WM1814:
+		arizona_wm1814_tune_headphone(info, arizona->hp_impedance);
+		break;
+	default:
+		break;
+	}
+}
+EXPORT_SYMBOL_GPL(arizona_set_headphone_imp);
+
 int arizona_hpdet_start(struct arizona_extcon_info *info)
 {
 	struct arizona *arizona = info->arizona;
@@ -800,21 +955,7 @@ int arizona_hpdet_start(struct arizona_extcon_info *info)
 	if (info->arizona->pdata.fixed_hpdet_imp) {
 		int imp = info->arizona->pdata.fixed_hpdet_imp;
 
-		if (arizona->pdata.hpdet_cb)
-			arizona->pdata.hpdet_cb(imp);
-
-		switch (arizona->type) {
-		case WM5110:
-			arizona_wm5110_tune_headphone(info, imp);
-			info->arizona->hp_impedance = imp;
-			break;
-		case WM1814:
-			arizona_wm1814_tune_headphone(info, imp);
-			info->arizona->hp_impedance = imp;
-			break;
-		default:
-			break;
-		}
+		arizona_set_headphone_imp(info, imp);
 
 		ret = -EEXIST;
 		goto skip;
@@ -823,7 +964,7 @@ int arizona_hpdet_start(struct arizona_extcon_info *info)
 	/* Make sure we keep the device enabled during the measurement */
 	pm_runtime_get_sync(info->dev);
 
-	arizona_extcon_do_magic(info, 0x4000);
+	arizona_extcon_hp_clamp(info, true);
 
 	ret = regmap_update_bits(arizona->regmap,
 				 ARIZONA_ACCESSORY_DETECT_MODE_1,
@@ -846,7 +987,7 @@ int arizona_hpdet_start(struct arizona_extcon_info *info)
 	return 0;
 
 err:
-	arizona_extcon_do_magic(info, 0);
+	arizona_extcon_hp_clamp(info, false);
 
 	pm_runtime_put_autosuspend(info->dev);
 
@@ -886,7 +1027,7 @@ void arizona_hpdet_stop(struct arizona_extcon_info *info)
 			   ARIZONA_ACCESSORY_DETECT_MODE_1,
 			   ARIZONA_ACCDET_MODE_MASK, 0);
 
-	arizona_extcon_do_magic(info, 0);
+	arizona_extcon_hp_clamp(info, false);
 
 	pm_runtime_mark_last_busy(info->dev);
 	pm_runtime_put_autosuspend(info->dev);
@@ -899,7 +1040,7 @@ static int arizona_hpdet_moisture_start(struct arizona_extcon_info *info)
 
 	ret = arizona_hpdet_start(info);
 
-	arizona_extcon_do_magic(info, 0);
+	arizona_extcon_hp_clamp(info, false);
 
 	return ret;
 }
@@ -924,26 +1065,10 @@ static int arizona_hpdet_moisture_reading(struct arizona_extcon_info *info,
 
 int arizona_hpdet_reading(struct arizona_extcon_info *info, int val)
 {
-	struct arizona *arizona = info->arizona;
-
 	if (val < 0)
 		return val;
 
-	arizona->hp_impedance = val;
-
-	if (arizona->pdata.hpdet_cb)
-		arizona->pdata.hpdet_cb(arizona->hp_impedance);
-
-	switch (arizona->type) {
-	case WM5110:
-		arizona_wm5110_tune_headphone(info, arizona->hp_impedance);
-		break;
-	case WM1814:
-		arizona_wm1814_tune_headphone(info, arizona->hp_impedance);
-		break;
-	default:
-		break;
-	}
+	arizona_set_headphone_imp(info, val);
 
 	if (info->mic) {
 		arizona_extcon_report(info, BIT_HEADSET);
@@ -1290,7 +1415,7 @@ static int arizona_hpdet_acc_id_start(struct arizona_extcon_info *info)
 	/* Make sure we keep the device enabled during the measurement */
 	pm_runtime_get_sync(info->dev);
 
-	arizona_extcon_do_magic(info, 0x4000);
+	arizona_extcon_hp_clamp(info, true);
 
 	ret = regmap_update_bits(arizona->regmap,
 				 ARIZONA_ACCESSORY_DETECT_MODE_1,
@@ -1323,7 +1448,7 @@ static int arizona_hpdet_acc_id_start(struct arizona_extcon_info *info)
 	return 0;
 
 err:
-	arizona_extcon_do_magic(info, 0x0);
+	arizona_extcon_hp_clamp(info, false);
 
 	pm_runtime_put_autosuspend(info->dev);
 
@@ -1460,6 +1585,7 @@ static irqreturn_t arizona_micdet(int irq, void *data)
 		debounce = 0;
 
 	switch (arizona->type) {
+	case WM8280:
 	case WM5110:
 		info->first_clear = true;
 		schedule_delayed_work(&info->micd_clear_work,
@@ -1706,7 +1832,7 @@ static void arizona_micd_set_level(struct arizona *arizona, int index,
 }
 
 #ifdef CONFIG_OF
-static int arizona_extcon_get_pdata(struct arizona *arizona)
+static int arizona_extcon_of_get_pdata(struct arizona *arizona)
 {
 	struct arizona_pdata *pdata = &arizona->pdata;
 
@@ -1776,7 +1902,7 @@ static int arizona_extcon_get_pdata(struct arizona *arizona)
 	return 0;
 }
 #else
-static inline int arizona_extcon_get_pdata(struct arizona *arizona)
+static inline int arizona_extcon_of_get_pdata(struct arizona *arizona)
 {
 	return 0;
 }
@@ -1790,6 +1916,92 @@ static ssize_t arizona_extcon_show(struct device *dev,
 	struct arizona_extcon_info *info = platform_get_drvdata(pdev);
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", info->arizona->hp_impedance);
+}
+
+static int arizona_hp_trim_signify(int raw, int value_mask)
+{
+	if (raw > value_mask)
+		return value_mask + 1 - raw;
+	else
+		return raw;
+}
+
+static int arizona_hpdet_d_read_calibration(struct arizona_extcon_info *info)
+{
+	struct arizona *arizona = info->arizona;
+	struct arizona_hpdet_d_trims *trims;
+	int off_range1;
+	int coeff_range0, coeff_range2, coeff_range3;
+	int grad_range1_0, grad_range3_2;
+	unsigned int v1, v2;
+	int ret = -EIO;
+
+#ifdef ARIZONA_HPDET_USE_DEFAULT_TRIMS
+	info->hpdet_d_trims = arizona_hpdet_d_trims_default;
+#endif
+
+	ret = regmap_read(arizona->regmap, 0x0087, &v1);
+	if (ret >= 0) {
+		ret = regmap_read(arizona->regmap, 0x0088, &v2);
+	}
+
+	if (ret < 0) {
+		dev_warn(arizona->dev, "Failed to read HP trims %d\n", ret);
+		return ret;
+	}
+
+	if ((v1 == 0) || (v2 == 0) || (v1 == 0xFFFF) || (v2 == 0xFFFF)) {
+		dev_warn(arizona->dev, "No HP trims\n");
+		return 0;
+	}
+
+	trims = devm_kzalloc(info->dev,
+			     4 * sizeof(struct arizona_hpdet_d_trims),
+			     GFP_KERNEL);
+	if (!trims) {
+		dev_err(arizona->dev, "Failed to alloc hpdet trims\n");
+		return -ENOMEM;
+	}
+
+	coeff_range0 = v1 & 0xf;
+	coeff_range0 = arizona_hp_trim_signify(coeff_range0, 0x7);
+
+	coeff_range2 = (v1 >> 10) & 0xf;
+	coeff_range2 = arizona_hp_trim_signify(coeff_range2, 0x7);
+
+	coeff_range3 = ((v1 >> 14) & 0x3) | ((v2 >> 12) & 0xc);
+	coeff_range3 = arizona_hp_trim_signify(coeff_range3, 0x7);
+
+	off_range1 = (v1 >> 4) & 0x3f;
+	off_range1 = arizona_hp_trim_signify(off_range1, 0x1f);
+
+	grad_range1_0 = v2 & 0x7f;
+	grad_range1_0 = arizona_hp_trim_signify(grad_range1_0, 0x3f);
+
+	grad_range3_2 = (v2 >> 7) & 0x7f;
+	grad_range3_2 = arizona_hp_trim_signify(grad_range3_2, 0x3f);
+
+	trims[0].off = coeff_range0 + off_range1;
+	trims[1].off = off_range1;
+	trims[2].off = coeff_range2 + off_range1;
+	trims[3].off = coeff_range3 + off_range1;
+	trims[0].grad_x2 = grad_range1_0 * 2;
+	trims[1].grad_x2 = grad_range1_0 * 2;
+	trims[2].grad_x2 = grad_range3_2 * 2;
+	trims[3].grad_x2 = grad_range3_2 * 2;
+
+	info->hpdet_d_trims = trims;
+
+	dev_dbg(arizona->dev, "Set trims %d,%d %d,%d %d,%d %d,%d\n",
+			trims[0].off,
+			trims[0].grad_x2,
+			trims[1].off,
+			trims[1].grad_x2,
+			trims[2].off,
+			trims[2].grad_x2,
+			trims[3].off,
+			trims[3].grad_x2);
+	return 0;
 }
 
 /* To support PBA function test */
@@ -1808,25 +2020,32 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 	if (!arizona->dapm || !arizona->dapm->card)
 		return -EPROBE_DEFER;
 
-	arizona_extcon_get_pdata(arizona);
-
 	if (pdata->hpdet_short_circuit_imp < 1)
 		pdata->hpdet_short_circuit_imp = ARIZONA_HP_SHORT_IMPEDANCE;
 	else if	(pdata->hpdet_short_circuit_imp >= HP_LOW_IMPEDANCE_LIMIT)
 		pdata->hpdet_short_circuit_imp = HP_LOW_IMPEDANCE_LIMIT - 1;
 
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
-	if (!info) {
-		dev_err(&pdev->dev, "Failed to allocate memory\n");
-		ret = -ENOMEM;
-		goto err;
+	if (!info)
+		return -ENOMEM;
+
+	if (IS_ENABLED(CONFIG_OF)) {
+		if (!dev_get_platdata(arizona->dev)) {
+			ret = arizona_extcon_of_get_pdata(arizona);
+			if (ret < 0)
+				return ret;
+		}
 	}
 
-	info->micvdd = devm_regulator_get(arizona->dev, "MICVDD");
+	/* Set of_node to parent from the SPI device to allow
+	 * location regulator supplies */
+	pdev->dev.of_node = arizona->dev->of_node;
+
+	info->micvdd = devm_regulator_get(&pdev->dev, "MICVDD");
 	if (IS_ERR(info->micvdd)) {
 		ret = PTR_ERR(info->micvdd);
 		dev_err(arizona->dev, "Failed to get MICVDD: %d\n", ret);
-		goto err;
+		return ret;
 	}
 
 	mutex_init(&info->lock);
@@ -1859,7 +2078,7 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 			break;
 		default:
 			info->micd_clamp = true;
-			info->hpdet_ip = 2;
+			info->hpdet_ip = 3;
 			break;
 		}
 		break;
@@ -2053,6 +2272,12 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 	pm_runtime_idle(&pdev->dev);
 	pm_runtime_get_sync(&pdev->dev);
 
+	if (info->hpdet_ip == 3) {
+		arizona_hpdet_d_read_calibration(info);
+		if (!info->hpdet_d_trims)
+			info->hpdet_ip = 2;
+	}
+
 	if (arizona->pdata.jd_gpio5) {
 		jack_irq_rise = ARIZONA_IRQ_MICD_CLAMP_RISE;
 		jack_irq_fall = ARIZONA_IRQ_MICD_CLAMP_FALL;
@@ -2152,7 +2377,6 @@ err_register:
 	switch_dev_unregister(&info->edev);
 err_wakelock:
 	wakeup_source_trash(&info->detection_wake_lock);
-err:
 	return ret;
 }
 
@@ -2190,6 +2414,7 @@ static int arizona_extcon_remove(struct platform_device *pdev)
 	device_remove_file(&pdev->dev, &dev_attr_hp_impedance);
 	switch_dev_unregister(&info->edev);
 	wakeup_source_trash(&info->detection_wake_lock);
+	kfree(info->hpdet_d_trims);
 
 	return 0;
 }

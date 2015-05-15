@@ -68,6 +68,7 @@
 #define KEYCODE_REG			0x03
 #define BASE_REG			0x00
 #define TK_STATUS_FLAG		0x07
+#define CYPRESS_DETECTION_FLAG		0x08
 #define TK_DIFF_DATA		0x16
 #define TK_RAW_DATA			0x1E
 #define TK_IDAC				0x0D
@@ -90,6 +91,7 @@
 
 #define TK_BIT_WRITE_CONFIRM	0xAA
 #define TK_BIT_EXIT_CONFIRM	0xBB
+#define TK_BIT_DETECTION_CONFIRM	0xEE
 
 /* Status flag after sending command*/
 #define TK_BIT_LEDCONTROL   0x40    // Owner for LED on/off control (0:host / 1:TouchIC)
@@ -100,6 +102,7 @@
 #define TK_BIT_REGULAR		0x02    // regular mode = normal mode
 #define TK_BIT_LED_STATUS	0x01    // LED status
 
+#define TK_CMD_DUAL_DETECTION	0x01
 #define TK_CMD_LED_ON		0x10
 #define TK_CMD_LED_OFF		0x20
 
@@ -174,6 +177,34 @@ struct fw_image {
 	u8 data[0];
 } __attribute__ ((packed));
 
+/* mode change struct */
+#define MODE_NONE 0
+#define MODE_NORMAL 1
+#define MODE_GLOVE 2
+#define MODE_FLIP 3
+
+#define CMD_GLOVE_ON 1
+#define CMD_GLOVE_OFF 2
+#define CMD_FLIP_ON 3
+#define CMD_FLIP_OFF 4
+#define CMD_GET_LAST_MODE 0xfd
+#define CMD_MODE_RESERVED 0xfe
+#define CMD_MODE_RESET 0xff
+
+struct cmd_mode_change {
+	int mode;
+	int cmd;
+};
+struct mode_change_data {
+	bool busy;
+	int cur_mode;
+	struct cmd_mode_change mtc;	/* mode to change */
+	struct cmd_mode_change mtr;	/* mode to reserved */
+	/* ctr vars */
+	struct mutex mc_lock;
+	struct mutex mcf_lock;
+};
+
 /*Parameters for i2c driver*/
 struct touchkey_i2c {
 	struct i2c_client *client;
@@ -204,18 +235,9 @@ struct touchkey_i2c {
 #ifdef TK_USE_OPEN_DWORK
 	struct delayed_work open_work;
 #endif
-#ifdef CONFIG_GLOVE_TOUCH
-	struct delayed_work glove_change_work;
-	bool tsk_glove_lock_status;
-	bool tsk_glove_mode_status;
-	struct mutex tsk_glove_lock;
-#endif
 #ifdef TK_INFORM_CHARGER
 	struct touchkey_callbacks callbacks;
 	bool charging_mode;
-#endif
-#ifdef TKEY_FLIP_MODE
-	bool enabled_flip;
 #endif
 #ifdef TKEY_1MM_MODE
 	bool enabled_1mm;
@@ -230,6 +252,11 @@ struct touchkey_i2c {
 	struct pinctrl *pinctrl_irq;
 	struct pinctrl *pinctrl_i2c;
 	struct pinctrl_state *pin_state[4];
+	struct work_struct mode_change_work;
+	struct mode_change_data mc_data;
+	int ic_mode;
+	int tsk_enable_glove_mode;
+	int support_multi_touch;
 };
 
 extern struct class *sec_class;

@@ -82,6 +82,7 @@
 				(time < 12000) ? (time-8000)/2000+13 : 15)
 
 static u8 led_dynamic_current = 0x14;
+static u8 led_color_dynamic_current = 0x14;
 static u8 led_lowpower_mode = 0x0;
 
 enum max77843_led_color {
@@ -108,6 +109,19 @@ struct max77843_rgb {
 	unsigned int delay_on_times_ms;
 	unsigned int delay_off_times_ms;
 };
+
+static unsigned int lcdtype_color;
+extern unsigned int lcdtype;
+#if defined(CONFIG_LEDS_USE_ED28) && defined(CONFIG_SEC_FACTORY)
+bool jig_status = false;
+
+static int __init jig_check(char *str)
+{
+	jig_status = true;
+	return 0;
+}
+__setup("jig", jig_check);
+#endif
 
 static int max77843_rgb_number(struct led_classdev *led_cdev,
 				struct max77843_rgb **p)
@@ -157,6 +171,8 @@ static void max77843_rgb_set(struct led_classdev *led_cdev,
 		}
 	} else {
 		/* Set current */
+		if (n==BLUE && (lcdtype_color != 51))
+			brightness = (brightness * 5) / 2;
 		ret = max77843_write_reg(max77843_rgb->i2c,
 				MAX77843_RGBLED_REG_LED0BRT + n, brightness);
 		if (IS_ERR_VALUE(ret)) {
@@ -421,7 +437,7 @@ static ssize_t store_max77843_rgb_pattern(struct device *dev,
 	if (led_lowpower_mode == 1)
 		led_dynamic_current = 0x5;
 	else
-		led_dynamic_current = 0x14;
+		led_dynamic_current = led_color_dynamic_current;
 
 	switch (mode) {
 
@@ -478,6 +494,7 @@ static ssize_t store_max77843_rgb_blink(struct device *dev,
 
 	/*Reset led*/
 	max77843_rgb_reset(dev);
+	max77843_rgb_blink(dev, 0, 0);
 
 	led_r_brightness = (led_brightness & LED_R_MASK) >> 16;
 	led_g_brightness = (led_brightness & LED_G_MASK) >> 8;
@@ -776,22 +793,32 @@ static int max77843_rgb_probe(struct platform_device *pdev)
 	led_dev = sec_device_create(max77843_rgb, "led");
 	if (IS_ERR(led_dev)) {
 		dev_err(dev, "Failed to create device for samsung specific led\n");
-		goto alloc_err_flash;
+		goto register_err_flash;
 	}
 
 
 	ret = sysfs_create_group(&led_dev->kobj, &sec_led_attr_group);
 	if (ret < 0) {
 		dev_err(dev, "Failed to create sysfs group for samsung specific led\n");
-		goto alloc_err_flash;
+		goto device_create_err;
 	}
 
 	platform_set_drvdata(pdev, max77843_rgb);
+#if defined(CONFIG_LEDS_USE_ED28) && defined(CONFIG_SEC_FACTORY)
+	if( lcdtype == 0 && jig_status == false) {
+		max77843_rgb_set_state(&max77843_rgb->led[RED], led_dynamic_current, LED_ALWAYS_ON);
+	}
+#endif
+	lcdtype_color = lcdtype >> 0x10;
+	if (lcdtype_color == 51)
+		led_color_dynamic_current = 0x5A;
 
 	pr_info("leds-max77843-rgb: %s done\n", __func__);
 
 	return 0;
 
+device_create_err:
+	sec_device_destroy(led_dev->devt);
 register_err_flash:
 	led_classdev_unregister(&max77843_rgb->led[i]);
 alloc_err_flash_plus:

@@ -83,6 +83,14 @@ struct mipi_dsim_config g_dsim_config = {
 	.dsim_ddi_pd = &s6e3ha2_mipi_lcd_driver,
 #elif defined(CONFIG_DECON_LCD_S6E3HF2)
 	.dsim_ddi_pd = &s6e3hf2_mipi_lcd_driver,
+#elif defined(CONFIG_DECON_LCD_S6TNMR7)
+	.dsim_ddi_pd = &s6tnmr7_mipi_lcd_driver,
+#elif defined(CONFIG_DECON_LCD_S6E3HA1)
+	.dsim_ddi_pd = &s6e3ha1_mipi_lcd_driver,
+#elif defined(CONFIG_DECON_LCD_ANA38401)
+	.dsim_ddi_pd = &ana38401_mipi_lcd_driver,
+#elif defined(CONFIG_DECON_LCD_S6E3HA2_TABS2)
+	.dsim_ddi_pd = &s6e3ha2_mipi_lcd_driver,
 #endif
 };
 
@@ -97,7 +105,6 @@ struct mic_config g_mic_config;
 #define DISPLAY_MIC_REG_INDEX		2
 #endif
 
-static struct display_gpio g_disp_gpios;
 struct mipi_dsim_lcd_config g_lcd_config;
 struct decon_lcd g_decon_lcd;
 struct display_sysreg g_disp_sysreg;
@@ -273,14 +280,13 @@ static int parse_interrupt_dt_exynos5430(struct platform_device *pdev,
 	int ret = 0;
 	struct resource *res;
 
-#ifndef CONFIG_FB_I80_COMMAND_MODE
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 1);
 	if (res == NULL) {
 		pr_err("getting video irq resource failed\n");
 		return -ENOENT;
 	}
 	ddp->decon_driver.irq_no = res->start;
-#endif
+
 	res = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
 	if (res == NULL) {
 		pr_err("getting fifo irq resource failed\n");
@@ -334,7 +340,7 @@ struct mic_config *get_display_mic_config(void)
 
 static int parse_dsi_drvdata(struct device_node *np)
 {
-	u32 temp, i;
+	u32 temp;
 
 	DT_READ_U32_OPTIONAL(np, "e_interface", g_dsim_config.e_interface);
 	DT_READ_U32_OPTIONAL(np, "e_pixel_format",
@@ -362,17 +368,7 @@ static int parse_dsi_drvdata(struct device_node *np)
 	DT_READ_U32_OPTIONAL(np, "bta_timeout", g_dsim_config.bta_timeout);
 	DT_READ_U32_OPTIONAL(np, "rx_timeout", g_dsim_config.rx_timeout);
 
-	/* should be fixed */
-	g_disp_gpios.num = of_gpio_count(np);
-	for (i = 0; i < g_disp_gpios.num; i++)
-		g_disp_gpios.id[i] = of_get_gpio(np, i);
-
 	return 0;
-}
-
-struct display_gpio *get_display_dsi_reset_gpio(void)
-{
-	return &g_disp_gpios;
 }
 
 static int parse_display_dsi_dt_exynos5430(struct device_node *np)
@@ -433,6 +429,18 @@ int parse_lcd_drvdata(struct device_node *np)
 	u32 temp, res[3];
 	struct device_node *node;
 
+#if defined(CONFIG_DECON_LCD_ANA38401)
+	/* temporary solution to support old & new panel in one binary */
+	/* 9p7_Operating Manual_Rev.A_150128.pdf */
+	if (lcdtype >> 20 == 5)
+		g_dsim_config.dsim_ddi_pd = &s6tnmr7_mipi_lcd_driver;
+#endif
+#if defined(CONFIG_DECON_LCD_S6E3HA2_TABS2)
+	/* temporary solution to support old & new panel in one binary */
+	/* AMS801HK01 Operating Manual Rev.Pre_150126.pdf */
+	if ((lcdtype >> 8) & 0xFF)
+		g_dsim_config.dsim_ddi_pd = &s6e3ha1_mipi_lcd_driver;
+#endif
 #if defined(CONFIG_DECON_LCD_EA8064G)
 	int gpio;
 	gpio = of_get_named_gpio(np, "oled-id-gpio", 0);

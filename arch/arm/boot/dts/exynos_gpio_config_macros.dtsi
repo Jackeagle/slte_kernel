@@ -13,10 +13,18 @@
 #define PIN_PULL_DOWN		1
 #define PIN_PULL_UP		3
 
-#define PIN_DRV_LV1		0
-#define PIN_DRV_LV2		2
-#define PIN_DRV_LV3		1
-#define PIN_DRV_LV4		3
+#define PIN_DRV_LV1		0x0
+#define PIN_DRV_LV2		0x1
+#define PIN_DRV_LV3		0x2
+#define PIN_DRV_LV4		0x3
+#define PIN_DRV_LV5		0x4
+#define PIN_DRV_LV6		0x5
+#define PIN_DRV_SLOW_LV1	0x8
+#define PIN_DRV_SLOW_LV2	0x9
+#define PIN_DRV_SLOW_LV3	0xA
+#define PIN_DRV_SLOW_LV4	0xB
+#define PIN_DRV_SLOW_LV5	0xC
+#define PIN_DRV_SLOW_LV6	0xF
 
 #define PIN_PDN_OUT0		0
 #define PIN_PDN_OUT1		1

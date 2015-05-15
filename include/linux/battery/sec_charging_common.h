@@ -80,6 +80,7 @@ enum sec_battery_adc_channel {
 	SEC_BAT_ADC_CHANNEL_VOLTAGE_NOW,
 	SEC_BAT_ADC_CHANNEL_NUM,
 	SEC_BAT_ADC_CHANNEL_CHG_TEMP,
+	SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE,
 };
 
 /* charging mode */
@@ -92,6 +93,13 @@ enum sec_battery_charging_mode {
 	SEC_BATTERY_CHARGING_2ND,
 	/* recharging */
 	SEC_BATTERY_CHARGING_RECHARGING,
+};
+
+/* chg_temp state */
+enum sec_battery_chg_temp_state {
+	SEC_BATTERY_CHG_TEMP_NONE = 0,
+	SEC_BATTERY_CHG_TEMP_HIGH_1ST,
+	SEC_BATTERY_CHG_TEMP_HIGH_2ND,
 };
 
 struct sec_bat_adc_api {
@@ -466,11 +474,18 @@ struct sec_battery_platform_data {
 	sec_battery_ovp_uvlo_t ovp_uvlo_check_type;
 
 	sec_battery_thermal_source_t thermal_source;
+
+	/*
+	 * inbat_adc_table
+	 * in-battery voltage check for table models:
+	 * To read real battery voltage with Jig cable attached,
+	 * dedicated hw pin & conversion table of adc-voltage are required
+	 */
 #ifdef CONFIG_OF
 	sec_bat_adc_table_data_t *temp_adc_table;
 	sec_bat_adc_table_data_t *temp_amb_adc_table;
 	sec_bat_adc_table_data_t *chg_temp_adc_table;
-
+	sec_bat_adc_table_data_t *inbat_adc_table;
 #else
 	const sec_bat_adc_table_data_t *temp_adc_table;
 	const sec_bat_adc_table_data_t *temp_amb_adc_table;
@@ -478,10 +493,12 @@ struct sec_battery_platform_data {
 	unsigned int temp_adc_table_size;
 	unsigned int temp_amb_adc_table_size;
 	unsigned int chg_temp_adc_table_size;
+	unsigned int inbat_adc_table_size;
 
 	sec_battery_temp_check_t temp_check_type;
 	unsigned int temp_check_count;
 	unsigned int chg_temp_check;
+	unsigned int inbat_voltage;
 
 	/*
 	 * limit can be ADC value or Temperature
@@ -506,9 +523,11 @@ struct sec_battery_platform_data {
 	int temp_high_recovery_lpm;
 	int temp_low_threshold_lpm;
 	int temp_low_recovery_lpm;
-	int chg_high_temp;
+	int chg_high_temp_1st;
+	int chg_high_temp_2nd;
 	int chg_high_temp_recovery;
 	int chg_charging_limit_current;
+	int chg_charging_limit_current_2nd;
 
 	/* If these is NOT full check type or NONE full check type,
 	 * it is skipped
@@ -553,6 +572,9 @@ struct sec_battery_platform_data {
 	 * only for scaling
 	 */
 	int capacity_max;
+#if defined(CONFIG_AFC_CHARGER_MODE)
+	int capacity_max_hv;
+#endif
 	int capacity_max_margin;
 	int capacity_min;
 
@@ -576,6 +598,8 @@ struct sec_battery_platform_data {
 	int chg_float_voltage;
 #endif
 	sec_charger_functions_t chg_functions_setting;
+
+	bool always_enable;
 
 	/* ADC setting */
 	unsigned int adc_check_count;

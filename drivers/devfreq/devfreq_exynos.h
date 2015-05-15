@@ -108,6 +108,8 @@ struct devfreq_data_mif {
 	int (*mif_set_dll)(struct devfreq_data_mif *data, unsigned long volt, int index);
 	void  (*mif_dynamic_setting)(struct devfreq_data_mif *data, bool flag);
 	int (*mif_set_volt)(struct devfreq_data_mif *data, unsigned long volt,  unsigned long volt_range);
+	int (*mif_pre_process)(struct device *dev, struct devfreq_data_mif *data, int *index, int *old_index, unsigned long *freq, unsigned long *old_freq);
+	int (*mif_post_process)(struct device *dev, struct devfreq_data_mif *data, int *index, int *old_index, unsigned long *freq, unsigned long *old_freq);
 };
 
 struct devfreq_data_int {
@@ -115,6 +117,7 @@ struct devfreq_data_int {
 	struct devfreq *devfreq;
 
 	struct regulator *vdd_int;
+	struct regulator *vdd_int_m;
 	unsigned long old_volt;
 	unsigned long volt_offset;
 

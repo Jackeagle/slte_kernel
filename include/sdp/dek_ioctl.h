@@ -1,9 +1,15 @@
-#ifndef DEK_IOCTL_H__
-#define DEK_IOCTL_H__
+/*
+ * dek_ioctl.h
+ *
+ *  Created on: Jul 4, 2014
+ *      Author: olic
+ */
 
-#define __DEKIOC		        0x77
+#ifndef DEK_IOCTL_H_
+#define DEK_IOCTL_H_
 
 #include <sdp/dek_common.h>
+#define __DEKIOC		        0x77
 
 typedef struct _dek_arg_generate_dek {
 	int userid;
@@ -58,8 +64,7 @@ typedef struct _dek_arg_on_user_added {
 
 typedef struct _dek_arg_on_user_removed {
 	int userid;
-}dek_arg_on_user_removed;
-
+}dek_arg_on_user_removed, dek_arg_disk_cache_cleanup;
 
 // SDP driver events
 #define DEK_ON_BOOT              _IOW(__DEKIOC, 0, unsigned int)
@@ -74,5 +79,6 @@ typedef struct _dek_arg_on_user_removed {
 #define DEK_ENCRYPT_DEK          _IOW(__DEKIOC, 2, unsigned int)
 #define DEK_DECRYPT_DEK          _IOR(__DEKIOC, 3, unsigned int)
 #define DEK_GET_KEK         	 _IOW(__DEKIOC, 9, unsigned int)
+#define DEK_DISK_CACHE_CLEANUP   _IOW(__DEKIOC, 10, unsigned int)
 
 #endif /* DEK_IOCTL_H_ */

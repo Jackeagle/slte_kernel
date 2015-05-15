@@ -191,7 +191,7 @@ static int tmd3782_regulator_onoff(struct taos_data *data, int onoff)
 		regulator_disable(data->vdd_3p3);
 	}
 	regulator_put(data->vdd_3p3);
-	msleep(5);
+	usleep_range(5000, 5100);
 
 	return 0;
 
@@ -203,10 +203,20 @@ err_3p3:
 static int opt_i2c_write(struct taos_data *taos, u8 reg, u8 *val)
 {
 	int ret;
+	int retry = 3;
 
-	ret = i2c_smbus_write_byte_data(taos->i2c_client,
-		(CMD_REG | reg), *val);
+	do {
+		ret = i2c_smbus_write_byte_data(taos->i2c_client,
+			(CMD_REG | reg), *val);
 
+		if (ret < 0) {
+			pr_err("%s - i2c write error, ret = %d, retry=%d", __func__, ret, retry);
+			usleep_range(1000, 1100);
+		} else
+			return ret;
+	} while (retry--);
+
+	pr_err("%s - i2c write failed, ret = %d", __func__, ret);
 	return ret;
 }
 
@@ -299,6 +309,8 @@ static int taos_chip_on(struct taos_data *taos)
 	if (ret < 0) {
 		gprintk("opt_i2c_write to clr ctrl reg failed\n");
 	}
+
+	usleep_range(3000, 3100); // A minimum interval of 2.4ms must pass after PON is enabled.
 
 	temp_val = taos->pdata->als_time;
 	ret = opt_i2c_write(taos, (CMD_REG|ALS_TIME), &temp_val);

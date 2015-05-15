@@ -54,7 +54,7 @@ static int decon_mic_set_sys_reg(struct decon_mic *mic, bool enable)
 		data |= (1 << 3) | (1 << 1) | (1 << 0);
 #else
 		data |= (1 << 5) | (1 << 1) | (1 << 0);
-#if defined(CONFIG_SOC_EXYNOS5433_REV_1) && defined(CONFIG_FB_I80_HW_TRIGGER)
+#ifdef CONFIG_FB_I80_HW_TRIGGER
 		data |= (1 << 13);
 #endif
 #endif
@@ -135,7 +135,7 @@ int create_decon_mic(struct platform_device *pdev)
 
 	mic->mic_config = dispdrv->dt_ops.get_display_mic_config();
 
-	mic->decon_mic_on = false;
+	mic->decon_mic_on = true;
 
 	res = dispdrv->mic_driver.regs;
 	if (!res) {

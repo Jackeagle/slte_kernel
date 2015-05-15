@@ -40,4 +40,16 @@
 
 #define MC_AARCH32_FC
 
+/* Set Parameters for Secure OS Boosting */
+#define DEFAULT_LITTLE_CORE		0
+#define DEFAULT_BIG_CORE		4
+
+#define MC_INTR_LOCAL_TIMER		(IRQ_SPI(106) + DEFAULT_BIG_CORE)
+
+#define LOCAL_TIMER_PERIOD		50
+
+#define DEFAULT_SECOS_BOOST_TIME	5000
+
+#define DUMP_TBASE_HALT_STATUS
+
 #endif /* _MC_DRV_PLATFORM_H_ */

@@ -47,7 +47,11 @@
 #define SEC_NFC_MSG_MAX_SIZE	(256 + 4)
 
 /* wait for device stable */
+#ifdef CONFIG_SEC_NFC_MARGINTIME
+#define SEC_NFC_VEN_WAIT_TIME	(150)
+#else
 #define SEC_NFC_VEN_WAIT_TIME	(100)
+#endif
 
 /* gpio pin configuration */
 struct sec_nfc_platform_data {

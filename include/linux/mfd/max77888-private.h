@@ -24,7 +24,6 @@
 
 #include <linux/i2c.h>
 
-#define MAX77888_NUM_IRQ_MUIC_REGS	3
 #define MAX77888_REG_INVALID		(0xff)
 
 #define MAX77888_IRQSRC_CHG             (1 << 0)
@@ -33,8 +32,27 @@
 #define MAX77888_IRQSRC_MUIC            (1 << 3)
 
 enum max77888_reg {
-	MAX77888_PMIC_REG_PMICID1			= 0x20,
-	MAX77888_PMIC_REG_PMICID2			= 0x21,
+	MAX77888_LED_REG_IFLASH				= 0x00,
+	MAX77888_LED_REG_RESERVED_01			= 0x01,
+	MAX77888_LED_REG_ITORCH				= 0x02,
+	MAX77888_LED_REG_ITORCHTORCHTIMER		= 0x03,
+	MAX77888_LED_REG_FLASH_TIMER			= 0x04,
+	MAX77888_LED_REG_FLASH_EN			= 0x05,
+	MAX77888_LED_REG_MAX_FLASH1			= 0x06,
+	MAX77888_LED_REG_MAX_FLASH2			= 0x07,
+	MAX77888_LED_REG_MAX_FLASH3			= 0x08,
+	MAX77888_LED_REG_MAX_FLASH4			= 0x09,
+	MAX77888_LED_REG_VOUT_CNTL			= 0x0A,
+	MAX77888_LED_REG_VOUT_FLASH			= 0x0B,
+	MAX77888_LED_REG_RESERVED_0C			= 0x0C,
+	MAX77888_LED_REG_RESERVED_0D			= 0x0D,
+	MAX77888_LED_REG_FLASH_INT			= 0x0E,
+	MAX77888_LED_REG_FLASH_INT_MASK			= 0x0F,
+	MAX77888_LED_REG_FLASH_INT_STATUS		= 0x10,
+	MAX77888_LED_REG_RESERVED_11			= 0x11,
+
+	MAX77888_PMIC_REG_PMIC_ID1			= 0x20,
+	MAX77888_PMIC_REG_PMIC_ID2			= 0x21,
 	MAX77888_PMIC_REG_INTSRC			= 0x22,
 	MAX77888_PMIC_REG_INTSRC_MASK			= 0x23,
 	MAX77888_PMIC_REG_TOPSYS_INT			= 0x24,
@@ -143,18 +161,21 @@ enum max77888_haptic_reg {
 #define CHG_CNFG_00_OTG_SHIFT			1
 #define CHG_CNFG_00_BUCK_SHIFT			2
 #define CHG_CNFG_00_BOOST_SHIFT			3
+#define CHG_CNFG_00_WDTEN_SHIFT			4
 #define CHG_CNFG_00_DIS_MUIC_CTRL_SHIFT		5
 #define CHG_CNFG_00_MODE_MASK			(0xf << CHG_CNFG_00_MODE_SHIFT)
 #define CHG_CNFG_00_CHG_MASK			(1 << CHG_CNFG_00_CHG_SHIFT)
 #define CHG_CNFG_00_OTG_MASK			(1 << CHG_CNFG_00_OTG_SHIFT)
 #define CHG_CNFG_00_BUCK_MASK			(1 << CHG_CNFG_00_BUCK_SHIFT)
 #define CHG_CNFG_00_BOOST_MASK			(1 << CHG_CNFG_00_BOOST_SHIFT)
+#define CHG_CNFG_00_WDTEN_MASK			(1 << CHG_CNFG_00_WDTEN_SHIFT)
 #define CHG_CNFG_00_DIS_MUIC_CTRL_MASK		(1 << CHG_CNFG_00_DIS_MUIC_CTRL_SHIFT)
 
 /* MAX77888 CHG_CNFG_04 register */
 #define CHG_CNFG_04_CHG_CV_PRM_SHIFT		0
 #define CHG_CNFG_04_CHG_CV_PRM_MASK		(0x1f << CHG_CNFG_04_CHG_CV_PRM_SHIFT)
 enum max77888_irq_source {
+	LED_INT = 0,
 	TOPSYS_INT,
 	CHG_INT,
 	MUIC_INT1,
@@ -163,7 +184,17 @@ enum max77888_irq_source {
 	MAX77888_IRQ_GROUP_NR,
 };
 
+#define MUIC_MAX_INT			MUIC_INT2
+#define MAX77888_NUM_IRQ_MUIC_REGS	(MUIC_MAX_INT - MUIC_INT1 + 1)
+
 enum max77888_irq {
+	/* PMIC; FLASH */
+	MAX77888_LED_IRQ_FLED2_OPEN,
+	MAX77888_LED_IRQ_FLED2_SHORT,
+	MAX77888_LED_IRQ_FLED1_OPEN,
+	MAX77888_LED_IRQ_FLED1_SHORT,
+	MAX77888_LED_IRQ_MAX_FLASH,
+
 	/* PMIC; TOPSYS */
 	MAX77888_TOPSYS_IRQ_T120C_INT,
 	MAX77888_TOPSYS_IRQ_T140C_INT,
@@ -174,7 +205,6 @@ enum max77888_irq {
 	MAX77888_CHG_IRQ_BATP_I,
 	MAX77888_CHG_IRQ_BAT_I,
 	MAX77888_CHG_IRQ_CHG_I,
-	MAX77888_CHG_IRQ_WCIN_I,
 	MAX77888_CHG_IRQ_CHGIN_I,
 
 	/* MUIC INT1 */
@@ -204,6 +234,11 @@ struct max77888_dev {
 	int irq;
 	int irq_base;
 	int irq_gpio;
+	/* WA for MUIC RESET */
+	int mr_irq;
+	int muic_reset_irq;
+	/* WA for MUIC RESET */
+	int irqf_trigger;
 	bool wakeup;
 	struct mutex irqlock;
 	int irq_masks_cur[MAX77888_IRQ_GROUP_NR];
@@ -221,6 +256,9 @@ struct max77888_dev {
 	u8 pmic_ver;	/* pmic version */
 
 	struct max77888_platform_data *pdata;
+
+	/* WA for MUIC RESET */
+	struct delayed_work muic_reset_dwork;
 };
 
 enum max77888_types {
@@ -240,10 +278,21 @@ extern int max77888_bulk_write(struct i2c_client *i2c, u8 reg, int count,
 				u8 *buf);
 extern int max77888_update_reg(struct i2c_client *i2c, u8 reg, u8 val, u8 mask);
 
-#if 0	//temp
 /* MAX77888 check muic path fucntion */
 extern bool is_muic_usb_path_ap_usb(void);
 extern bool is_muic_usb_path_cp_usb(void);
+
+/* MAX77888 Debug. ft */
+extern void max77888_muic_read_register(struct i2c_client *i2c);
+
+#if defined(CONFIG_LEDS_MAX77888)
+extern int max77888_muic_set_jigset(struct i2c_client *i2c, int reg_value);
 #endif
+
+/* WA for MUIC RESET */
+extern u8 max77888_restore_last_snapshot(u8 reg);
+extern void max77888_muic_reg_restore(struct work_struct *work);
+/* WA for MUIC RESET */
+
 #endif /* __LINUX_MFD_MAX77888_PRIV_H */
 

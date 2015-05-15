@@ -32,7 +32,6 @@
 #include <linux/suspend.h>
 #include <linux/version.h>
 
-#include <linux/platform_data/sipc_def.h>
 #include <linux/platform_data/modem.h>
 #include "modem_prj.h"
 #include "modem_utils.h"
@@ -102,6 +101,47 @@ static inline int usb_get_rpm_status(struct usb_device *dev) { return 0; }
 static void usb_rx_complete(struct urb *urb);
 static int usb_rx_submit(struct if_usb_devdata *pipe_data,
 		struct urb *urb, gfp_t gfp_flags);
+
+static void skb_reset_buff_pointer(struct sk_buff *skb)
+{
+	memset(skb, 0, offsetof(struct sk_buff, tail));
+	skb->data = skb->head + NET_SKB_PAD;
+	skb_reset_tail_pointer(skb);
+}
+
+static inline void reprocess_skb(struct if_usb_devdata *pipe_data,
+		struct sk_buff *skb)
+{
+
+	if (pipe_data->idx < pipe_data->usb_ld->max_acm_ch)
+		dev_kfree_skb_any(skb);
+	else
+		skb_reset_buff_pointer(skb);
+}
+
+static inline struct sk_buff *prepare_skb(struct if_usb_devdata *pipe_data,
+		struct urb *urb)
+{
+	struct sk_buff *skb;
+	unsigned int alloc_size = pipe_data->rx_buf_setup;
+
+	if (pipe_data->idx < pipe_data->usb_ld->max_acm_ch) {
+retry_alloc:
+		skb = alloc_skb(alloc_size, GFP_ATOMIC | GFP_DMA);
+		if (unlikely(!skb)) {
+			alloc_size = alloc_size / 2 - 256;
+			if (alloc_size >= PAGE_SIZE - 512) {
+				mif_err("re-try to alloc skb %d\n", alloc_size);
+				goto retry_alloc;
+			}
+		}
+		pipe_data->rx_buf_size = alloc_size;
+	} else {
+		skb = (struct sk_buff *)urb->context;
+	}
+
+	return skb;
+}
 
 static void logging_ipc_data(enum mif_log_id id, struct io_device *iod,
 							struct sk_buff *skb)
@@ -264,6 +304,24 @@ static void pr_rx_skb_with_format(int format, struct sk_buff *skb)
 	}
 }
 
+static int submit_anchored_urbs(struct if_usb_devdata *pipe_data)
+{
+	struct urb *urb;
+	int ret;
+
+	while ((urb = usb_get_from_anchor(&pipe_data->urbs))) {
+		ret = usb_rx_submit(pipe_data, urb, GFP_ATOMIC);
+		if (ret < 0) {
+			usb_put_urb(urb);
+			mif_err("usb_rx_submit error with (%d)\n", ret);
+			return ret;
+		}
+		usb_put_urb(urb);
+	}
+	mif_info("All urbs was submitted\n");
+	return 0;
+}
+
 static void usb_free_urbs(struct usb_link_device *usb_ld,
 		struct if_usb_devdata *pipe_data)
 {
@@ -276,28 +334,29 @@ static void usb_free_urbs(struct usb_link_device *usb_ld,
 	}
 }
 
-#if defined(CONFIG_SEC_MODEM_XMM6360)
+#if defined(CONFIG_SEC_MODEM_XMM6360) || defined(CONFIG_SEC_MODEM_M74XX)
 static void mif_net_suspend(struct if_usb_devdata *pipe_data, int flag)
 {
-	if (!pipe_data->iod->ndev || !flag)
+	if (!pipe_data->iod->msd || !flag)
 		return;
+
+	if (!pipe_data->net_suspend)
+		netif_tx_flowctl(pipe_data->iod->msd, true);
+
 	pipe_data->net_suspend |= flag;
-	netif_stop_queue(pipe_data->iod->ndev);
-	mif_debug("stop 0x%04x, mask=0x%04x\n", flag, pipe_data->net_suspend);
 	return;
 }
 
 static void mif_net_resume(struct if_usb_devdata *pipe_data, int flag)
 {
-	if (!pipe_data->iod->ndev || !flag)
+	if (!pipe_data->iod->msd || !flag)
 		return;
-	pipe_data->net_suspend &= ~(flag);
-	if (!pipe_data->net_suspend) {
-		netif_wake_queue(pipe_data->iod->ndev);
-		mif_debug("wake 0x%04x\n", flag);
-	} else {
-		mif_debug("net 0x%04x, mask=0x%04x\n", flag,
-							pipe_data->net_suspend);
+
+	if (pipe_data->net_suspend) {
+		pipe_data->net_suspend &= ~(flag);
+
+		if (!pipe_data->net_suspend)
+			netif_tx_flowctl(pipe_data->iod->msd, false);
 	}
 	return;
 }
@@ -321,19 +380,19 @@ static struct if_usb_devdata *get_pipe_from_multi_channel(
 	case IPC_CMD:
 	case IPC_RAW:
 		if (iod->ipc_version == SIPC_VER_50)
-			return &usb_ld->devdata[0];
+			return &usb_ld->acm_data[0];
 		else
-			return &usb_ld->devdata[iod->format];
+			return &usb_ld->acm_data[iod->format];
 
 	case IPC_BOOT:
-		return &usb_ld->devdata[0];
+		return &usb_ld->acm_data[0];
 
 	case IPC_RAW_NCM:
-		return &usb_ld->devdata[usb_ld->max_acm_ch
-						+ iod->id - PS_DATA_CH_01];
+		return &usb_ld->ncm_data[iod->id - PS_DATA_CH_01];
+
 	case IPC_MULTI_RAW:
 		if (iod->ipc_version == SIPC_VER_50) /* loopback start send*/
-			return &usb_ld->devdata[0];
+			return &usb_ld->acm_data[0];
 		break;
 
 	default:
@@ -346,7 +405,8 @@ static struct if_usb_devdata *get_pipe_from_multi_channel(
 static inline struct if_usb_devdata *get_pipe_from_single_channel(
 	struct usb_link_device *usb_ld, struct io_device *iod)
 {
-	return &usb_ld->devdata[iod->format == IPC_RAW_NCM];
+	return (iod->format == IPC_RAW_NCM) ?
+		&usb_ld->ncm_data[0] : &usb_ld->acm_data[0];
 }
 
 static int start_ipc(struct link_device *ld, struct io_device *iod)
@@ -354,7 +414,7 @@ static int start_ipc(struct link_device *ld, struct io_device *iod)
 	struct sk_buff *skb;
 	int ret;
 	struct usb_link_device *usb_ld = to_usb_link_device(ld);
-	struct if_usb_devdata *pipe_data = &usb_ld->devdata[IF_USB_FMT_EP];
+	struct if_usb_devdata *pipe_data = &usb_ld->acm_data[IF_USB_FMT_EP];
 
 	if (!usb_ld->if_usb_connected) {
 		mif_err("HSIC not connected, skip start ipc\n");
@@ -391,22 +451,6 @@ static void stop_ipc(struct link_device *ld)
 		return;
 
 	ld->com_state = COM_NONE;
-}
-
-static int usb_init_rx_skb_pool(struct if_usb_devdata *pipe_data)
-{
-	struct sk_buff *free_skb;
-
-	while (pipe_data->free_rx_q.qlen < RX_POOL_SIZE) {
-		free_skb = alloc_skb((pipe_data->rx_buf_size + NET_IP_ALIGN),
-			GFP_KERNEL | GFP_DMA);
-		if (!free_skb) {
-			mif_err("alloc free skb fail\n");
-			return -ENOMEM;
-		}
-		skb_queue_tail(&pipe_data->free_rx_q, free_skb);
-	}
-	return 0;
 }
 
 static int usb_init_communication(struct link_device *ld, struct io_device *iod)
@@ -499,18 +543,21 @@ static int init_status(struct if_usb_devdata *pipe_data,
 	return 0;
 }
 
-static int usb_prepare_urb(struct if_usb_devdata *pipe_data, struct urb *urb)
+static int usb_rx_submit(struct if_usb_devdata *pipe_data,
+		struct urb *urb, gfp_t gfp_flags)
 {
 	struct sk_buff *skb;
+	int ret = 0;
 
-	skb = skb_dequeue(&pipe_data->free_rx_q);	/* free queue first */
-	if (!skb) {
-		skb = alloc_skb((pipe_data->rx_buf_size + NET_IP_ALIGN),
-				GFP_ATOMIC); /* alloc new skb with GFP_ATOMIC */
-		if (!skb) {
-			mif_err("alloc skb fail\n");
-			return -ENOMEM;
-		}
+	if (pipe_data->disconnected)
+		return -ENOENT;
+
+	ehci_vendor_txfilltuning();
+
+	skb = prepare_skb(pipe_data, urb);
+	if (unlikely(!skb)) {
+		ret = -ENOMEM;
+		goto error;
 	}
 
 	skbpriv(skb)->context = pipe_data;
@@ -519,80 +566,24 @@ static int usb_prepare_urb(struct if_usb_devdata *pipe_data, struct urb *urb)
 		(void *)skb->data, pipe_data->rx_buf_size, usb_rx_complete,
 		(void *)skb);
 
-	return 0;
-}
-
-static int usb_rx_submit(struct if_usb_devdata *pipe_data,
-		struct urb *urb, gfp_t gfp_flags)
-{
-	int delay = 0;
-	int ret = 0;
-
-	if (pipe_data->disconnected)
-		return -ENOENT;
-
-	ehci_vendor_txfilltuning();
-
-	ret = usb_prepare_urb(pipe_data, urb);
-	if (ret) {
-		mif_err("usb_prepare_urb fail with ret (%d)\n", ret);
-		pipe_data->defered_rx = true;
-		delay = msecs_to_jiffies(20);
-		goto defered_submit;
-	}
-
 	usb_anchor_urb(urb, &pipe_data->reading);
+	if (pipe_data->usbdev)
+		usb_mark_last_busy(pipe_data->usbdev);
 	ret = usb_submit_urb(urb, gfp_flags);
 	if (ret) {
-		usb_unanchor_urb(urb);
-		/* re-use skb */
-		skb_queue_tail(&pipe_data->free_rx_q,
-				(struct sk_buff *)urb->context);
-		usb_anchor_urb(urb, &pipe_data->urbs);
 		mif_err("submit urb fail with ret (%d)\n", ret);
-		return ret;
+		usb_unanchor_urb(urb);
+		reprocess_skb(pipe_data, skb);
+		goto error;
 	}
 
 	if (pipe_data->usbdev)
 		usb_mark_last_busy(pipe_data->usbdev);
-	return ret;
+	return 0;
 
-defered_submit:
-	/* Hold L0 until rx sumit complete */
-	if (pipe_data->usbdev)
-		usb_mark_last_busy(pipe_data->usbdev);
+error:
 	usb_anchor_urb(urb, &pipe_data->urbs);
-	schedule_delayed_work(&pipe_data->rx_defered_work, delay);
 	return ret;
-}
-
-static void usb_defered_work(struct work_struct *work)
-{
-	struct if_usb_devdata *pipe_data = container_of(work,
-		struct if_usb_devdata, rx_defered_work.work);
-	struct urb *urb;
-	int ret;
-
-	if (pipe_data->disconnected)
-		return;
-
-	usb_init_rx_skb_pool(pipe_data);
-	if (pipe_data->defered_rx) {
-		pipe_data->defered_rx = false;
-		mif_debug("defered rx submit\n");
-		if (pipe_data->usbdev)
-			usb_mark_last_busy(pipe_data->usbdev);
-
-		while ((urb = usb_get_from_anchor(&pipe_data->urbs))) {
-			ret = usb_rx_submit(pipe_data, urb, GFP_KERNEL);
-			if (ret < 0) {
-				usb_put_urb(urb);
-				mif_err("usb_rx_submit error with (%d)\n", ret);
-				return;
-			}
-			usb_put_urb(urb);
-		}
-	}
 }
 
 static void usb_rx_complete(struct urb *urb)
@@ -609,13 +600,10 @@ static void usb_rx_complete(struct urb *urb)
 	switch (urb->status) {
 	case -ENOENT:
 	case 0:
-		skbpriv(skb)->status = urb->status;
-
 		usb_ld->rx_err = 0;
 		if (!urb->actual_length) {
 			mif_debug("urb has zero length!\n");
-			/* reuse RX skb*/
-			skb_queue_tail(&pipe_data->free_rx_q, skb);
+			reprocess_skb(pipe_data, skb);
 			goto rx_submit;
 		}
 		/* call iod recv */
@@ -623,7 +611,7 @@ static void usb_rx_complete(struct urb *urb)
 		if (pipe_data->info->rx_fixup) {
 			pr_rx_skb_with_format(iod->format, skb);
 			pipe_data->info->rx_fixup(pipe_data, skb);
-			/* cdc_ncm_rx_fixup will be free the skb */
+			reprocess_skb(pipe_data, skb);
 			goto rx_submit;
 		}
 		/* flow control CMD by CP, not use io device */
@@ -652,12 +640,12 @@ rx_submit:
 			if (pipe_data->usbdev)
 				usb_mark_last_busy(pipe_data->usbdev);
 
-			if (!atomic_read(&pipe_data->kill_urb)){
+			if (!atomic_read(&pipe_data->kill_urb)) {
 				ret = usb_rx_submit(pipe_data, urb, GFP_ATOMIC);
 				if (ret < 0)
 					mif_err("Failed to submit urb(%d)\n", ret);
-			return;
-		}
+				return;
+			}
 		}
 		break;
 	default:
@@ -671,7 +659,7 @@ rx_submit:
 			set_bit(LINK_EVENT_RECOVERY, &usb_ld->events);
 			schedule_delayed_work(&usb_ld->link_event, 0);
 		}
-		dev_kfree_skb_any(skb);
+		reprocess_skb(pipe_data, skb);
 		break;
 	}
 
@@ -810,7 +798,8 @@ static void usb_tx_complete(struct urb *urb)
 
 	spin_lock_irqsave(&pipe_data->sk_tx_q.lock, flag);
 	__skb_unlink(skb, &pipe_data->sk_tx_q);
-	if (pipe_data->sk_tx_q.qlen < tx_qlen && !pipe_data->txpend_ts.tv_sec)
+	if (pipe_data->sk_tx_q.qlen < tx_qlen
+			&& !pipe_data->txpend_ts.tv_sec)
 		mif_net_resume(pipe_data, MIF_NET_SUSPEND_RF_STOP);
 	spin_unlock_irqrestore(&pipe_data->sk_tx_q.lock, flag);
 
@@ -1167,7 +1156,6 @@ static int if_usb_resume(struct usb_interface *intf)
 {
 	int ret;
 	struct if_usb_devdata *pipe_data = usb_get_intfdata(intf);
-	struct urb *urb;
 	unsigned long flag;
 
 	if (pipe_data->state != STATE_SUSPENDED) {
@@ -1189,15 +1177,10 @@ static int if_usb_resume(struct usb_interface *intf)
 	if (ret < 0)
 		goto resume_exit;
 
-	/* Submit bulk-in data RX urbs */
-	while ((urb = usb_get_from_anchor(&pipe_data->urbs))) {
-		ret = usb_rx_submit(pipe_data, urb, GFP_KERNEL);
-		if (ret < 0) {
-			usb_put_urb(urb);
-			mif_err("usb_rx_submit error with (%d)\n", ret);
-			return ret;
-		}
-		usb_put_urb(urb);
+	ret = submit_anchored_urbs(pipe_data);
+	if (ret < 0) {
+		mif_err("submit_anchored_urbs error with (%d)\n", ret);
+		return ret;
 	}
 
 	mif_net_resume(pipe_data, MIF_NET_SUSPEND_LINK_WAKE);
@@ -1213,7 +1196,6 @@ done:
 		mif_debug("[if_usb_resumed]\n");
 		mif_com_log(pipe_data->iod->msd, "Called %s func\n", __func__);
 	}
-
 	return 0;
 
 resume_exit:
@@ -1244,7 +1226,6 @@ static void if_usb_disconnect(struct usb_interface *intf)
 	usb_ld = pipe_data->usb_ld;
 	mif_com_log(pipe_data->iod->msd, "Called %s func\n", __func__);
 	usb_ld->if_usb_connected = 0;
-	cancel_delayed_work_sync(&pipe_data->rx_defered_work);
 
 	if (pipe_data->info->unbind) {
 		mif_info("unbind(%pf)\n", pipe_data->info->unbind);
@@ -1252,7 +1233,8 @@ static void if_usb_disconnect(struct usb_interface *intf)
 	}
 
 	usb_kill_anchored_urbs(&pipe_data->reading);
-	usb_free_urbs(usb_ld, pipe_data);
+	if (pipe_data->idx < usb_ld->max_acm_ch)
+		usb_free_urbs(usb_ld, pipe_data);
 
 	/* TODO: kill interrupt_in urb */
 	if (pipe_data->info->intr_complete && pipe_data->status) {
@@ -1400,6 +1382,9 @@ static void cdc_acm_unbind(struct if_usb_devdata *pipe_data,
 	pipe_data->disconnected = 1;
 	pipe_data->state = STATE_SUSPENDED;
 
+	if (pipe_data->info->flags & FLAG_BOOT_DOWN)
+		skb_queue_purge(&pipe_data->iod->sk_rx_q);
+
 	usb_set_intfdata(intf, NULL);
 	return;
 }
@@ -1509,7 +1494,6 @@ static int __devinit if_usb_probe(struct usb_interface *intf,
 	struct usb_link_device *usb_ld = info->usb_ld;
 	struct modem_ctl *mc = usb_ld->ld.mc;
 	struct urb *urb;
-	int cnt = 1;
 
 	pr_debug("%s: Class=%d, SubClass=%d, Protocol=%d\n", __func__,
 		intf->altsetting->desc.bInterfaceClass,
@@ -1527,7 +1511,7 @@ static int __devinit if_usb_probe(struct usb_interface *intf,
 				dev_index, usb_ld->max_link_ch);
 			return -EINVAL;
 		}
-		pipe_data = &usb_ld->devdata[dev_index];
+		pipe_data = &usb_ld->ncm_data[dev_index - usb_ld->max_acm_ch];
 		pipe_data->format = IPC_RAW_NCM;
 		pipe_data->idx = dev_index;
 		pipe_data->net_suspend = 0;
@@ -1540,39 +1524,47 @@ static int __devinit if_usb_probe(struct usb_interface *intf,
 	default:
 		if (info->flags & FLAG_BOOT_DOWN) {
 			dev_index = 0;
-			pipe_data = &usb_ld->devdata[dev_index];
+			pipe_data = &usb_ld->acm_data[dev_index];
 			pipe_data->idx = dev_index;
+			pipe_data->net_connected = true;
 			pipe_data->iod =
 				link_get_iod_with_format(&usb_ld->ld, IPC_BOOT);
-			pipe_data->rx_buf_size = (16 * 1024);
+			pipe_data->rx_buf_size = 15872;	/* 15.5KB */
 		} else if (info->flags & FLAG_IPC_CHANNEL) {
 			dev_index = intf->altsetting->desc.bInterfaceNumber / 2;
-			pipe_data = &usb_ld->devdata[dev_index];
+			if (dev_index >= usb_ld->max_acm_ch) {
+				mif_err("Over the data ch Max number(%d/%d)\n",
+						dev_index, usb_ld->max_acm_ch);
+				return -EINVAL;
+			}
+			pipe_data = &usb_ld->acm_data[dev_index];
 			pipe_data->idx = dev_index;
+			pipe_data->net_connected = true;
 			pipe_data->format = dev_index;
 			if (mc->fixed_log_ch && dev_index == mc->fixed_log_ch)
 				pipe_data->iod = link_get_iod_with_channel(
-						&usb_ld->ld, SIPC_CH_ID_CPLOG1);
+					&usb_ld->ld, SIPC_CH_ID_CPLOG1);
 			else
 				pipe_data->iod = link_get_iod_with_format(
 						&usb_ld->ld, dev_index);
 			pipe_data->rx_buf_size = (0xE00); /* 3.5KB */
 		}
 
-		if (dev_index >= usb_ld->max_acm_ch) {
-			mif_err("Over the data ch Max number(%d/%d)\n",
-						dev_index, usb_ld->max_acm_ch);
-			return -EINVAL;
+		/* backup rx_buf_size */
+		pipe_data->rx_buf_setup = pipe_data->rx_buf_size;
+
+		/* prepare rx_urb for ACM */
+		urb = usb_alloc_urb(0, GFP_KERNEL);
+		if (!urb) {
+			mif_err("alloc urb fail\n");
+			return -ENOMEM;
 		}
+		usb_anchor_urb(urb, &pipe_data->urbs);
 		break;
 	}
 
 	if (!pipe_data)
 		return -EINVAL;
-
-	/* override modem specific buffer size from usb_id_info */
-	if (info->rx_buf_size)
-		pipe_data->rx_buf_size = info->rx_buf_size;
 
 	pipe_data->info = info;
 	atomic_set(&pipe_data->kill_urb, 0);
@@ -1585,23 +1577,9 @@ static int __devinit if_usb_probe(struct usb_interface *intf,
 			goto error_exit;
 		}
 
-		skb_queue_purge(&pipe_data->free_rx_q);
-		ret = usb_init_rx_skb_pool(pipe_data);
+		ret = submit_anchored_urbs(pipe_data);
 		if (ret < 0)
 			goto error_exit;
-
-		do {
-			urb = usb_alloc_urb(0, GFP_KERNEL);
-			if (!urb) {
-				mif_err("alloc urb fail\n");
-				ret = -ENOMEM;
-				goto error_exit;
-			}
-
-			ret = usb_rx_submit(pipe_data, urb, GFP_ATOMIC);
-			if (ret < 0)
-				goto error_exit;
-		} while (cnt++ < info->urb_cnt);
 	} else {
 		mif_err("SubClass bind func was not defined\n");
 		ret = -EINVAL;
@@ -1743,7 +1721,7 @@ static struct usb_id_info ste_cdc_ncm_info = {
 	.bind = cdc_ncm_bind,
 	.unbind = cdc_ncm_unbind,
 	.tx_fixup = cdc_ncm_tx_fixup,
-	.rx_fixup = cdc_ncm_rx_fixup,
+	.rx_fixup = cdc_ncm_rx_fixup_copyskb,
 	.intr_complete = cdc_ncm_intr_complete,
 };
 
@@ -1828,6 +1806,37 @@ static struct usb_driver if_usb_driver = {
 	.supports_autosuspend = 1,
 };
 
+static int if_init_rx_urb(struct if_usb_devdata *pipe_data,
+		struct usb_link_device *usb_ld, int idx)
+{
+	struct urb *urb;
+	struct sk_buff *skb;
+	// int alloc_size = CDC_NCM_NTB_MAX_SIZE_RX + NET_IP_ALIGN;
+	int alloc_size = CDC_NCM_NTB_MAX_SIZE_RX;
+	int cnt;
+
+	for (cnt = 0; cnt < MULTI_URB; cnt++) {
+		urb = usb_alloc_urb(0, GFP_KERNEL);
+		if (!urb) {
+			mif_err("Failed to alloc urb\n");
+			return -ENOMEM;
+		}
+
+		skb = alloc_skb(alloc_size, GFP_KERNEL | GFP_DMA);
+		if (!skb) {
+			usb_free_urb(urb);
+			mif_err("Failed to alloc rx_skb\n");
+			return -ENOMEM;
+		}
+
+		urb->context = skb;
+		usb_anchor_urb(urb, &pipe_data->urbs);
+	}
+
+	mif_info("Complete init_rx_urb(%d, %d)\n", idx, cnt);
+	return 0;
+}
+
 static int if_usb_init(struct link_device *ld)
 {
 	int ret;
@@ -1851,17 +1860,23 @@ static int if_usb_init(struct link_device *ld)
 
 	/* common devdata initialize */
 	for (i = 0; i < usb_ld->max_link_ch; i++) {
-		pipe_data = &usb_ld->devdata[i];
+		pipe_data = get_pipedata_with_idx(usb_ld, i);
 
 		init_usb_anchor(&pipe_data->urbs);
 		init_usb_anchor(&pipe_data->reading);
 
 		skb_queue_head_init(&pipe_data->free_rx_q);
 		skb_queue_head_init(&pipe_data->sk_tx_q);
-
 		init_usb_anchor(&pipe_data->tx_deferd_urbs);
-		INIT_DELAYED_WORK(&pipe_data->rx_defered_work,
-			usb_defered_work);
+
+		/* static memory allocation for NCM */
+		if (i > usb_ld->max_acm_ch - 1) {
+			ret = if_init_rx_urb(pipe_data, usb_ld, i);
+			if (ret) {
+				mif_err("Failed init_rx_urb\n");
+				return ret;
+			}
+		}
 	}
 	INIT_DELAYED_WORK(&usb_ld->link_event, if_usb_event_work);
 
@@ -1899,15 +1914,15 @@ struct link_device *hsic_create_link_device(void *data)
 #define XMM626X_ACM_NUM 4
 	usb_ld->max_acm_ch = pdata->max_acm_channel ?: XMM626X_ACM_NUM;
 	usb_ld->max_link_ch = pdata->max_link_channel ?: XMM626X_ACM_NUM;
-
 	if (pdata->max_tx_qlen) {
 		tx_qlen = pdata->max_tx_qlen;
 		mif_info("Get tx qlen : %d\n", tx_qlen);
 	}
-	usb_ld->devdata = kzalloc(
-		usb_ld->max_link_ch * sizeof(struct if_usb_devdata),
-		GFP_KERNEL);
-	if (!usb_ld->devdata) {
+	usb_ld->acm_data = kzalloc(usb_ld->max_acm_ch
+			* sizeof(struct if_usb_devdata), GFP_KERNEL);
+	usb_ld->ncm_data = kzalloc((usb_ld->max_link_ch - usb_ld->max_acm_ch)
+			* sizeof(struct if_usb_devdata), GFP_KERNEL);
+	if (!usb_ld->acm_data || !usb_ld->ncm_data) {
 		mif_err("get devdata fail -ENOMEM\n");
 		goto error;
 	}
@@ -1931,7 +1946,8 @@ struct link_device *hsic_create_link_device(void *data)
 	mif_info("%s : create_link_device DONE\n", usb_ld->ld.name);
 	return (void *)ld;
 error:
-	kfree(usb_ld->devdata);
+	kfree(usb_ld->acm_data);
+	kfree(usb_ld->ncm_data);
 	kfree(usb_ld);
 	return NULL;
 }

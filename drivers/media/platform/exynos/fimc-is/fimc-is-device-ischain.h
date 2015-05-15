@@ -43,7 +43,6 @@
 #define FIMC_IS_CRANGE_FULL		0
 #define FIMC_IS_CRANGE_LIMITED		1
 
-#ifdef CONFIG_COMPANION_USE
 #if defined(CONFIG_SOC_EXYNOS5422)
 #define FIMC_IS_SPI_PINNAME "14000000.pinctrl"
 #endif
@@ -53,7 +52,6 @@
 #endif
 #define FIMC_IS_SPI_OUTPUT	1
 #define FIMC_IS_SPI_FUNC	2
-#endif
 
 /*global state*/
 enum fimc_is_ischain_state {
@@ -69,6 +67,13 @@ enum fimc_is_camera_device {
 	CAMERA_SINGLE_REAR,
 	CAMERA_SINGLE_FRONT,
 };
+
+#ifdef CONFIG_COMPANION_USE
+enum fimc_is_companion_sensor {
+	COMPANION_SENSOR_2P2 = 1,
+	COMPANION_SENSOR_IMX240 = 2,
+};
+#endif
 
 struct fimc_is_from_info {
 	u32		bin_start_addr;
@@ -131,6 +136,7 @@ struct fimc_is_from_info {
 	char		load_c1_fw_name[50];
 	char		load_c1_mastersetf_name[50];
 	char		load_c1_modesetf_name[50];
+	int		sensor_id;
 #endif
 	char		header_ver[12];
 	char		cal_map_ver[4];
@@ -215,7 +221,7 @@ struct fimc_is_device_ischain {
 	u32					bds_width;
 	u32					bds_height;
 	u32					setfile;
-	u32					scp_setfile;
+	u32					color_range;
 
 	struct camera2_sm			capability;
 	struct camera2_uctl			cur_peri_ctl;

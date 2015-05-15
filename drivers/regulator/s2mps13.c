@@ -189,7 +189,7 @@ static int s2m_is_enabled_regmap(struct regulator_dev *rdev)
 			return 0;
 	} else {
 		ret = regmap_read(rdev->regmap, rdev->desc->enable_reg, &val);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 	if (rdev->desc->enable_is_inverted)
@@ -207,11 +207,11 @@ int s2m_get_voltage_sel_regmap(struct regulator_dev *rdev)
 	if (reg_id == S2MPS13_BUCK6 && SEC_PMIC_REV(s2mps13->iodev) > 0x02
 			&& s2mps13->dvs_en && gpio_get_value(s2mps13->dvs_pin)) {
 		ret = regmap_read(rdev->regmap, S2MPS13_REG_B6CTRL3, &val);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	} else {
 		ret = regmap_read(rdev->regmap, rdev->desc->vsel_reg, &val);
-		if (ret != 0)
+		if (ret)
 			return ret;
 	}
 
@@ -312,13 +312,18 @@ static int s2m_set_voltage_time_sel(struct regulator_dev *rdev,
 
 int s2m_set_dvs_pin(bool gpio_val)
 {
-	if (!static_info->dvs_pin)
+	if ((SEC_PMIC_REV(static_info->iodev) < 0x03) || !static_info->dvs_en
+		|| !gpio_is_valid(static_info->dvs_pin)) {
+		pr_warn("%s: dvs pin ctrl failed\n", __func__);
 		return -EINVAL;
+	}
 
 	gpio_set_value(static_info->dvs_pin, gpio_val);
-	/* wait for 80us when dvs pin off */
-	if (!gpio_val)
-		udelay(50);
+	/* wait for 90us, 100us when dvs pin control */
+	if (gpio_val)
+		udelay(90);
+	else
+		udelay(100);
 
 	return 0;
 }
@@ -326,8 +331,9 @@ EXPORT_SYMBOL_GPL(s2m_set_dvs_pin);
 
 int s2m_set_g3d_pin(bool gpio_val)
 {
-	if (!static_info->g3d_en) {
-		pr_debug("%s: g3d_en is disable\n", __func__);
+        if ((SEC_PMIC_REV(static_info->iodev) < 0x03) || !static_info->g3d_en
+                || !gpio_is_valid(static_info->g3d_pin)) {
+                pr_warn("%s: g3d pin ctrl failed\n", __func__);
 		return -EINVAL;
 	}
 
@@ -666,6 +672,9 @@ static int s2mps13_pmic_dt_parse_pdata(struct sec_pmic_dev *iodev,
 		dev_err(iodev->dev, "could not find pmic sub-node\n");
 		return -ENODEV;
 	}
+
+	pdata->smpl_warn_vth = 0;
+
 	/* If pmic revision number over 0x02, get 3 gpio values */
 	if (SEC_PMIC_REV(iodev) > 0x02) {
 		if (of_gpio_count(pmic_np) < 3) {
@@ -690,6 +699,11 @@ static int s2mps13_pmic_dt_parse_pdata(struct sec_pmic_dev *iodev,
 		if (ret)
 			return -EINVAL;
 		pdata->smpl_warn_en = !!val;
+
+		ret = of_property_read_u32(pmic_np, "smpl_warn_vth", &val);
+		if (ret)
+			return -EINVAL;
+		pdata->smpl_warn_vth = val;
 	} else {
 		dev_err(iodev->dev, "cannot control g3d_en & dvs_en\n");
 	}
@@ -784,31 +798,28 @@ static int s2mps13_pmic_probe(struct platform_device *pdev)
 	if (!s2mps13)
 		return -ENOMEM;
 
-	s2mps13->dvs_en = pdata->dvs_en;
-	s2mps13->g3d_en = pdata->g3d_en;
 	s2mps13->iodev = iodev;
 	static_info = s2mps13;
 
-	if (SEC_PMIC_REV(iodev) > 0x02 && gpio_is_valid(pdata->dvs_pin)) {
-		if (!pdata->dvs_en) {
-			/* Off DVS Control GPIO */
+	if (SEC_PMIC_REV(iodev) > 0x02) {
+		s2mps13->dvs_en = pdata->dvs_en;
+		s2mps13->g3d_en = pdata->g3d_en;
+		if (gpio_is_valid(pdata->dvs_pin)) {
 			ret = devm_gpio_request(&pdev->dev, pdata->dvs_pin,
 						"S2MPS13 DVS_PIN");
 			if (ret < 0)
 				return ret;
+			/* Off DVS Control GPIO */
 			gpio_direction_output(pdata->dvs_pin, 0);
-		} else {
-			/* Set DVS Regulator Voltage */
-			ret = sec_reg_write(iodev, S2MPS13_REG_B6CTRL3, 0x28);
-			if (ret < 0)
-				return ret;
-
-			if (!gpio_is_valid(pdata->dvs_pin)) {
-				dev_err(&pdev->dev, "dvs_pin GPIO NOT VALID\n");
-				return -EINVAL;
+			if (pdata->dvs_en) {
+				/* Set DVS Regulator Voltage */
+				ret = sec_reg_write(iodev, S2MPS13_REG_B6CTRL3, 0x30);
+				if (ret < 0)
+					return ret;
 			}
-		}
-		s2mps13->dvs_pin = pdata->dvs_pin;
+			s2mps13->dvs_pin = pdata->dvs_pin;
+		} else
+			dev_err(&pdev->dev, "dvs pin is not valid\n");
 	}
 
 	platform_set_drvdata(pdev, s2mps13);
@@ -832,19 +843,21 @@ static int s2mps13_pmic_probe(struct platform_device *pdev)
 			goto err;
 		}
 	}
-	if (pdata->g3d_en
-		&& SEC_PMIC_REV(iodev) > 0x02 && gpio_is_valid(pdata->g3d_pin)) {
-		ret = devm_gpio_request(&pdev->dev, pdata->g3d_pin,
-					"S2MPS13 G3D_PIN");
-		if (pdata->g3d_en) {
-			gpio_direction_output(pdata->g3d_pin, 1);
-			udelay(128);
-			ret = sec_reg_update(iodev, S2MPS13_REG_B6CTRL1, 0x00, 0xC0);
-			ret = sec_reg_update(iodev, S2MPS13_REG_LDO_DVS3, 0x02, 0x02);
-		} else
-			gpio_direction_output(pdata->g3d_pin, 0);
+	if (SEC_PMIC_REV(iodev) > 0x02) {
+		if (gpio_is_valid(pdata->g3d_pin)) {
+			ret = devm_gpio_request(&pdev->dev, pdata->g3d_pin,
+						"S2MPS13 G3D_PIN");
+			if (pdata->g3d_en) {
+				gpio_direction_output(pdata->g3d_pin, 1);
+				udelay(128);
+				ret = sec_reg_update(iodev, S2MPS13_REG_B6CTRL1, 0x00, 0xC0);
+				ret = sec_reg_update(iodev, S2MPS13_REG_LDO_DVS3, 0x02, 0x02);
+			} else
+				gpio_direction_output(pdata->g3d_pin, 0);
 
-		s2mps13->g3d_pin = pdata->g3d_pin;
+			s2mps13->g3d_pin = pdata->g3d_pin;
+		} else
+			dev_err(&pdev->dev, "g3d pin is not valid\n");
 	}
 	/* PMIC AVP(Adaptive Voltage Positioning) Configuration */
 	if (pdata->ap_buck_avp_en) {
@@ -861,6 +874,8 @@ static int s2mps13_pmic_probe(struct platform_device *pdev)
 		sec_reg_update(iodev, S2MPS13_REG_B8CTRL1, 0x02, 0x02);  /* Buck8 AVP On */
 		sec_reg_update(iodev, S2MPS13_REG_B9CTRL1, 0x02, 0x02);  /* Buck9 AVP On */
 	}
+	sec_reg_update(iodev, S2MPS13_REG_CTRL2, pdata->smpl_warn_vth, 0xf8);
+	pr_info("%s: smpl_warn vthreshold is 0x%x\n", __func__, pdata->smpl_warn_vth);
 
 	return 0;
 err:

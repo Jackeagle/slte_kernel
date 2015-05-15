@@ -344,7 +344,7 @@ static long secmem_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 	}
 	case SECMEM_IOC_SET_TZPC:
 	{
-#if !defined(CONFIG_SOC_EXYNOS5422) && !defined(CONFIG_SOC_EXYNOS5430)
+#if !defined(CONFIG_SOC_EXYNOS5422) && !defined(CONFIG_SOC_EXYNOS5430) && !defined(CONFIG_SOC_EXYNOS5433)
 		struct protect_info prot;
 
 		if (copy_from_user(&prot, (void __user *)arg, sizeof(struct protect_info)))

@@ -85,32 +85,6 @@ struct max77804k_muic_data {
 	u8				status2;
 };
 
-/* don't access this variable directly!! except get_switch_sel_value function.
- * you must get switch_sel value by using get_switch_sel function. */
-static int switch_sel;
-
-/* func : set_switch_sel
- * switch_sel value get from bootloader comand line
- * switch_sel data consist 8 bits (xxxxzzzz)
- * first 4bits(zzzz) mean path infomation.
- * next 4bits(xxxx) mean if pmic version info
- */
-static int set_switch_sel(char *str)
-{
-	get_option(&str, &switch_sel);
-	switch_sel = switch_sel & 0x0f;
-	pr_info("%s:%s switch_sel: 0x%x\n", MUIC_DEV_NAME, __func__,
-			switch_sel);
-
-	return switch_sel;
-}
-__setup("pmic_info=", set_switch_sel);
-
-static int get_switch_sel(void)
-{
-	return switch_sel;
-}
-
 struct max77804k_muic_vps_data {
 	u8				adc1k;
 	u8				adcerr;
@@ -2191,13 +2165,11 @@ void max77804k_muic_shutdown(struct device *dev)
 	pr_info("%s:%s max77804->i2c_lock.count.counter=%d\n", MUIC_DEV_NAME,
 		__func__, max77804->i2c_lock.count.counter);
 
-	pr_info("%s:%s JIGSet: auto detection\n", MUIC_DEV_NAME, __func__);
-	val = (0 << CTRL3_JIGSET_SHIFT);
-
-	ret = max77804k_muic_update_reg(i2c, MAX77804_MUIC_REG_CTRL3, val,
-			CTRL3_JIGSET_MASK, true);
+	ret = max77804_read_reg(i2c, MAX77804_MUIC_REG_CTRL3, &val);
 	if (ret < 0)
 		pr_err("%s:%s fail to update reg\n", MUIC_DEV_NAME, __func__);
+
+	pr_info("%s:%s CTRL3:0x%02x\n", MUIC_DEV_NAME, __func__, val);
 
 out_cleanup:
 	if (muic_data->pdata && muic_data->pdata->cleanup_switch_dev_cb)

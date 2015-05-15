@@ -2040,6 +2040,7 @@ config FB_TMIO_ACCELL
 	depends on FB_TMIO
 	default y
 
+source "drivers/video/decon_display/Kconfig"
 source "drivers/video/mhl/Kconfig"
 
 config FB_S3C

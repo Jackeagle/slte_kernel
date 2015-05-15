@@ -32,6 +32,11 @@
 #include <linux/of_gpio.h>
 #endif
 
+/*
+ * for debugging CP_DUMP_INT transition
+ */
+#define CONFIG_LOGGING_CP_DUMP_INT_IRQ
+
 static int cp_watchdog_enable = 0;
 module_param(cp_watchdog_enable, int, S_IRUGO | S_IWUSR | S_IWGRP);
 MODULE_PARM_DESC(cp_watchdog_enable, "CP watchdog reset enable");
@@ -58,12 +63,18 @@ static int m74xx_on(struct modem_ctl *mc)
 
 	mc->phone_state = STATE_BOOTING;
 
+	if (mc->gpio_pda_active)
+		gpio_set_value(mc->gpio_pda_active, 1);
+
 	return 0;
 }
 
 static int m74xx_off(struct modem_ctl *mc)
 {
 	mif_info("\n");
+
+	if (mc->gpio_pda_active)
+		gpio_set_value(mc->gpio_pda_active, 0);
 
 	gpio_set_value(mc->gpio_cp_on, 0);
 	mc->phone_state = STATE_OFFLINE;
@@ -102,7 +113,7 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 	mif_info("PA EVENT: pa = %d cp_dump_int: %d\n",
 		phone_active, cp_dump_int);
 
-	if (!phone_active)
+	if (!phone_active && mc->phone_state != STATE_OFFLINE)
 		set_modem_state(mc, cp_dump_int ? STATE_CRASH_EXIT :
                        cp_watchdog_enable ? STATE_CRASH_WATCHDOG :
                                STATE_CRASH_RESET);
@@ -114,6 +125,31 @@ static irqreturn_t phone_active_irq_handler(int irq, void *_mc)
 
 	return IRQ_HANDLED;
 }
+
+#ifdef CONFIG_LOGGING_CP_DUMP_INT_IRQ
+static irqreturn_t phone_cp_dump_irq_handler(int irq, void *_mc)
+{
+	int phone_active;
+	int cp_dump_int;
+
+	struct modem_ctl *mc = (struct modem_ctl *)_mc;
+
+	disable_irq_nosync(mc->irq_cp_dump_int);
+
+	phone_active = gpio_get_value(mc->gpio_phone_active);
+	cp_dump_int = gpio_get_value(mc->gpio_cp_dump_int);
+
+	mif_info("CD EVENT: pa = %d cp_dump_int: %d\n",
+		phone_active, cp_dump_int);
+
+	irq_set_irq_type(mc->irq_cp_dump_int,
+		cp_dump_int ? IRQ_TYPE_EDGE_FALLING : IRQ_TYPE_EDGE_RISING);
+
+	enable_irq(mc->irq_cp_dump_int);
+
+	return IRQ_HANDLED;
+}
+#endif
 
 static void m74xx_get_ops(struct modem_ctl *mc)
 {
@@ -256,6 +292,7 @@ int m74xx_init_modemctl_device(struct modem_ctl *mc,
 	mc->gpio_ap_dump_int = pdata->gpio_ap_dump_int;
 	mc->gpio_cp_dump_int = pdata->gpio_cp_dump_int;
 	mc->gpio_phone_active = pdata->gpio_phone_active;
+	mc->gpio_pda_active = pdata->gpio_pda_active;
 
 	ret = verify_gpios(mc);
 	if (ret < 0)
@@ -280,6 +317,17 @@ int m74xx_init_modemctl_device(struct modem_ctl *mc,
 		mif_err("failed to enable_irq_wake:%d\n", ret);
 		goto err_phone_active_set_wake_irq;
 	}
+
+#ifdef CONFIG_LOGGING_CP_DUMP_INT_IRQ
+	mc->irq_cp_dump_int = gpio_to_irq(mc->gpio_cp_dump_int);
+	ret = request_irq(mc->irq_cp_dump_int, phone_cp_dump_irq_handler,
+			IRQF_NO_SUSPEND | IRQF_TRIGGER_RISING,
+			"cp_dump_int", mc);
+	if (ret) {
+		mif_err("failed to enable irq_cp_dump_int:%d\n", ret);
+		goto err_phone_active_set_wake_irq;
+	}
+#endif
 
 	mif_info("success\n");
 

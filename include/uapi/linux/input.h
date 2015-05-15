@@ -158,6 +158,11 @@ struct input_keymap_entry {
 
 #define EVIOCSCLOCKID		_IOW('E', 0xa0, int)			/* Set clockid to be used for timestamps */
 
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define EVIOCGABS_LIMIT		(0x40)
+#define EVIOCGABS_CHG_LIMIT(nr)	(nr + EVIOCGABS_LIMIT)
+#endif
+
 /*
  * Device properties and quirks
  */
@@ -667,6 +672,8 @@ struct input_keymap_entry {
 #define KEY_FRONT_CAMERA_DETECTED	0x1c5	/* Front Camera launch(SUB CAM) @ SEC */
 #define KEY_SIDE_GESTURE	0x1c6
 #define KEY_BLACK_UI_GESTURE	0x1c7
+#define KEY_BLACK_UI_QUICKAPP_ACCESS	0x1c8
+#define KEY_BLACK_UI_DIRECT_INDICATOR	0x1c9
 
 #define KEY_FN			0x1d0
 #define KEY_FN_ESC		0x1d1
@@ -861,16 +868,18 @@ struct input_keymap_entry {
 #define ABS_MT_TOOL_X		0x3c	/* Center X tool position */
 #define ABS_MT_TOOL_Y		0x3d	/* Center Y tool position */
 
-/* Below codes are defined by samsung internally.
- * 0x3D valus is duplicated because ABS_MT_TOOL_Y valuse added in kernel 3.10.
- * But below event types are only treated when those event are reported from
- * internal samsung device.
- */
-#define ABS_MT_PALM		0x3d    /* palm touch */
-#define ABS_MT_COMPONENT	0x3e	/* touch component */
-#define ABS_MT_SUMSIZE		0x3f	/* touch sumsize */
+#ifdef CONFIG_INPUT_EXPANDED_ABS
+#define ABS_MT_PALM		0x40	/* palm touch */
+#define ABS_MT_GRIP		0x41	/* grip touch */
+
+#define ABS_MAX			0x4f
+#else
+#define ABS_MT_PALM		0x3e	/* palm touch */
+#define ABS_MT_GRIP		0x3f	/* grip touch */
 
 #define ABS_MAX			0x3f
+#endif
+
 #define ABS_CNT			(ABS_MAX+1)
 
 /*

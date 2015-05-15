@@ -797,8 +797,8 @@ err_get_pdev:
 #endif
 #endif
 err_dev_reg:
-err_info_alloc:
 	kfree(info);
+err_info_alloc:
 err_pdata:
 	return ret;
 }

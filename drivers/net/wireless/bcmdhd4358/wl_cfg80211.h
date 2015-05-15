@@ -1,7 +1,7 @@
 /*
  * Linux cfg80211 driver
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfg80211.h 490387 2014-07-10 15:12:52Z $
+ * $Id: wl_cfg80211.h 524246 2015-01-06 09:25:07Z $
  */
 
 /**
@@ -438,6 +438,15 @@ struct escan_info {
 	struct net_device *ndev;
 };
 
+#ifdef ESCAN_BUF_OVERFLOW_MGMT
+#define BUF_OVERFLOW_MGMT_COUNT 3
+typedef struct {
+	int RSSI;
+	int length;
+	struct ether_addr BSSID;
+} removal_element_t;
+#endif /* ESCAN_BUF_OVERFLOW_MGMT */
+
 struct ap_info {
 /* Structure to hold WPS, WPA IEs for a AP */
 	u8   probe_res_ie[VNDR_IES_MAX_BUF_LEN];
@@ -639,8 +648,12 @@ struct bcm_cfg80211 {
 #ifdef WLFBT
 	uint8 fbt_key[FBT_KEYLEN];
 #endif
-	bool roam_offload;
+	int roam_offload;
 	bool nan_running;
+#if defined(CUSTOMER_HW4) && defined(WL_CFG80211_P2P_DEV_IF)
+	bool down_disc_if;
+#endif /* CUSTOMER_HW4 && WL_CFG80211_P2P_DEV_IF */
+	bool need_wait_afrx;
 };
 
 
@@ -856,7 +869,7 @@ wl_get_netinfo_by_netdev(struct bcm_cfg80211 *cfg, struct net_device *ndev)
 
 #if defined(WL_CFG80211_P2P_DEV_IF)
 #define ndev_to_cfgdev(ndev)	ndev_to_wdev(ndev)
-#define cfgdev_to_ndev(cfgdev)	(cfgdev->netdev)
+#define cfgdev_to_ndev(cfgdev)  cfgdev ? (cfgdev->netdev) : NULL
 #define discover_cfgdev(cfgdev, cfg) (cfgdev->iftype == NL80211_IFTYPE_P2P_DEVICE)
 #else
 #define ndev_to_cfgdev(ndev)	(ndev)
@@ -1067,11 +1080,29 @@ struct net_device *wl_cfg80211_get_remain_on_channel_ndev(struct bcm_cfg80211 *c
 #endif /* WL_SUPPORT_ACS */
 
 extern int wl_cfg80211_get_ioctl_version(void);
-extern int wl_cfg80211_enable_roam_offload(struct net_device *dev, bool enable);
+extern int wl_cfg80211_enable_roam_offload(struct net_device *dev, int enable);
 
 #ifdef WL_NAN
 extern int wl_cfg80211_nan_cmd_handler(struct net_device *ndev, char *cmd,
 	int cmd_len);
 #endif /* WL_NAN */
 
-#endif				/* _wl_cfg80211_h_ */
+#ifdef WL_CFG80211_P2P_DEV_IF
+extern void wl_cfg80211_del_p2p_wdev(void);
+#endif /* WL_CFG80211_P2P_DEV_IF */
+
+#if defined(CUSTOMER_HW4)
+extern int wl_cfg80211_is_primary_device(struct net_device *ndev);
+extern int wl_cfg80211_is_connected(struct net_device *ndev);
+#endif /* CUSTOMER_HW4 */
+
+#define RETURN_EIO_IF_NOT_UP(wlpriv)                        \
+do {                                    \
+	struct net_device *checkSysUpNDev = bcmcfg_to_prmry_ndev(wlpriv);           \
+	if (unlikely(!wl_get_drv_status(wlpriv, READY, checkSysUpNDev))) {  \
+		WL_INFORM(("device is not ready\n"));           \
+		return -EIO;                        \
+	}                               \
+} while (0)
+
+#endif /* _wl_cfg80211_h_ */

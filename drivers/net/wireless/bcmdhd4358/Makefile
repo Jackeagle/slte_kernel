@@ -1,4 +1,3 @@
-# Three line added by Make.sh, original Makefile backup to Makefile.original
 # bcmdhd
 #####################
 # Basic feature
@@ -32,6 +31,8 @@ ifeq ($(BUS_IFACE_SDIO),y)
 	DHDCFLAGS += -DDHD_USE_IDLECOUNT
 	# SKB TAILPAD to avoid out of boundary memory access
 	DHDCFLAGS += -DDHDENABLE_TAILPAD
+	# Enable PROP_TXSTATUS
+	DHDCFLAGS += -DPROP_TXSTATUS
 	DHDCFLAGS += -DSUPPORT_P2P_GO_PS
 endif
 
@@ -44,8 +45,12 @@ ifeq ($(BUS_IFACE_PCIE),y)
 	DHDCFLAGS += -DCUSTOM_DPC_PRIO_SETTING=-1
 	# Disable watchdog thread
 	DHDCFLAGS += -DCUSTOM_DHD_WATCHDOG_MS=0
-	# Enable PCIE Messagebuffer protection
-	DHDCFLAGS += -DPCIE_M2M_D2H_XOR_CSUM
+	# Enable Link down recovery
+	DHDCFLAGS += -DSUPPORT_LINKDOWN_RECOVERY
+#ifeq ($(CONFIG_BCMDHD_DEBUG_PAGEALLOC),y)
+	# Debugging Pagealloc
+#	DHDCFLAGS += -DDHD_DEBUG_PAGEALLOC
+#endif
 endif
 
 
@@ -66,8 +71,10 @@ DHDCFLAGS += -DBCMASSERT_LOG
 # Print 8021X
 DHDCFLAGS += -DDHD_8021X_DUMP
 
+# Print DHCP
+DHDCFLAGS += -DDHD_DHCP_DUMP
+
 # VSDB
-DHDCFLAGS += -DPROP_TXSTATUS
 DHDCFLAGS += -DVSDB
 
 # Wi-Fi Direct
@@ -101,6 +108,7 @@ DHDCFLAGS += -DSUPPORT_PM2_ONLY
 DHDCFLAGS += -DSUPPORT_DEEP_SLEEP
 DHDCFLAGS += -DSUPPORT_AMPDU_MPDU_CMD
 DHDCFLAGS += -DBLOCK_IPV6_PACKET -DPASS_IPV4_SUSPEND
+DHDCFLAGS += -DSOFTAP_SEND_HANGEVT
 
 # For special PNO Event keep wake lock for 10sec
 DHDCFLAGS += -DCUSTOM_PNO_EVENT_LOCK_xTIME=10
@@ -117,12 +125,20 @@ DHDCFLAGS += -DWIFI_TURNOFF_DELAY=100
 # For Scan result patch
 DHDCFLAGS += -DESCAN_RESULT_PATCH
 DHDCFLAGS += -DDUAL_ESCAN_RESULT_BUFFER
+DHDCFLAGS += -DESCAN_BUF_OVERFLOW_MGMT
 
 # For Static Buffer
 ifeq ($(CONFIG_BROADCOM_WIFI_RESERVED_MEM),y)
   DHDCFLAGS += -DCONFIG_DHD_USE_STATIC_BUF
   DHDCFLAGS += -DENHANCED_STATIC_BUF
   DHDCFLAGS += -DSTATIC_WL_PRIV_STRUCT
+ifeq ($(BUS_IFACE_PCIE),y)
+  DHDCFLAGS += -DDHD_USE_STATIC_IOCTLBUF
+endif
+ifeq ($(CONFIG_BCMDHD_DEBUG_PAGEALLOC),y)
+# Preallocation for memory dump
+  DHDCFLAGS += -DUSE_STATIC_MEMDUMP
+endif
 endif
 
 # DTIM listen interval in suspend mode(0 means follow AP's DTIM period)
@@ -146,21 +162,39 @@ DHDCFLAGS += -DCONFIG_HAS_WAKELOCK
 # Used short dwell time during initial scan
 DHDCFLAGS += -DUSE_INITIAL_SHORT_DWELL_TIME
 
+# Japan ccode revision will be fixed by nvram's value
+DHDCFLAGS += -DKEEP_JP_REGREV
+
 ##############################
 # Android Platform Definition
 ##############################
 
-##########
-# KitKat
-##########
+###########
+# Lollipop
+###########
 # Definitions are filtered by Kernel version
 DHDCFLAGS += -DWL_ENABLE_P2P_IF
 DHDCFLAGS += -DWL_SUPPORT_BACKPORTED_KPATCHES
-# Default definitions for KitKat
+# Default definitions for KitKat THIS_STRING_WILL_BE_REPLACED_WITH_ANDROID_DEFINITION Lollipop
 DHDCFLAGS += -DWL_CFG80211_STA_EVENT
 DHDCFLAGS += -DWL_IFACE_COMB_NUM_CHANNELS
 # To support p2p private command on kernel 3.8 or above
 DHDCFLAGS += -DWL_NEWCFG_PRIVCMD_SUPPORT
+# Link Statistics feature
+DHDCFLAGS += -DLINKSTAT_SUPPORT
+
+# To support GSCAN
+DHDCFLAGS += -DGSCAN_SUPPORT
+
+# To support RTT
+DHDCFLAGS += -DRTT_SUPPORT
+
+# To support WL_VENDOR_EXT_SUPPORT
+#DHDCFLAGS += -DWL_VENDOR_EXT_SUPPORT
+
+# Extra file list for Lollipop
+DHD_ANDROID_OFILES := wl_cfgvendor.o dhd_rtt.o
+
 
 
 
@@ -178,13 +212,16 @@ DRIVER_TYPE ?= m
 ifneq ($(CONFIG_BCM4358),)
   DHDCFLAGS += -DBCM4358_CHIP -DSUPPORT_MULTIPLE_REVISION
   DHDCFLAGS += -DMIMO_ANT_SETTING
-  DHDCFLAGS += -DENABLE_BCN_LI_BCN_WAKEUP
   DHDCFLAGS += -DUSE_CID_CHECK
-
+  DHDCFLAGS += -DENABLE_BCN_LI_BCN_WAKEUP
+  DHDCFLAGS += -DDHD_DONOT_FORWARD_BCMEVENT_AS_NETWORK_PKT
+  DHDCFLAGS += -DCUSTOM_BCN_TIMEOUT=4
+  DHDCFLAGS += -DSOFTAP_UAPSD_OFF
 # tput enhancement for common
   DHDCFLAGS += -DUSE_WL_TXBF
   DHDCFLAGS += -DUSE_WL_FRAMEBURST
-  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
+  DHDCFLAGS += -DDISABLE_FRAMEBURST_VSDB
+  DHDCFLAGS += -DDISABLE_PM_BCNRX
 
 # tput enhancement for SDIO
 ifeq ($(BUS_IFACE_SDIO),y)
@@ -202,6 +239,7 @@ ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DDHD_FIRSTREAD=128
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=16
   DHDCFLAGS += -DDHDTCPACK_SUPPRESS
+  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 endif
 
 # tput enhancement for PCIE
@@ -209,8 +247,13 @@ ifeq ($(BUS_IFACE_PCIE),y)
   DHDCFLAGS += -DCUSTOM_AMPDU_BA_WSIZE=64 -DCUSTOM_IBSS_AMPDU_BA_WSIZE=16
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=32
   DHDCFLAGS += -DCUSTOM_AMPDU_RELEASE=16
+  DHDCFLAGS += -DCUSTOM_AMSDU_AGGSF=4
+  DHDCFLAGS += -DDHDTCPACK_SUPPRESS
 endif
 
+ifeq ($(CONFIG_ARCH_MSM),y)
+  DHDCFLAGS += -DSET_RPS_CPUS
+endif
 
 # New Features
   DHDCFLAGS += -DWL11U
@@ -229,6 +272,11 @@ ifeq ($(CONFIG_BCM4358),y)
   DHDCFLAGS += -DUSE_LATE_INITCALL_SYNC
   DRIVER_TYPE = y
 endif
+ifeq ($(CONFIG_BCM4358),m)
+ifeq ($(CONFIG_64BIT),y)
+  DHDCFLAGS += -fno-pic
+endif
+endif
 ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DCUSTOM_PSPRETEND_THR=30
 endif
@@ -239,11 +287,11 @@ ifneq ($(CONFIG_BCM4354),)
   DHDCFLAGS += -DMIMO_ANT_SETTING
   DHDCFLAGS += -DUSE_CID_CHECK
   DHDCFLAGS += -DENABLE_BCN_LI_BCN_WAKEUP
+  DHDCFLAGS += -DSOFTAP_UAPSD_OFF
 
 # tput enhancement for common
   DHDCFLAGS += -DUSE_WL_TXBF
   DHDCFLAGS += -DUSE_WL_FRAMEBURST
-  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 
 # tput enhancement for SDIO
 ifeq ($(BUS_IFACE_SDIO),y)
@@ -261,6 +309,7 @@ ifeq ($(BUS_IFACE_SDIO),y)
   DHDCFLAGS += -DDHD_FIRSTREAD=128
   DHDCFLAGS += -DCUSTOM_AMPDU_MPDU=16
   DHDCFLAGS += -DDHDTCPACK_SUPPRESS
+  DHDCFLAGS += -DPROP_TXSTATUS_VSDB
 endif
 
 # tput enhancement for PCIE
@@ -498,20 +547,26 @@ ifeq ($(GGSM_WIFI_5GHz_CHANNELS),true)
   DHDCFLAGS += -DCUSTOMER_SET_COUNTRY
 endif
 
+
 ifeq ($(CONFIG_OF),y)
-ifneq ($(CONFIG_MACH_UNIVERSAL5433),)
-DHDCFLAGS += -DEXYNOS5433_PCIE_WAR
+ifneq ($(CONFIG_MACH_UNIVERSAL7420),)
 DHDCFLAGS += -DDHD_OF_SUPPORT
+DHDCFLAGS += -DBCMPCIE_OOB_HOST_WAKE
+endif
+ifneq ($(CONFIG_MACH_UNIVERSAL5433),)
+DHDCFLAGS += -DDHD_OF_SUPPORT
+DHDCFLAGS += -DBCMPCIE_OOB_HOST_WAKE
 endif
 ifneq ($(CONFIG_MACH_UNIVERSAL5430),)
-obj-$(CONFIG_MACH_UNIVERSAL5430) += dhd_custom_exynos.o
 DHDCFLAGS += -DDHD_OF_SUPPORT
 endif
 ifneq ($(CONFIG_MACH_UNIVERSAL5422),)
-obj-$(CONFIG_MACH_UNIVERSAL5422) += dhd_custom_exynos.o
 DHDCFLAGS += -DDHD_OF_SUPPORT
 endif
+ifneq ($(CONFIG_ARCH_MSM8994),)
+DHDCFLAGS += -DDHD_OF_SUPPORT
 endif
+endif # CONFIG_OF
 
 ##############################################################
 # dhd_sec_feature.h
@@ -534,17 +589,20 @@ DHDOFILES := dhd_pno.o dhd_common.o dhd_ip.o dhd_custom_gpio.o dhd_custom_sec.o 
 	bcmutils.o bcmwifi_channels.o hndpmu.o linux_osl.o sbutils.o siutils.o \
 	wl_android.o wl_cfg80211.o wl_cfgp2p.o wl_cfg_btcoex.o wldev_common.o \
 	wl_linux_mon.o wl_roam.o dhd_linux_platdev.o dhd_linux_wq.o wl_cfg_btcoex.o \
-	dhd_wlfc.o hnd_pktq.o hnd_pktpool.o wl_cfgnan.o bcmxtlv.o
+	hnd_pktq.o hnd_pktpool.o wl_cfgnan.o bcmxtlv.o
 
 
 ifeq ($(BUS_IFACE_SDIO),y)
 DHDOFILES += bcmsdh.o bcmsdh_linux.o bcmsdh_sdmmc.o bcmsdh_sdmmc_linux.o
 DHDOFILES += dhd_cdc.o dhd_sdio.o
+DHDOFILES += dhd_wlfc.o
 endif
 
 ifeq ($(BUS_IFACE_PCIE),y)
 DHDOFILES += dhd_pcie.o dhd_pcie_linux.o pcie_core.o dhd_flowring.o dhd_msgbuf.o
 endif
+
+DHDOFILES += $(DHD_ANDROID_OFILES)
 
 # For SPI projects
 ifeq ($(CONFIG_SPI_SC8810),y)

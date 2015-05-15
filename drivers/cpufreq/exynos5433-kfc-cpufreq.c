@@ -83,11 +83,11 @@ static struct apll_freq exynos5433_apll_freq_CA7[] = {
 	APLL_FREQ(1400, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 350, 6, 0),  /* ARM L6: 1.4GMHz  */
 	APLL_FREQ(1300, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 325, 6, 0),  /* ARM L7: 1.3GHz   */
 	APLL_FREQ(1200, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 500, 5, 1),  /* ARM L8: 1.2GHz   */
-	APLL_FREQ(1100, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 550, 6, 1),  /* ARM L9: 1.1GHz   */
-	APLL_FREQ(1000, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 500, 6, 1),  /* ARM L10: 1000MHz */
-	APLL_FREQ( 900, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 375, 5, 1),  /* ARM L11: 900MHz  */
-	APLL_FREQ( 800, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 400, 6, 1),  /* ARM L12: 800MHz  */
-	APLL_FREQ( 700, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 350, 6, 1),  /* ARM L13: 700MHz  */
+	APLL_FREQ(1100, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 550, 6, 1),  /* ARM L9: 1.1GHz   */
+	APLL_FREQ(1000, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 500, 6, 1),  /* ARM L10: 1000MHz */
+	APLL_FREQ( 900, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 375, 5, 1),  /* ARM L11: 900MHz  */
+	APLL_FREQ( 800, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 400, 6, 1),  /* ARM L12: 800MHz  */
+	APLL_FREQ( 700, 0, 0, 2, 7, 7, 7, 3, 0, 1, 7, 0, 350, 6, 1),  /* ARM L13: 700MHz  */
 	APLL_FREQ( 600, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 500, 5, 2),  /* ARM L14: 600MHz  */
 	APLL_FREQ( 500, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 500, 6, 2),  /* ARM L15: 500MHz  */
 	APLL_FREQ( 400, 0, 0, 1, 7, 7, 7, 3, 0, 1, 7, 0, 400, 6, 2),  /* ARM L16: 400MHz  */
@@ -122,22 +122,22 @@ static const unsigned int asv_voltage_5433_CA7[CPUFREQ_LEVEL_END_CA7] = {
 
 /* Minimum memory throughput in megabytes per second */
 static int exynos5433_bus_table_CA7[CPUFREQ_LEVEL_END_CA7] = {
-	633000,		/* 2.0 GHz */
-	633000,		/* 1.9 GHz */
-	633000,		/* 1.8 GHz */
-	633000,		/* 1.7 GHz */
-	633000,		/* 1.6 GHz */
-	633000,		/* 1.5 GHz */
-	633000,		/* 1.4 GHz */
-	633000,		/* 1.3 GHz */
-	633000,		/* 1.2 GHz */
-	633000,		/* 1.1 GHz */
+	667000,		/* 2.0 GHz */
+	667000,		/* 1.9 GHz */
+	667000,		/* 1.8 GHz */
+	667000,		/* 1.7 GHz */
+	667000,		/* 1.6 GHz */
+	667000,		/* 1.5 GHz */
+	667000,		/* 1.4 GHz */
+	667000,		/* 1.3 GHz */
+	667000,		/* 1.2 GHz */
+	667000,		/* 1.1 GHz */
 	543000,		/* 1.0 GHz */
-	158000,		/* 900 MHz */
-	158000,		/* 800 MHz */
-	136000,		/* 700 MHz */
-	136000,		/* 600 MHz */
-	0,		/* 500 MHz */
+	413000,		/* 900 MHz */
+	413000,		/* 800 MHz */
+	413000,		/* 700 MHz */
+	413000,		/* 600 MHz */
+	413000,		/* 500 MHz */
 	0,		/* 400 MHz */
 	0,		/* 300 MHz */
 	0,		/* 200 MHz */
@@ -176,7 +176,7 @@ static void exynos5433_set_kfc_pll_CA7(unsigned int new_index, unsigned int old_
 	unsigned int tmp, pdiv;
 
 	/* 1. before change to BUS_PLL, set div for BUS_PLL output */
-	if ((new_index < L12) && (old_index < L12))
+	if ((new_index > L12) && (old_index > L12))
 		exynos5433_set_clkdiv_CA7(L12); /* pll_safe_idx of CA7 */
 
 	/* 2. CLKMUX_SEL_KFC2 = MOUT_BUS_PLL_USER, KFCCLK uses BUS_PLL_USER for lock time */
@@ -222,7 +222,7 @@ static void exynos5433_set_kfc_pll_CA7(unsigned int new_index, unsigned int old_
 	} while (tmp != 0x1);
 
 	/* 7. restore original div value */
-	if ((new_index < L12) && (old_index < L12))
+	if ((new_index > L12) && (old_index > L12))
 		exynos5433_set_clkdiv_CA7(new_index);
 }
 

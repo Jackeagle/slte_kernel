@@ -308,6 +308,7 @@ struct mipi_dsim_device {
 #ifdef CONFIG_LCD_ALPM
 	int				lcd_alpm;
 #endif
+
 #ifdef CONFIG_DECON_MIPI_DSI_PKTGO
 	int				pktgo;
 #endif
@@ -391,6 +392,10 @@ enum {
 	DSIM_LANE_DATA3	= (1 << 4),
 };
 
+#ifdef CONFIG_LCD_ALPM
+	#define ALPM_TIMEOUT 3
+#endif
+
 #define FIN_HZ			(24 * MHZ)
 
 #define DFIN_PLL_MIN_HZ		(6 * MHZ)
@@ -422,6 +427,10 @@ void s5p_mipi_dsi_trigger_unmask(void);
 #ifdef CONFIG_FB_WINDOW_UPDATE
 int s5p_mipi_dsi_partial_area_command(struct mipi_dsim_device *dsim,
                                 u32 x, u32 y, u32 w, u32 h);
+#ifdef CONFIG_FB_DSU
+int s5p_mipi_dsi_dsu_command(struct mipi_dsim_device *dsim,
+                                int enable);
+#endif
 #endif
 
 #if defined(CONFIG_DECON_LCD_S6E8AA0)
@@ -442,6 +451,14 @@ extern struct mipi_dsim_lcd_driver ea8064g_mipi_lcd_driver;
 extern struct mipi_dsim_lcd_driver s6e3ha2_mipi_lcd_driver;
 #elif defined(CONFIG_DECON_LCD_S6E3HF2)
 extern struct mipi_dsim_lcd_driver s6e3hf2_mipi_lcd_driver;
+#elif defined(CONFIG_DECON_LCD_S6TNMR7)
+extern struct mipi_dsim_lcd_driver s6tnmr7_mipi_lcd_driver;
+#elif defined(CONFIG_DECON_LCD_ANA38401)
+extern struct mipi_dsim_lcd_driver s6tnmr7_mipi_lcd_driver;
+extern struct mipi_dsim_lcd_driver ana38401_mipi_lcd_driver;
+#elif defined(CONFIG_DECON_LCD_S6E3HA2_TABS2)
+extern struct mipi_dsim_lcd_driver s6e3ha1_mipi_lcd_driver;
+extern struct mipi_dsim_lcd_driver s6e3ha2_mipi_lcd_driver;
 #endif
 
 

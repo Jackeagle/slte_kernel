@@ -254,6 +254,11 @@ int hevc_power_off(struct hevc_dev *dev)
 	return pm_runtime_put_sync(pm->device);
 }
 
+void hevc_set_power_flag(void)
+{
+	power_on_flag = 1;
+}
+
 int hevc_get_clk_ref_cnt(void)
 {
 	return atomic_read(&clk_ref_hevc);

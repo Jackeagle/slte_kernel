@@ -76,7 +76,7 @@
 #define	EXYNOS5_TS_PID31			EXYNOS5_TSIREG(0xA0)
 #define	EXYNOS5_TS_BYTE_SWAP		EXYNOS5_TSIREG(0xBC)
 
-#define TS_TIMEOUT_CNT_MAX	(0xFFFFFFFF)
+/* #define TS_TIMEOUT_CNT_MAX	(0x00FFFFFF) */
 #define TS_NUM_PKT			(4)
 #define TS_PKT_SIZE			47
 #define TS_PKT_BUF_SIZE			(TS_PKT_SIZE*TS_NUM_PKT)
@@ -274,12 +274,12 @@ static void exynos5_tsi_reset(struct tsi_dev *tsi)
 	tscon |= EXYNOS5_TSI_SWRESET;
 	writel(tscon, (tsi->tsi_base + EXYNOS5_TS_CON));
 }
-
+/*
 static void exynos5_tsi_set_timeout(u32 count, struct tsi_dev *tsi)
 {
 	writel(count, (tsi->tsi_base + EXYNOS5_TS_CNT));
 }
-
+*/
 static struct tsi_pkt *tsi_get_pkt(struct tsi_dev *tsi, struct list_head *head)
 {
 	unsigned long flags;
@@ -366,7 +366,7 @@ static void exynos5_tsi_setup(struct tsi_dev *tsi)
 	struct exynos5_tsi_conf *conf = tsi->tsi_conf;
 
 	exynos5_tsi_reset(tsi);
-	exynos5_tsi_set_timeout(TS_TIMEOUT_CNT_MAX, tsi);
+	/* exynos5_tsi_set_timeout(TS_TIMEOUT_CNT_MAX, tsi); */
 
 	tscon = readl((tsi->tsi_base + EXYNOS5_TS_CON));
 
@@ -388,7 +388,7 @@ static void exynos5_tsi_setup(struct tsi_dev *tsi)
 	tscon |= (EXYNOS5_TSI_OUT_BUF_FULL_INT_ENA | EXYNOS5_TSI_INT_FIFO_FULL_INT_ENA);
 	tscon |= (/*EXYNOS5_TSI_SYNC_MISMATCH_INT_SKIP |*/ EXYNOS5_TSI_PSUF_INT_SKIP |
 					EXYNOS5_TSI_PSOF_INT_SKIP);
-	tscon |= (EXYNOS5_TSI_TS_CLK_TIME_OUT_INT);
+	/* tscon |= (EXYNOS5_TSI_TS_CLK_TIME_OUT_INT); */
 	/* These values are bd dependent? */
 	tscon |= (EXYNOS5_TSI_TS_VALID_ACTIVE_HIGH | EXYNOS5_TSI_CLK_INVERT_LOW);
 	writel(tscon, (tsi->tsi_base + EXYNOS5_TS_CON));

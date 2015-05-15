@@ -31,6 +31,9 @@
 #elif defined(CONFIG_MFD_MAX77843)
 #include <linux/mfd/max77843.h>
 #include <linux/mfd/max77843-private.h>
+#elif defined(CONFIG_MFD_MAX77849)
+#include <linux/mfd/max77849.h>
+#include <linux/mfd/max77849-private.h>
 #elif defined(CONFIG_MFD_MAX77888)
 #include <linux/mfd/max77888.h>
 #include <linux/mfd/max77888-private.h>
@@ -113,6 +116,15 @@ static int muic_handle_dock_notification(struct notifier_block *nb,
 			return muic_dock_attach_notify(type, name);
 		}
 		else if (action == MUIC_NOTIFY_CMD_LOGICALLY_DETACH)
+			return muic_dock_detach_notify();
+		break;
+	case ATTACHED_DEV_UNIVERSAL_MMDOCK_MUIC:
+		if (action == MUIC_NOTIFY_CMD_ATTACH) {
+			type = MUIC_DOCK_SMARTDOCK;
+			name = "Universal MMDock Attach";
+			return muic_dock_attach_notify(type, name);
+		}
+		else if (action == MUIC_NOTIFY_CMD_DETACH)
 			return muic_dock_detach_notify();
 		break;
 	case ATTACHED_DEV_AUDIODOCK_MUIC:
@@ -234,6 +246,29 @@ static void muic_cleanup_switch_dev_cb(void)
 
 extern struct muic_platform_data muic_pdata;
 
+/* func : set_switch_sel
+ * switch_sel value get from bootloader comand line
+ * switch_sel data consist 8 bits (xxxxyyyyzzzz)
+ * first 4bits(zzzz) mean path infomation.
+ * next 4bits(yyyy) mean if pmic version info
+ * next 4bits(xxxx) mean afc disable info
+ */
+static int set_switch_sel(char *str)
+{
+	get_option(&str, &muic_pdata.switch_sel);
+	muic_pdata.switch_sel = (muic_pdata.switch_sel) & 0xfff;
+	pr_info("%s: switch_sel: 0x%03x\n", __func__,
+			muic_pdata.switch_sel);
+
+	return muic_pdata.switch_sel;
+}
+__setup("pmic_info=", set_switch_sel);
+
+int get_switch_sel(void)
+{
+	return muic_pdata.switch_sel;
+}
+
 bool is_muic_usb_path_ap_usb(void)
 {
 	if (MUIC_PATH_USB_AP == muic_pdata.usb_path) {
@@ -288,6 +323,13 @@ static int muic_init_gpio_cb(int switch_sel)
 	if (!(switch_sel & SWITCH_SEL_RUSTPROOF_MASK))
 		pdata->rustproof_on = true;
 #endif /* CONFIG_MUIC_RUSTPROOF_ON_USER && !CONFIG_SEC_FACTORY */
+
+	pdata->afc_disable = false;
+#if defined(CONFIG_HV_MUIC_MAX77843_AFC)
+	if (switch_sel & SWITCH_SEL_AFC_DISABLE_MASK)
+		pdata->afc_disable = true;
+	pr_info("%s afc_disable(%c)\n", __func__, (pdata->afc_disable ? 'T' : 'F'));
+#endif /* CONFIG_HV_MUIC_MAX77843_AFC */
 
 	if (pdata->set_gpio_uart_sel)
 		ret = pdata->set_gpio_uart_sel(pdata->uart_path);

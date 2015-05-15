@@ -4,7 +4,7 @@
  * Provides type definitions and function prototypes used to link the
  * DHD OS, bus, and protocol modules.
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_proto.h 490409 2014-07-10 16:34:27Z $
+ * $Id: dhd_proto.h 514471 2014-11-11 05:53:29Z $
  */
 
 #ifndef _dhd_proto_h_
@@ -36,7 +36,7 @@
 #include <dhd_flowring.h>
 #endif
 
-#define DEFAULT_IOCTL_RESP_TIMEOUT  2000
+#define DEFAULT_IOCTL_RESP_TIMEOUT	2000
 #ifndef IOCTL_RESP_TIMEOUT
 /* In milli second default value for Production FW */
 #define IOCTL_RESP_TIMEOUT  DEFAULT_IOCTL_RESP_TIMEOUT
@@ -45,6 +45,7 @@
 #ifndef MFG_IOCTL_RESP_TIMEOUT
 #define MFG_IOCTL_RESP_TIMEOUT  20000  /* In milli second default value for MFG FW */
 #endif /* MFG_IOCTL_RESP_TIMEOUT */
+#define IOCTL_DISABLE_TIMEOUT 0
 
 /*
  * Exported from the dhd protocol module (dhd_cdc, dhd_rndis)
@@ -103,8 +104,8 @@ extern int dhd_process_pkt_reorder_info(dhd_pub_t *dhd, uchar *reorder_info_buf,
 	uint reorder_info_len, void **pkt, uint32 *free_buf_count);
 
 #ifdef BCMPCIE
-extern int dhd_prot_process_msgbuf_txcpl(dhd_pub_t *dhd);
-extern int dhd_prot_process_msgbuf_rxcpl(dhd_pub_t *dhd);
+extern bool dhd_prot_process_msgbuf_txcpl(dhd_pub_t *dhd, uint bound);
+extern bool dhd_prot_process_msgbuf_rxcpl(dhd_pub_t *dhd, uint bound);
 extern int dhd_prot_process_ctrlbuf(dhd_pub_t * dhd);
 extern bool dhd_prot_dtohsplit(dhd_pub_t * dhd);
 extern int dhd_post_dummy_msg(dhd_pub_t *dhd);
@@ -128,6 +129,9 @@ extern void dhd_prot_update_txflowring(dhd_pub_t *dhdp, uint16 flow_id, void *ms
 extern void dhd_prot_txdata_write_flush(dhd_pub_t *dhd, uint16 flow_id, bool in_lock);
 extern uint32 dhd_prot_txp_threshold(dhd_pub_t *dhd, bool set, uint32 val);
 extern void dhd_prot_clear(dhd_pub_t *dhd);
+#ifdef DHD_DEBUG_PAGEALLOC
+extern void dhd_prot_dump_kernel_crash(dhd_pub_t *dhd);
+#endif /* DHD_DEBUG_PAGEALLOC */
 
 #endif /* BCMPCIE */
 

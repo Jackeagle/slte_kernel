@@ -49,6 +49,7 @@ void exynos5_int_notify_power_status(const char* pd_name, unsigned int turn_on);
 void exynos5_isp_notify_power_status(const char* pd_name, unsigned int turn_on);
 void exynos5_disp_notify_power_status(const char* pd_name, unsigned int turn_on);
 unsigned long exynos5_devfreq_get_mif_freq(void);
+int exynos5_devfreq_get_mif_level(void);
 #endif
 
 #if defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
@@ -56,7 +57,7 @@ unsigned long exynos5_devfreq_get_mif_freq(void);
 int exynos_mif_add_notifier(struct notifier_block *nb);
 #endif
 
-#ifdef CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ
+#if defined(CONFIG_ARM_EXYNOS5430_BUS_DEVFREQ) || defined(CONFIG_ARM_EXYNOS5433_BUS_DEVFREQ)
 extern int exynos5_mif_thermal_add_notifier(struct notifier_block *n);
 #else
 static inline int exynos5_mif_thermal_add_notifier(struct notifier_block *n)

@@ -1,11 +1,23 @@
 config VIDEO_EXYNOS_FIMC_IS
-	bool "Exynos FIMC-IS (Image Subsystem) driver"
-	depends on VIDEO_EXYNOS
-	select MEDIA_EXYNOS
-	select USE_VENDER_FEATURE
-	default n
-	help
-	  This is a v4l2 driver for exynos FIMC-IS device.
+        bool "Exynos FIMC-IS (Image Subsystem) driver"
+        depends on VIDEO_EXYNOS
+        select MEDIA_EXYNOS
+        select USE_VENDER_FEATURE
+        default n
+        help
+          This is a v4l2 driver for exynos FIMC-IS device.
+config CAMERA_EEPROM_SUPPORT_REAR
+        bool "Enable eeprom for rear cam"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Enable eeprom for rear cam.
+config CAMERA_EEPROM_SUPPORT_FRONT
+        bool "Enable eeprom for front cam"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Enable eeprom for front cam.
 config COMPANION_USE
         bool "Enable to companion"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -18,6 +30,12 @@ config OIS_USE
         default n
         help
           Enable to ois.
+config OIS_FW_UPDATE_THREAD_USE
+        bool "Enable to ois fw update thread"
+        depends on OIS_USE
+        default n
+        help
+          Enable to ois fw update thread.
 config AF_HOST_CONTROL
         bool "Enable to af control"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -25,11 +43,11 @@ config AF_HOST_CONTROL
         help
           Enable to af control.
 config USE_VENDER_FEATURE
-	bool "Use vendor specific features"
-	depends on VIDEO_EXYNOS_FIMC_IS
-	default n
-	help
-		Enable to use the vender.
+        bool "Use vendor specific features"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Enable to use the vender.
 config CAMERA_SENSOR_8B1
         bool "Use 8B1 camera sensor"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -72,6 +90,12 @@ config CAMERA_SENSOR_IMX135_OBJ
         default n
         help
           Use to build IMX135 camera sensor.
+config CAMERA_SENSOR_IMX134_OBJ
+        bool "Use IMX134 camera sensor"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Use to build IMX134 camera sensor.
 config CAMERA_SENSOR_3L2_OBJ
         bool "Use 3L2 camera sensor"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -90,6 +114,12 @@ config CAMERA_SENSOR_2P2_12M_OBJ
         default n
         help
           Use to build 2P2_12M camera sensor.
+config CAMERA_SENSOR_2P3_OBJ
+        bool "Use 2P3 camera sensor"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Use to build 2P3 camera sensor.
 config CAMERA_SENSOR_3H5_OBJ
         bool "Use 3H5 camera sensor"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -120,6 +150,12 @@ config CAMERA_SENSOR_IMX175_OBJ
         default n
         help
           Use to build IMX175 camera sensor.
+config CAMERA_SENSOR_IMX219_OBJ
+        bool "Use IMX219 camera sensor"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Use to build IMX219 camera sensor.
 config CAMERA_SENSOR_IMX240_OBJ
         bool "Use IMX240 camera sensor"
         depends on VIDEO_EXYNOS_FIMC_IS
@@ -138,3 +174,16 @@ config CAMERA_SENSOR_SR261_OBJ
         default n
         help
           Use to build SR261 camera sensor.
+config CAMERA_SENSOR_TEMP
+        bool "camera sensor temp"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Use to build camera sensor temp.
+config CAMERA_ONLY_SUPPORT_FRONT
+        bool "Support only front camera temporarilly"
+        depends on VIDEO_EXYNOS_FIMC_IS
+        default n
+        help
+          Use to support only front camera temporarilly.
+          This config should be removed after bring-up.

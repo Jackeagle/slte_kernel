@@ -41,7 +41,7 @@
 		__raw_writel(0x1, base + DBGLAR);		\
 		mb();						\
 	}while(0)
-#if defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if defined(CONFIG_SOC_EXYNOS5433)
 #define DBG_OSUNLOCK(base)					\
 	do {							\
 		mb();						\
@@ -87,7 +87,7 @@ unsigned int exynos_cs_pc[NR_CPUS][ITERATION];
 void exynos_cs_show_pcval(void)
 {
 	unsigned long flags;
-	unsigned int cpu, iter;
+	unsigned int cpu, iter, curr_cpu;
 	unsigned int val = 0;
 	void __iomem *base;
 	char buf[KSYM_SYMBOL_LEN];
@@ -95,30 +95,27 @@ void exynos_cs_show_pcval(void)
 	if (exynos_cs_stat < 0)
 		return;
 
-	/* add code to prevent going into C2 mode*/
-	cpu_idle_poll_ctrl(true);
-
 	spin_lock_irqsave(&debug_lock, flags);
+	curr_cpu = smp_processor_id();
 
 	for (iter = 0; iter < ITERATION; iter++) {
 		for (cpu = 0; cpu < NR_CPUS; cpu++) {
+			if (!cpu_online(cpu) || (cpu == curr_cpu))
+				continue;
 			base = dbg.cpu[cpu].base;
 			if (base == NULL || !exynos_cpu.power_state(cpu))
 				continue;
-
-			DBG_UNLOCK(base);
 			/* Release OSlock */
+			DBG_UNLOCK(base);
 			DBG_OSUNLOCK(base);
 
-			/* Read current PC value */
-			if (!exynos_cpu.power_state(cpu))
-				continue;
 			val = DBG_READ(base, DBGPCSR);
-			if(val == 0x0) {
-				if (!exynos_cpu.power_state(cpu))
-					continue;
+			if(val == 0x0)
 				val = DBG_READ(base, DBGPCSR_2);
-			}
+
+			/* Lock OSlock */
+			DBG_OSLOCK(base);
+			DBG_LOCK(base);
 
 			if (cpu >= CORE_CNT) {
 				/* The PCSR of A15 shoud be substracted 0x8 from
@@ -130,8 +127,6 @@ void exynos_cs_show_pcval(void)
 	}
 
 	spin_unlock_irqrestore(&debug_lock, flags);
-	/* revert prevent C2 mode*/
-	cpu_idle_poll_ctrl(false);
 
 	for (cpu = 0; cpu < NR_CPUS; cpu++) {
 		pr_err("CPU[%d] saved pc value\n", cpu);

@@ -99,8 +99,8 @@
  * The following diagram shows an example Policy that contains a Low Priority
  * queue, and a Real-time (High Priority) Queue. The RT queue is examined
  * before the LowP one on dequeuing from the head. The Low Priority Queue is
- * ordered by time, and the RT queue is ordered by RT-priority, and then by
- * time. In addition, it shows that the Job Scheduler Core will start a
+ * ordered by time, and the RT queue is ordered by time weighted by
+ * RT-priority. In addition, it shows that the Job Scheduler Core will start a
  * Soft-Stop Timer (SS-Timer) when it dequeue's and submits a job. The
  * Soft-Stop time is set by a global configuration value, and must be a value
  * appropriate for the policy. For example, this could include "don't run a
@@ -111,13 +111,11 @@
  *
  * @section sec_kbase_js_policy_operation_prio Dealing with Priority
  *
- * Priority applies both to a context as a whole, and to the jobs within a
- * context. The jobs specify a priority in the base_jd_atom::prio member, which
- * is relative to that of the context. A positive setting indicates a reduction
- * in priority, whereas a negative setting indicates a boost in priority. Of
- * course, the boost in priority should only be honoured when the originating
- * process has sufficient priviledges, and should be ignored for unpriviledged
- * processes. The meaning of the combined priority value is up to the policy
+ * Priority applies separately to a context as a whole, and to the jobs within
+ * a context. The jobs specify a priority in the base_jd_atom::prio member, but
+ * it is independent of the context priority. That is, it only affects
+ * scheduling of atoms within a context. Refer to @ref base_jd_prio for more
+ * details. The meaning of the context's priority value is up to the policy
  * itself, and could be a logarithmic scale instead of a linear scale (e.g. the
  * policy could implement an increase/decrease in priority by 1 results in an
  * increase/decrease in \em proportion of time spent scheduled in by 25%, an
@@ -126,10 +124,10 @@
  * It is up to the policy whether a boost in priority boosts the priority of
  * the entire context (e.g. to such an extent where it may pre-empt other
  * running contexts). If it chooses to do this, the Policy must make sure that
- * only the high-priority jobs are run, and that the context is scheduled out
- * once only low priority jobs remain. This ensures that the low priority jobs
- * within the context do not gain from the priority boost, yet they still get
- * scheduled correctly with respect to other low priority contexts.
+ * only jobs from high-priority contexts are run, and that the context is
+ * scheduled out once only jobs from low priority contexts remain. This ensures
+ * that the low priority contexts do not gain from the priority boost, yet they
+ * still get scheduled correctly with respect to other low priority contexts.
  *
  *
  * @section sec_kbase_js_policy_operation_irq IRQ Path
@@ -615,12 +613,10 @@ mali_bool kbasep_js_policy_ctx_has_priority(union kbasep_js_policy *js_policy, s
  *
  * This structure is embedded in the struct kbase_jd_atom structure. It is used to:
  * - track information needed for the policy to schedule the job (e.g. time
- * used, OS priority etc.)
+ * used, etc.)
  * - link together jobs into a queue/buffer, so that a struct kbase_jd_atom can be
  * obtained as the container of the policy job info. This allows the API to
  * return what "the next job" should be.
- * - obtain other information already stored in the struct kbase_context for
- * scheduling purposes (e.g user-side relative priority)
  */
 union kbasep_js_policy_job_info;
 

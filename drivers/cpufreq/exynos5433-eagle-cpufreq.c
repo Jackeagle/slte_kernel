@@ -24,6 +24,7 @@
 #include <mach/cpufreq.h>
 #include <mach/asv-exynos.h>
 #include <mach/asv-exynos5_cal.h>
+#include <linux/of.h>
 #include <linux/sec_debug.h>
 
 #define CPUFREQ_LEVEL_END_CA15	(L23 + 1)
@@ -43,6 +44,25 @@ static struct clk *fout_egl_pll;
 
 static unsigned int exynos5433_volt_table_CA15[CPUFREQ_LEVEL_END_CA15];
 static unsigned int exynos5433_abb_table_CA15[CPUFREQ_LEVEL_END_CA15];
+
+static int en_smpl_warn = 0;
+static BLOCKING_NOTIFIER_HEAD(exynos_cpufreq_smpl_warn_notifier_list);
+int exynos_cpufreq_smpl_warn_register_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&exynos_cpufreq_smpl_warn_notifier_list, nb);
+}
+
+int exynos_cpufreq_smpl_warn_unregister_notifier(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&exynos_cpufreq_smpl_warn_notifier_list, nb);
+}
+
+int exynos_cpufreq_smpl_warn_notify_call_chain(void)
+{
+	int ret = blocking_notifier_call_chain(&exynos_cpufreq_smpl_warn_notifier_list, 0, NULL);
+	return notifier_to_errno(ret);
+}
+EXPORT_SYMBOL(exynos_cpufreq_smpl_warn_notify_call_chain);
 
 static struct cpufreq_frequency_table exynos5433_freq_table_CA15[] = {
 	{L0,  2500 * 1000},
@@ -87,15 +107,15 @@ static struct apll_freq exynos5433_apll_freq_CA15[] = {
 	APLL_FREQ(2100, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 350, 4, 0),    /* ARM L4: 2.1GHz  */
 	APLL_FREQ(2000, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 500, 6, 0),    /* ARM L5: 2.0GHz  */
 	APLL_FREQ(1900, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 475, 6, 0),    /* ARM L6: 1.9GHz  */
-	APLL_FREQ(1800, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 375, 5, 0),    /* ARM L7: 1.8GHz  */
-	APLL_FREQ(1700, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 425, 6, 0),    /* ARM L8: 1.7GHz  */
-	APLL_FREQ(1600, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 400, 6, 0),    /* ARM L9: 1.6GHz  */
+	APLL_FREQ(1800, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 375, 5, 0),    /* ARM L7: 1.8GHz  */
+	APLL_FREQ(1700, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 425, 6, 0),    /* ARM L8: 1.7GHz  */
+	APLL_FREQ(1600, 0, 0, 4, 7, 7, 7, 7, 0, 1, 7, 0, 400, 6, 0),    /* ARM L9: 1.6GHz  */
 	APLL_FREQ(1500, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 250, 4, 0),    /* ARM L10: 1.5GHz */
 	APLL_FREQ(1400, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 350, 6, 0),    /* ARM L11: 1.4GHz */
 	APLL_FREQ(1300, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 325, 6, 0),    /* ARM L12: 1.3GHz */
 	APLL_FREQ(1200, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 500, 5, 1),    /* ARM L13: 1.2GHz */
-	APLL_FREQ(1100, 0, 0, 2, 7, 7, 7, 7, 0, 1, 7, 0, 550, 6, 1),    /* ARM L14: 1.1GHz */
-	APLL_FREQ(1000, 0, 0, 2, 7, 7, 7, 7, 0, 1, 7, 0, 500, 6, 1),    /* ARM L15: 1.0GHz */
+	APLL_FREQ(1100, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 550, 6, 1),    /* ARM L14: 1.1GHz */
+	APLL_FREQ(1000, 0, 0, 3, 7, 7, 7, 7, 0, 1, 7, 0, 500, 6, 1),    /* ARM L15: 1.0GHz */
 	APLL_FREQ( 900, 0, 0, 2, 7, 7, 7, 7, 0, 1, 7, 0, 375, 5, 1),    /* ARM L16: 900MHz */
 	APLL_FREQ( 800, 0, 0, 2, 7, 7, 7, 7, 0, 1, 7, 0, 400, 6, 1),    /* ARM L17: 800MHz */
 	APLL_FREQ( 700, 0, 0, 2, 7, 7, 7, 7, 0, 1, 7, 0, 350, 6, 1),    /* ARM L18: 700MHz */
@@ -146,10 +166,10 @@ static int exynos5433_bus_table_CA15[CPUFREQ_LEVEL_END_CA15] = {
 	825000,		/* 2.0 GHz */
 	825000,		/* 1.9 GHz */
 	825000,		/* 1.8 GHz */
-	633000,		/* 1.7 MHz */
-	633000,		/* 1.6 GHz */
-	633000,		/* 1.5 GHz */
-	633000,		/* 1.4 GHz */
+	667000,		/* 1.7 MHz */
+	667000,		/* 1.6 GHz */
+	667000,		/* 1.5 GHz */
+	667000,		/* 1.4 GHz */
 	543000,		/* 1.3 GHz */
 	543000,		/* 1.2 GHz */
 	413000,		/* 1.1 GHz */
@@ -162,6 +182,46 @@ static int exynos5433_bus_table_CA15[CPUFREQ_LEVEL_END_CA15] = {
 	0,		/* 400 MHz */
 	0,		/* 300 MHz */
 	0,		/* 200 MHz */
+};
+
+static void exynos5433_set_ema_CA15(unsigned int target_volt)
+{
+	cal_set_ema(SYSC_DVFS_EGL, target_volt);
+}
+
+static int exynos5433_cpufreq_smpl_warn_notifier_call(
+					struct notifier_block *notifer,
+					unsigned long event, void *v)
+{
+	unsigned int state;
+
+	state = __raw_readl(EXYNOS5430_DIV_EGL_PLL_FREQ_DET);
+	state &= ~0x2;
+	__raw_writel(state, EXYNOS5430_DIV_EGL_PLL_FREQ_DET);
+	pr_info("%s: SMPL_WARN: EXYNOS5430_DIV_EGL_PLL_FREQ_DET is cleared\n",__func__);
+
+	return NOTIFY_OK;
+}
+
+static int exynos5433_check_smpl_CA15(void)
+{
+	int tmp;
+
+	if (!en_smpl_warn)
+		return 0;
+
+	tmp = __raw_readl(EXYNOS5430_DIV_EGL_PLL_FREQ_DET);
+
+	if (tmp &= 0x2) {
+		pr_info("%s: SMPL HAPPENED!", __func__);
+		return 1;
+	}
+
+	return 0;
+};
+
+static struct notifier_block exynos5433_cpufreq_smpl_warn_notifier = {
+	.notifier_call = exynos5433_cpufreq_smpl_warn_notifier_call,
 };
 
 static void exynos5433_set_clkdiv_CA15(unsigned int div_index)
@@ -198,7 +258,7 @@ static void exynos5433_set_egl_pll_CA15(unsigned int new_index, unsigned int old
 	unsigned int tmp, pdiv;
 
 	/* 1. before change to BUS_PLL, set div for BUS_PLL output */
-	if ((new_index < L17) && (old_index < L17))
+	if ((new_index > L17) && (old_index > L17))
 		exynos5433_set_clkdiv_CA15(L17); /* pll_safe_idx of CA15 */
 
 	/* 2. CLKMUX_SEL_EGL = MOUT_BUS_PLL_USER, EGLCLK uses BUS_PLL_USER for lock time */
@@ -244,7 +304,7 @@ static void exynos5433_set_egl_pll_CA15(unsigned int new_index, unsigned int old
 	} while (tmp != 0x1);
 
 	/* 7. restore original div value */
-	if ((new_index < L17) && (old_index < L17))
+	if ((new_index > L17) && (old_index > L17))
 		exynos5433_set_clkdiv_CA15(new_index);
 }
 
@@ -346,6 +406,9 @@ static void __init set_volt_table_CA15(void)
 	default :
 		max_support_idx_CA15 = L6;	/* 1.9 GHz */
 	}
+
+	if (is_max_limit_sample() == 1)
+		max_support_idx_CA15 = L8;      /* 1.7 GHz */
 #else
 	max_support_idx_CA15 = L13;	/* 1.2 GHz */
 #endif
@@ -386,6 +449,8 @@ static void set_boot_cpu_qos_freq(struct exynos_dvfs_info *info, int lv_idx)
 int __init exynos5_cpufreq_CA15_init(struct exynos_dvfs_info *info)
 {
 	unsigned long rate;
+	int tmp, ret;
+	struct device_node *pmic_node;
 
 	set_volt_table_CA15();
 
@@ -449,7 +514,6 @@ int __init exynos5_cpufreq_CA15_init(struct exynos_dvfs_info *info)
 #endif
 	/* reboot limit frequency is 800MHz */
 	info->reboot_limit_freq = exynos5433_freq_table_CA15[L17].frequency;
-
 	info->bus_table = exynos5433_bus_table_CA15;
 	info->cpu_clk = fout_egl_pll;
 
@@ -459,6 +523,34 @@ int __init exynos5_cpufreq_CA15_init(struct exynos_dvfs_info *info)
 	info->set_freq = exynos5433_set_frequency_CA15;
 	info->need_apll_change = exynos5433_pms_change_CA15;
 	info->is_alive = exynos5433_is_alive_CA15;
+	info->set_ema = exynos5433_set_ema_CA15;
+
+	/* get smpl_enable value */
+	pmic_node = of_find_compatible_node(NULL, NULL, "samsung,s2mps13-pmic");
+
+	if (!pmic_node) {
+		pr_err("%s: faile to get pmic dt_node\n", __func__);
+	} else {
+		ret = of_property_read_u32(pmic_node, "smpl_warn_en", &en_smpl_warn);
+
+		if (ret)
+			pr_err("%s: faile to get Property of smpl_warn_en\n", __func__);
+	}
+
+	if (en_smpl_warn) {
+		info->check_smpl = exynos5433_check_smpl_CA15;
+
+		/* Enable SMPL */
+		tmp = __raw_readl(EXYNOS5430_DIV_EGL_PLL_FREQ_DET);
+		pr_info("%s SMPL ENABLE %d ", __func__, tmp);
+		tmp &= ~0x1;
+		tmp |= 0x1;
+		pr_info("%s -- SMPL ENABLE %d ", __func__, tmp);
+		__raw_writel(tmp, EXYNOS5430_DIV_EGL_PLL_FREQ_DET);
+
+		/* Add smpl_notifer */
+		exynos_cpufreq_smpl_warn_register_notifier(&exynos5433_cpufreq_smpl_warn_notifier);
+	}
 
 #ifdef ENABLE_CLKOUT
 	/* dividing EGL_CLK to 1/16 */

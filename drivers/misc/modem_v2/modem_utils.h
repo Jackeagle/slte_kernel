@@ -23,7 +23,7 @@
 #define MAX_MIF_SEPA_SIZE 32
 #define MIF_SEPARATOR "IPC_LOGGER(VER1.1)"
 #define MIF_SEPARATOR_DPRAM "DPRAM_LOGGER(VER1.1)"
-#define MAX_IPC_SKB_SIZE 4096
+#define MAX_IPC_SKB_SIZE 3584	/* 4K - 512byte */
 #define MAX_LOG_SIZE 64
 
 #define MAX_LOG_CNT (MAX_MIF_BUFF_SIZE / MAX_LOG_SIZE)
@@ -203,6 +203,9 @@ void iodevs_for_each(struct modem_shared *msd, action_fn action, void *args);
 /* netif wake/stop queue of iod */
 void iodev_netif_wake(struct io_device *iod, void *args);
 void iodev_netif_stop(struct io_device *iod, void *args);
+
+/* netif wake/stop queue of iod having activated ndev */
+void netif_tx_flowctl(struct modem_shared *msd, bool tx_stop);
 
 /* change tx_link of raw devices */
 void rawdevs_set_tx_link(struct modem_shared *msd, enum modem_link link_type);

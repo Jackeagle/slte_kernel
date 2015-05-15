@@ -72,8 +72,13 @@ static void max77843_haptic_i2c(struct max77843_haptic_data *hap_data, bool en)
 	if (ret)
 		pr_err("[VIB] i2c REG_BIASEN update error %d\n", ret);
 
-	ret = max77843_update_reg(hap_data->i2c, MAX77843_PMIC_REG_MCONFIG,
-			0xff, MOTOR_EN);
+	if (en) {
+		ret = max77843_update_reg(hap_data->i2c,
+				MAX77843_PMIC_REG_MCONFIG, 0xff, MOTOR_EN);
+	} else {
+		ret = max77843_update_reg(hap_data->i2c,
+				MAX77843_PMIC_REG_MCONFIG, 0x0, MOTOR_EN);
+	}
 	if (ret)
 		pr_err("[VIB] i2c MOTOR_EN update error %d\n", ret);
 
@@ -471,13 +476,18 @@ static int max77843_haptic_probe(struct platform_device *pdev)
 	hap_data->pdata = pdata;
 
 	hap_data->workqueue = create_singlethread_workqueue("hap_work");
+	if (NULL == hap_data->workqueue) {
+		error = -EFAULT;
+		pr_err("[VIB] Failed to create workqueue, err num: %d\n", error);
+		goto err_work_queue;
+	}
 	INIT_WORK(&(hap_data->work), haptic_work);
 	spin_lock_init(&(hap_data->lock));
 
 	hap_data->pwm = pwm_request(hap_data->pdata->pwm_id, "vibrator");
 	if (IS_ERR(hap_data->pwm)) {
-		pr_err("[VIB] Failed to request pwm\n");
 		error = -EFAULT;
+		pr_err("[VIB] Failed to request pwm, err num: %d\n", error);
 		goto err_pwm_request;
 	}
 
@@ -491,8 +501,8 @@ static int max77843_haptic_probe(struct platform_device *pdev)
 			= regulator_get(NULL, pdata->regulator_name);
 
 	if (IS_ERR(hap_data->regulator)) {
-		pr_err("[VIB] Failed to get vmoter regulator.\n");
 		error = -EFAULT;
+		pr_err("[VIB] Failed to get vmoter regulator, err num: %d\n", error);
 		goto err_regulator_get;
 	}
 	/* hrtimer init */
@@ -508,22 +518,24 @@ static int max77843_haptic_probe(struct platform_device *pdev)
 
 	motor_dev = sec_device_create(hap_data, "motor");
 	if (IS_ERR(motor_dev)) {
-		pr_err("[VIB] Failed to create device for samsung specific motor\n");
 		error = -ENODEV;
+		pr_err("[VIB] Failed to create device\
+				for samsung specific motor, err num: %d\n", error);
 		goto exit_sec_devices;
 	}
 	error = sysfs_create_group(&motor_dev->kobj, &sec_motor_attr_group);
 	if (error) {
-		pr_err("[VIB] Failed to create sysfs group for samsung specific motor\n");
 		error = -ENODEV;
+		pr_err("[VIB] Failed to create sysfs group\
+				for samsung specific motor, err num: %d\n", error);
 		goto exit_sysfs;
 	}
 
 #ifdef CONFIG_ANDROID_TIMED_OUTPUT
 	error = timed_output_dev_register(&hap_data->tout_dev);
 	if (error < 0) {
-		pr_err("[VIB] Failed to register timed_output : %d\n", error);
 		error = -EFAULT;
+		pr_err("[VIB] Failed to register timed_output : %d\n", error);
 		goto err_timed_output_register;
 	}
 #endif
@@ -541,6 +553,8 @@ exit_sec_devices:
 err_regulator_get:
 	pwm_free(hap_data->pwm);
 err_pwm_request:
+	destroy_workqueue(hap_data->workqueue);
+err_work_queue:
 	kfree(hap_data);
 	kfree(pdata);
 	g_hap_data = NULL;
@@ -559,6 +573,7 @@ static int __devexit max77843_haptic_remove(struct platform_device *pdev)
 	regulator_put(data->regulator);
 	pwm_free(data->pwm);
 	destroy_workqueue(data->workqueue);
+	max77843_haptic_i2c(data, false);
 	kfree(data);
 	g_hap_data = NULL;
 
@@ -568,10 +583,12 @@ static int __devexit max77843_haptic_remove(struct platform_device *pdev)
 static int max77843_haptic_suspend(struct platform_device *pdev,
 		pm_message_t state)
 {
+	struct max77843_haptic_data *data = platform_get_drvdata(pdev);
 	pr_info("[VIB] %s\n", __func__);
 	cancel_work_sync(&g_hap_data->work);
 	hrtimer_cancel(&g_hap_data->timer);
 	vibetonz_clk_on(&pdev->dev, false);
+	max77843_haptic_i2c(data, false);
 	return 0;
 }
 static int max77843_haptic_resume(struct platform_device *pdev)

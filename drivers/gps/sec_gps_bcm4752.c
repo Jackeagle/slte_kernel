@@ -6,11 +6,22 @@
 #include <linux/of_gpio.h>
 #include <mach/gpio.h>
 #include <plat/gpio-cfg.h>
+#include <linux/module.h>
 
 #include <linux/sec_sysfs.h>
 
 static struct device *gps_dev;
 static unsigned int gps_pwr_on = 0;
+
+extern unsigned int system_rev;
+
+static ssize_t hwrev_show(struct device *dev, \
+struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%x\n", system_rev);
+}
+
+static DEVICE_ATTR(hwrev, S_IRUGO, hwrev_show, NULL);
 
 int check_gps_op(void)
 {
@@ -25,6 +36,7 @@ EXPORT_SYMBOL(check_gps_op);
 
 static int __init gps_bcm4752_init(void)
 {
+	int ret = 0;
 	const char *gps_node = "samsung,exynos54xx-bcm4752";
 
 	struct device_node *root_node = NULL;
@@ -35,24 +47,36 @@ static int __init gps_bcm4752_init(void)
 	root_node = of_find_compatible_node(NULL, NULL, gps_node);
 	if (!root_node) {
 		WARN(1, "failed to get device node of bcm4752\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
+	}
+
+	if (device_create_file(gps_dev, &dev_attr_hwrev) < 0) {
+		pr_err("Failed to create device file(%s)!\n",
+		       dev_attr_hwrev.attr.name);
 	}
 
 	gps_pwr_on = of_get_gpio(root_node, 0);
 	if (!gpio_is_valid(gps_pwr_on)) {
 		WARN(1, "Invalied gpio pin : %d\n", gps_pwr_on);
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 
 	if (gpio_request(gps_pwr_on, "GPS_PWR_EN")) {
 		WARN(1, "fail to request gpio(GPS_PWR_EN)\n");
-		return -ENODEV;
+		ret = -ENODEV;
+		goto err_sec_device_create;
 	}
 	gpio_direction_output(gps_pwr_on, 0);
 	gpio_export(gps_pwr_on, 1);
 	gpio_export_link(gps_dev, "GPS_PWR_EN", gps_pwr_on);
 
 	return 0;
+
+err_sec_device_create:
+	sec_device_destroy(gps_dev->devt);
+	return ret;
 }
 
 device_initcall(gps_bcm4752_init);

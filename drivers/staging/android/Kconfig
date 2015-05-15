@@ -83,6 +83,13 @@ config SEC_OOM_KILLER
 	  Hence, it makes more sense that we select the oom victim
 	  as android does when LMK is invoked.
 
+config OOM_KILLER_TIMEOUT
+	bool "OOM Killer Timeout"
+	default n
+	help
+		OOM Killer is invoked reaching timeout eventhough there is did_some_progress
+		This is useful in case of lowmem and highmem imbalance
+
 config SEC_DEBUG_LMK_MEMINFO
 	bool "Show Meminfo when lmk invoked"
 	default n

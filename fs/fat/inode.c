@@ -29,7 +29,6 @@
 #include <linux/blkdev.h>
 #include <asm/unaligned.h>
 #include "fat.h"
-#include <linux/stlog.h>
 
 #ifndef CONFIG_FAT_DEFAULT_IOCHARSET
 /* if user don't select VFAT, this is undefined. */

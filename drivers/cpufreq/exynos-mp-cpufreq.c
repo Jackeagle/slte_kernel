@@ -30,6 +30,10 @@
 #include <linux/kobject.h>
 #include <linux/sysfs.h>
 #include <linux/cpumask.h>
+#if defined(CONFIG_MUIC_NOTIFIER) && !defined(CONFIG_SEC_FACTORY)
+#include <linux/muic/muic.h>
+#include <linux/muic/muic_notifier.h>
+#endif
 
 #include <asm/smp_plat.h>
 #include <asm/cputype.h>
@@ -208,6 +212,19 @@ static void set_boot_freq(void)
 	}
 }
 
+static void set_resume_freq(void)
+{
+	int i;
+
+	for (i = 0; i < CA_END; i++) {
+		if (exynos_info[i] == NULL)
+			continue;
+
+		exynos_info[i]->resume_freq
+				= clk_get_rate(exynos_info[i]->cpu_clk) / 1000;
+	}
+}
+
 static void cluster_onoff_monitor(struct work_struct *work)
 {
 	struct cpufreq_frequency_table *CA15_freq_table = exynos_info[CA15]->freq_table;
@@ -309,6 +326,14 @@ static unsigned int get_boot_volt(int cluster)
 	unsigned int boot_freq = get_boot_freq(cluster);
 
 	return get_freq_volt(cluster, boot_freq);
+}
+
+static unsigned int get_resume_freq(unsigned int cluster)
+{
+	if (exynos_info[cluster] == NULL)
+		return 0;
+
+	return exynos_info[cluster]->resume_freq;
 }
 
 int exynos_verify_speed(struct cpufreq_policy *policy)
@@ -715,6 +740,9 @@ static int exynos_target(struct cpufreq_policy *policy,
 	if (target_freq == 0)
 		target_freq = policy->min;
 
+	if (exynos_info[cur]->check_smpl && exynos_info[cur]->check_smpl())
+		goto out;
+
 	/* if PLL bypass, frequency scale is skip */
 	if (exynos_getspeed(policy->cpu) <= 24000)
 		goto out;
@@ -910,8 +938,8 @@ static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 		exynos_info[CA15]->blocked = true;
 		mutex_unlock(&cpufreq_lock);
 
-		bootfreqCA7 = get_boot_freq(CA7);
-		bootfreqCA15 = get_boot_freq(CA15);
+		bootfreqCA7 = get_resume_freq(CA7);
+		bootfreqCA15 = get_resume_freq(CA15);
 
 		freqCA7 = freqs[CA7]->old;
 		freqCA15 = freqs[CA15]->old;
@@ -980,6 +1008,7 @@ static int exynos_cpufreq_pm_notifier(struct notifier_block *notifier,
 		break;
 	case PM_POST_SUSPEND:
 		pr_debug("PM_POST_SUSPEND for CPUFREQ\n");
+		set_resume_freq();
 
 		mutex_lock(&cpufreq_lock);
 		exynos_info[CA7]->blocked = false;
@@ -1375,7 +1404,7 @@ static ssize_t store_cpu_min_freq(struct kobject *kobj, struct attribute *attr,
 	if (input > 0)
 		input = min(input, (int)freq_max[CA15]);
 
-	if (pm_qos_request_active(&min_cpu_qos))
+	if (pm_qos_request_active(&min_cpu_qos_real))
 		pm_qos_update_request(&min_cpu_qos_real, input);
 
 	return count;
@@ -1392,7 +1421,7 @@ static ssize_t store_cpu_max_freq(struct kobject *kobj, struct attribute *attr,
 	if (input > 0)
 		input = max(input, (int)freq_min[CA15]);
 
-	if (pm_qos_request_active(&max_cpu_qos))
+	if (pm_qos_request_active(&max_cpu_qos_real))
 		pm_qos_update_request(&max_cpu_qos_real, input);
 
 	return count;
@@ -1456,7 +1485,7 @@ static ssize_t store_kfc_min_freq(struct kobject *kobj, struct attribute *attr,
 	if (input > 0)
 		input = min(input, (int)freq_max[CA7]);
 
-	if (pm_qos_request_active(&min_kfc_qos))
+	if (pm_qos_request_active(&min_kfc_qos_real))
 		pm_qos_update_request(&min_kfc_qos_real, input);
 
 	return count;
@@ -1473,7 +1502,7 @@ static ssize_t store_kfc_max_freq(struct kobject *kobj, struct attribute *attr,
 	if (input > 0)
 		input = max(input, (int)freq_min[CA7]);
 
-	if (pm_qos_request_active(&max_kfc_qos))
+	if (pm_qos_request_active(&max_kfc_qos_real))
 		pm_qos_update_request(&max_kfc_qos_real, input);
 
 	return count;
@@ -1928,6 +1957,7 @@ static int __init exynos_cpufreq_init(void)
 		freq_table[exynos_info[CA7]->min_support_idx].frequency;
 
 	set_boot_freq();
+	set_resume_freq();
 
 	/* set initial old frequency */
 	freqs[CA7]->old = exynos_getspeed_cluster(CA7);
@@ -2198,4 +2228,71 @@ err_alloc_info_CA7:
 device_initcall(exynos_cpufreq_init);
 #else
 late_initcall(exynos_cpufreq_init);
+#endif
+
+#if defined(CONFIG_SEC_PM) && (defined(CONFIG_SOC_EXYNOS5433) || defined(CONFIG_SOC_EXYNOS5422)) && \
+	defined(CONFIG_MUIC_NOTIFIER) && !defined(CONFIG_SEC_FACTORY)
+static struct notifier_block cpufreq_muic_nb;
+static bool jig_is_attached;
+
+static int exynos_cpufreq_muic_notifier(struct notifier_block *nb,
+				unsigned long action, void *data)
+{
+	muic_attached_dev_t attached_dev = *(muic_attached_dev_t *)data;
+
+	switch (attached_dev) {
+	case ATTACHED_DEV_JIG_UART_OFF_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_OTG_MUIC:
+	case ATTACHED_DEV_JIG_UART_OFF_VB_FG_MUIC:
+		if (action == MUIC_NOTIFY_CMD_DETACH)
+			jig_is_attached = false;
+		else if (action == MUIC_NOTIFY_CMD_ATTACH)
+			jig_is_attached = true;
+		else
+			pr_err("%s - ACTION Error!\n", __func__);
+		break;
+	default:
+		break;
+	}
+
+	return NOTIFY_DONE;
+}
+
+static int __init exynos_cpufreq_late_init(void)
+{
+	unsigned long timeout = 200 * USEC_PER_SEC;
+
+	muic_notifier_register(&cpufreq_muic_nb,
+			exynos_cpufreq_muic_notifier, MUIC_NOTIFY_DEV_CPUFREQ);
+
+	if (!jig_is_attached)
+		return 0;
+
+	pr_info("%s: JIG is attached: boot cpu qos %lu sec\n", __func__,
+			timeout / USEC_PER_SEC);
+
+	if (exynos_info[CA7]->boot_cpu_min_qos)
+		pm_qos_update_request_timeout(&boot_min_kfc_qos,
+					exynos_info[CA7]->boot_cpu_min_qos,
+					timeout);
+
+	if (exynos_info[CA7]->boot_cpu_max_qos)
+		pm_qos_update_request_timeout(&boot_max_kfc_qos,
+					exynos_info[CA7]->boot_cpu_max_qos,
+					timeout);
+
+	if (exynos_info[CA15]->boot_cpu_min_qos)
+		pm_qos_update_request_timeout(&boot_min_cpu_qos,
+					exynos_info[CA15]->boot_cpu_min_qos,
+					timeout);
+
+	if (exynos_info[CA15]->boot_cpu_max_qos)
+		pm_qos_update_request_timeout(&boot_max_cpu_qos,
+					exynos_info[CA15]->boot_cpu_max_qos,
+					timeout);
+	return 0;
+}
+
+late_initcall(exynos_cpufreq_late_init);
 #endif

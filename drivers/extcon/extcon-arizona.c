@@ -58,16 +58,14 @@
 #define MICROPHONE_MIN_OHM      1257
 #define MICROPHONE_MAX_OHM      30000
 
-enum {
-	MICD_LVL_1_TO_7 = ARIZONA_MICD_LVL_1 | ARIZONA_MICD_LVL_2 |
-			  ARIZONA_MICD_LVL_3 | ARIZONA_MICD_LVL_4 |
-			  ARIZONA_MICD_LVL_5 | ARIZONA_MICD_LVL_6 |
-			  ARIZONA_MICD_LVL_7,
+#define MICD_LVL_1_TO_7 (ARIZONA_MICD_LVL_1 | ARIZONA_MICD_LVL_2 | \
+			 ARIZONA_MICD_LVL_3 | ARIZONA_MICD_LVL_4 | \
+			 ARIZONA_MICD_LVL_5 | ARIZONA_MICD_LVL_6 | \
+			 ARIZONA_MICD_LVL_7)
 
-	MICD_LVL_0_TO_7 = ARIZONA_MICD_LVL_0 | MICD_LVL_1_TO_7,
+#define MICD_LVL_0_TO_7 (ARIZONA_MICD_LVL_0 | MICD_LVL_1_TO_7)
 
-	MICD_LVL_0_TO_8 = MICD_LVL_0_TO_7 | ARIZONA_MICD_LVL_8,
-};
+#define MICD_LVL_0_TO_8 (MICD_LVL_0_TO_7 | ARIZONA_MICD_LVL_8)
 
 struct arizona_extcon_info {
 	struct device *dev;
@@ -155,8 +153,8 @@ DEVICE_ATTR(hp_impedance, S_IRUGO, arizona_extcon_show, NULL);
 
 static void arizona_start_hpdet_acc_id(struct arizona_extcon_info *info);
 
-static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
-				    unsigned int magic)
+static void arizona_extcon_hp_clamp(struct arizona_extcon_info *info,
+				    bool clamp)
 {
 	struct arizona *arizona = info->arizona;
 	unsigned int mask, val = 0;
@@ -169,25 +167,26 @@ static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
 		break;
 	case WM8280:
 	case WM5110:
-		mask = 0x0007;
-		if (magic)
-			val = 0x0001;
+		mask = ARIZONA_HP1L_SHRTO | ARIZONA_HP1L_FLWR |
+		       ARIZONA_HP1L_SHRTI;
+		if (clamp)
+			val = ARIZONA_HP1L_SHRTO;
 		else
-			val = 0x0006;
+			val = ARIZONA_HP1L_FLWR | ARIZONA_HP1L_SHRTI;
 		break;
 	default:
-		mask = 0x4000;
-		if (magic)
-			val = 0x4000;
+		mask = ARIZONA_RMV_SHRT_HP1L;
+		if (clamp)
+			val = ARIZONA_RMV_SHRT_HP1L;
 		break;
 	};
 
 	mutex_lock(&arizona->dapm->card->dapm_mutex);
 
-	arizona->hpdet_magic = magic;
+	arizona->hpdet_clamp = clamp;
 
-	/* Keep the HP output stages disabled while doing the magic */
-	if (magic) {
+	/* Keep the HP output stages disabled while doing the clamp */
+	if (clamp) {
 		ret = regmap_update_bits(arizona->regmap,
 					 ARIZONA_OUTPUT_ENABLES_1,
 					 ARIZONA_OUT1L_ENA |
@@ -199,19 +198,21 @@ static void arizona_extcon_do_magic(struct arizona_extcon_info *info,
 	}
 
 	if (mask) {
-		ret = regmap_update_bits(arizona->regmap, 0x225, mask, val);
+		ret = regmap_update_bits(arizona->regmap, ARIZONA_HP_CTRL_1L,
+					 ARIZONA_RMV_SHRT_HP1L, val);
 		if (ret != 0)
-			dev_warn(arizona->dev, "Failed to do magic: %d\n",
-				 ret);
+			dev_warn(arizona->dev, "Failed to do clamp: %d\n",
+					 ret);
 
-		ret = regmap_update_bits(arizona->regmap, 0x226, mask, val);
+		ret = regmap_update_bits(arizona->regmap, ARIZONA_HP_CTRL_1R,
+					 ARIZONA_RMV_SHRT_HP1R, val);
 		if (ret != 0)
-			dev_warn(arizona->dev, "Failed to do magic: %d\n",
+			dev_warn(arizona->dev, "Failed to do clamp: %d\n",
 				 ret);
 	}
 
-	/* Restore the desired state while not doing the magic */
-	if (!magic) {
+	/* Restore the desired state while not doing the clamp */
+	if (!clamp) {
 		ret = regmap_update_bits(arizona->regmap,
 					 ARIZONA_OUTPUT_ENABLES_1,
 					 ARIZONA_OUT1L_ENA |
@@ -396,6 +397,8 @@ static struct {
 	{ 169, 11065, 65460395 },
 };
 
+#define ARIZONA_HPDET_B_RANGE_MAX 0x3fb
+
 static struct {
 	int min;
 	int max;
@@ -451,7 +454,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 
 		if (range < ARRAY_SIZE(arizona_hpdet_b_ranges) - 1 &&
 		    (val < arizona_hpdet_b_ranges[range].threshold ||
-		     val >= 0x3fb)) {
+		     val >= ARIZONA_HPDET_B_RANGE_MAX)) {
 			range++;
 			dev_dbg(arizona->dev, "Moving to HPDET range %d\n",
 				range);
@@ -465,7 +468,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 
 		/* If we go out of range report top of range */
 		if (val < arizona_hpdet_b_ranges[range].threshold ||
-		    val >= 0x3fb) {
+		    val >= ARIZONA_HPDET_B_RANGE_MAX) {
 			dev_dbg(arizona->dev, "Measurement out of range\n");
 			return ARIZONA_HPDET_MAX;
 		}
@@ -489,6 +492,7 @@ static int arizona_hpdet_read(struct arizona_extcon_info *info)
 		}
 
 		val &= ARIZONA_HP_LVL_B_MASK;
+		/* Convert to ohms, the value is in 0.5 ohm increments */
 		val /= 2;
 
 		regmap_read(arizona->regmap, ARIZONA_HEADPHONE_DETECT_1,
@@ -573,7 +577,7 @@ static int arizona_hpdet_do_id(struct arizona_extcon_info *info, int *reading,
 		}
 
 		/*
-		 * If we measure the mic as 
+		 * If we measure the mic as high impedance
 		 */
 		if (!id_gpio || info->hpdet_res[1] > 50) {
 			dev_dbg(arizona->dev, "Detected mic\n");
@@ -659,7 +663,7 @@ done:
 			   ARIZONA_HP_IMPEDANCE_RANGE_MASK | ARIZONA_HP_POLL,
 			   0);
 
-	arizona_extcon_do_magic(info, 0);
+	arizona_extcon_hp_clamp(info, false);
 
 	if (id_gpio)
 		gpio_set_value_cansleep(id_gpio, 0);
@@ -704,7 +708,7 @@ static void arizona_identify_headphone(struct arizona_extcon_info *info)
 	if (info->mic)
 		arizona_stop_mic(info);
 
-	arizona_extcon_do_magic(info, 0x4000);
+	arizona_extcon_hp_clamp(info, true);
 
 	ret = regmap_update_bits(arizona->regmap,
 				 ARIZONA_ACCESSORY_DETECT_MODE_1,
@@ -755,7 +759,7 @@ static void arizona_start_hpdet_acc_id(struct arizona_extcon_info *info)
 
 	info->hpdet_active = true;
 
-	arizona_extcon_do_magic(info, 0x4000);
+	arizona_extcon_hp_clamp(info, true);
 
 	ret = regmap_update_bits(arizona->regmap,
 				 ARIZONA_ACCESSORY_DETECT_MODE_1,
@@ -1210,7 +1214,7 @@ static void arizona_micd_set_level(struct arizona *arizona, int index,
 }
 
 #ifdef CONFIG_OF
-static int arizona_extcon_get_pdata(struct arizona *arizona)
+static int arizona_extcon_of_get_pdata(struct arizona *arizona)
 {
 	struct arizona_pdata *pdata = &arizona->pdata;
 
@@ -1262,7 +1266,7 @@ static int arizona_extcon_get_pdata(struct arizona *arizona)
 	return 0;
 }
 #else
-static inline int arizona_extcon_get_pdata(struct arizona *arizona)
+static inline int arizona_extcon_of_get_pdata(struct arizona *arizona)
 {
 	return 0;
 }
@@ -1291,20 +1295,27 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 	if (!arizona->dapm || !arizona->dapm->card)
 		return -EPROBE_DEFER;
 
-	arizona_extcon_get_pdata(arizona);
-
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);
-	if (!info) {
-		dev_err(&pdev->dev, "Failed to allocate memory\n");
-		ret = -ENOMEM;
-		goto err;
+	if (!info)
+		return -ENOMEM;
+
+	if (IS_ENABLED(CONFIG_OF)) {
+		if (!dev_get_platdata(arizona->dev)) {
+			ret = arizona_extcon_of_get_pdata(arizona);
+			if (ret < 0)
+				return ret;
+		}
 	}
 
-	info->micvdd = devm_regulator_get(arizona->dev, "MICVDD");
+	/* Set of_node to parent from the SPI device to allow
+	 * location regulator supplies */
+	pdev->dev.of_node = arizona->dev->of_node;
+
+	info->micvdd = devm_regulator_get(&pdev->dev, "MICVDD");
 	if (IS_ERR(info->micvdd)) {
 		ret = PTR_ERR(info->micvdd);
 		dev_err(arizona->dev, "Failed to get MICVDD: %d\n", ret);
-		goto err;
+		return ret;
 	}
 
 	mutex_init(&info->lock);
@@ -1355,7 +1366,7 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 	if (ret < 0) {
 		dev_err(arizona->dev, "extcon_dev_register() failed: %d\n",
 			ret);
-		goto err;
+		return ret;
 	}
 
 	info->input = devm_input_allocate_device(&pdev->dev);
@@ -1367,7 +1378,6 @@ static int arizona_extcon_probe(struct platform_device *pdev)
 
 	info->input->name = "Headset";
 	info->input->phys = "arizona/extcon";
-	info->input->dev.parent = &pdev->dev;
 
 	if (pdata->num_micd_configs) {
 		info->micd_modes = pdata->micd_configs;
@@ -1624,7 +1634,6 @@ err_input:
 err_register:
 	pm_runtime_disable(&pdev->dev);
 	extcon_dev_unregister(&info->edev);
-err:
 	return ret;
 }
 

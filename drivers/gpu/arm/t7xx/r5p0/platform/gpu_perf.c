@@ -1,4 +1,4 @@
-/* drivers/gpu/.../platform/gpu_perf.c
+/* drivers/gpu/arm/.../platform/gpu_perf.c
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
@@ -14,6 +14,7 @@
  * @file gpu_perf.c
  * DVFS
  */
+
 #include <linux/io.h>
 #include <linux/math64.h>
 #include "gpu_perf.h"

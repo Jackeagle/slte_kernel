@@ -94,6 +94,7 @@ struct mipi_lli {
 	unsigned int		irq;		/* irq allocated */
 	unsigned int		irq_sig;	/* irq_sig allocated */
 	bool			sig_irq_active;
+	bool			sb_mask_active; /* flag for activation of sideband signal mask */
 	void __iomem		*regs;		/* device memory/io */
 	void __iomem		*remote_regs;	/* device memory/io */
 	void __iomem		*sys_regs;	/* device memory/io */
@@ -112,6 +113,7 @@ struct mipi_lli {
 	bool			is_master;
 	bool			is_suspended;
 	bool			is_runtime_suspended;
+	bool			is_debug_possible;
 
 	struct mipi_lli_ipc_handler hd;
 };
@@ -132,6 +134,8 @@ struct lli_driver {
 	int	(*debug_info)(struct mipi_lli *lli);
 
 	int	(*intr_enable)(struct mipi_lli *lli);
+	int     (*mask_sb_intr)(struct mipi_lli *lli, bool flag);
+
 	int	(*suspend)(struct mipi_lli *lli);
 	int	(*resume)(struct mipi_lli *lli);
 };
@@ -165,12 +169,7 @@ extern void mipi_lli_enable_irq(void);
 
 struct link_pm_svc *mipi_lli_get_pm_svc(void);
 
-#ifdef CONFIG_SEC_MODEM_V1
-#define lli_err(dev, fmt, ...)	evt_log(0, "mipi-lli: " fmt, ##__VA_ARGS__)
-#define lli_info(dev, fmt, ...)	evt_log(0, "mipi-lli: " fmt, ##__VA_ARGS__)
-#else
 #define lli_err(dev, fmt, ...)	dev_err(dev, fmt, ##__VA_ARGS__)
 #define lli_info(dev, fmt, ...)	dev_info(dev, fmt, ##__VA_ARGS__)
-#endif
 
 #endif /* __MIPI_LLI_H */

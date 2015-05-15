@@ -1,7 +1,7 @@
 /*
  * Broadcom Event  protocol definitions
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -23,7 +23,7 @@
  *
  * Dependencies: proto/bcmeth.h
  *
- * $Id: bcmevent.h 490387 2014-07-10 15:12:52Z $
+ * $Id: bcmevent.h 517450 2014-11-25 10:23:13Z $
  *
  */
 
@@ -154,7 +154,6 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 #define WLC_E_IF		54	/* I/F change (for dongle host notification) */
 #define WLC_E_P2P_DISC_LISTEN_COMPLETE	55	/* listen state expires */
 #define WLC_E_RSSI		56	/* indicate RSSI change based on configured levels */
-#define WLC_E_PFN_SCAN_COMPLETE	57	/* PFN completed scan of network list */
 /* PFN best network batching event, re-use obsolete WLC_E_PFN_SCAN_COMPLETE */
 #define WLC_E_PFN_BEST_BATCHING	57
 #define WLC_E_EXTLOG_MSG	58
@@ -230,6 +229,7 @@ typedef BWL_PRE_PACKED_STRUCT struct bcm_event {
 #define WLC_E_RSSI_LQM			133	/* Enhancement addition for WLC_E_RSSI */
 #define WLC_E_PFN_GSCAN_FULL_RESULT		134 /* Full probe/beacon (IEs etc) results */
 #define WLC_E_PFN_SWC		135 /* Significant change in rssi of bssids being tracked */
+#define WLC_E_PFN_SCAN_COMPLETE	138	/* PFN completed scan of network list */
 #define WLC_E_RMC_EVENT			139	/* RMC event */
 #define WLC_E_LAST			140	/* highest val + 1 for range checking */
 

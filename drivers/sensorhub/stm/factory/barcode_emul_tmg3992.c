@@ -138,13 +138,13 @@ retries:
 static ssize_t mobeam_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%s\n", VENDOR);
+	return scnprintf(buf, PAGE_SIZE, "%s\n", VENDOR);
 }
 
 static ssize_t mobeam_name_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%s\n", CHIP_ID);
+	return scnprintf(buf, PAGE_SIZE, "%s\n", CHIP_ID);
 }
 
 static ssize_t barcode_emul_store(struct device *dev,
@@ -208,14 +208,14 @@ static ssize_t barcode_led_status_show(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
 {
-	return snprintf(buf, sizeof(buf), "%u\n", is_beaming);
+	return scnprintf(buf, PAGE_SIZE, "%u\n", is_beaming);
 }
 
 static ssize_t barcode_ver_check_show(struct device *dev,
 		struct device_attribute *attr,
 		char *buf)
 {
-	return snprintf(buf, sizeof(buf), "%u\n", 15);
+	return scnprintf(buf, PAGE_SIZE, "%u\n", 15);
 }
 
 static ssize_t barcode_emul_test_store(struct device *dev,

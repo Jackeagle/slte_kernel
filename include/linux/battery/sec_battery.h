@@ -38,6 +38,15 @@
 
 #include <linux/sec_batt.h>
 
+#if defined(CONFIG_BATTERY_SWELLING)
+#define BATT_SWELLING_HIGH_TEMP_BLOCK		500
+#define BATT_SWELLING_HIGH_TEMP_RECOV		450
+#define BATT_SWELLING_LOW_TEMP_BLOCK		100
+#define BATT_SWELLING_LOW_TEMP_RECOV		150
+#define BATT_SWELLING_RECHG_VOLTAGE		4150
+#define BATT_SWELLING_BLOCK_TIME	10 * 60 /* 10 min */
+#endif
+
 #define ADC_CH_COUNT		10
 #define ADC_SAMPLE_COUNT	10
 
@@ -119,11 +128,12 @@ struct sec_battery_info {
 	int temperature;	/* battery temperature */
 	int temper_amb;		/* target temperature */
 	int chg_temp;
+	int pre_chg_temp;
 
 	int temp_adc;
 	int temp_ambient_adc;
 	int chg_temp_adc;
-	bool chg_limit;
+	int chg_limit;
 
 	int temp_highlimit_threshold;
 	int temp_highlimit_recovery;
@@ -170,6 +180,16 @@ struct sec_battery_info {
 #if defined(CONFIG_SAMSUNG_BATTERY_ENG_TEST)
 	int stability_test;
 	int eng_not_full_status;
+#endif
+#if defined(CONFIG_BATTERY_SWELLING)
+	bool swelling_mode;
+	bool swelling_block;
+	unsigned long swelling_block_start;
+	unsigned long swelling_block_passed;
+	int swelling_full_check_cnt;
+#endif
+#if defined(CONFIG_AFC_CHARGER_MODE)
+	char *hv_chg_name;
 #endif
 };
 
@@ -263,10 +283,12 @@ enum {
 	BATT_EVENT,
 	BATT_TEMP_TABLE,
 	HV_CHARGER_STATUS,
+	HV_CHARGER_SET,
 #if defined(CONFIG_SAMSUNG_BATTERY_ENG_TEST)
 	BATT_TEST_CHARGE_CURRENT,
 	BATT_STABILITY_TEST,
 #endif
+	BATT_INBAT_VOLTAGE,
 };
 
 #ifdef CONFIG_OF

@@ -25,6 +25,11 @@
 
 #define SDP_MM_DEV	"sdp_mm"
 
+#define SENSITIVE 1
+#define PER_USER_RANGE 100000
+
+extern int dek_is_sdp_uid(uid_t uid);
+
 static struct class *driver_class;
 static dev_t sdp_mm_device_no;
 
@@ -48,7 +53,7 @@ static int32_t sdp_mm_query_proc_loaded(void __user *argp)
 	/* Copy the relevant information needed for loading the image */
 	spin_lock_irqsave(&sdp_mm.sdp_proc_list_lock, flags);
 	for_each_process(p) {
-		if (p->sensitive) {
+		if (p->sensitive == SENSITIVE) {
 			sdp_resp.sensitive_proc_list[sdp_resp.sensitive_proc_list_len] = p->pid;
 			sdp_resp.sensitive_proc_list_len++;
 		}
@@ -61,21 +66,32 @@ static int32_t sdp_mm_query_proc_loaded(void __user *argp)
 	return ret;
 }
 
-static int32_t sdp_mm_set_process_sensitive(unsigned int proc_id)
+int32_t sdp_mm_set_process_sensitive(unsigned int proc_id)
 {
 	int32_t ret = 0;
 	struct task_struct *task = NULL;
+	uid_t uid;
 
 	/* current.task.sensitive = 1 */
-	task = pid_task(find_vpid(proc_id), PIDTYPE_PID) ;
+	task = pid_task(find_vpid(proc_id), PIDTYPE_PID);
 	if (task) {
-		task->sensitive = 1;
-		printk("SDP_MM: set the process as sensitive\n");
+		uid = task_uid(task);
+		if (((uid/PER_USER_RANGE) <= 199)  && ((uid/PER_USER_RANGE) >= 100)) {
+			if (dek_is_sdp_uid(uid)) {
+				task->sensitive = SENSITIVE;
+				printk("SDP_MM: set the process as sensitive\n");
+			} else {
+				printk("SDP_MM: not a SDP process, failed to mark sensitive\n");
+				ret = -EINVAL;
+				goto task_err;
+			}
+		}
 	} else {
 		printk("SDP_MM; task not present\n");
 		ret = -EINVAL;
 		goto task_err;
 	}
+
 task_err:
 	return ret;
 }
@@ -90,6 +106,7 @@ static int32_t sdp_mm_set_proc_sensitive(void __user *argp)
 		pr_err("SDP_MM: copy_from_user failed\n");
 		return -EFAULT;
 	}
+
 	printk("SDP_MM: sensitive process id is %d\n", proc_id);
 	if (sdp_mm.sensitive_proc_list_len < MAX_SENSITIVE_PROC) {
 		sdp_mm.proc_id[sdp_mm.sensitive_proc_list_len] = proc_id;
@@ -98,6 +115,7 @@ static int32_t sdp_mm_set_proc_sensitive(void __user *argp)
 	
 	return sdp_mm_set_process_sensitive(proc_id);
 }
+
 
 static long sdp_mm_ioctl(struct file *file, unsigned cmd,
 		unsigned long arg)

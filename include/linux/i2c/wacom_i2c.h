@@ -55,6 +55,9 @@ struct wacom_g5_platform_data {
 	char *fw_path;
 	u32 ic_type;
 	u32 boot_on_ldo;
+	bool use_query_cmd;
+	char *project_name;
+	char *model_name;
 	void (*compulsory_flash_mode)(bool);
 	int (*init_platform_hw)(void);
 	int (*exit_platform_hw)(void);

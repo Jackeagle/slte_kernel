@@ -191,6 +191,68 @@ enum kbasep_js_ctx_attr {
 	 */
 	KBASEP_JS_CTX_ATTR_COMPUTE_ALL_CORES,
 
+	/**
+	 * First Ctx attr about fragment atom priority. Ctx Attrs about frag
+	 * atom priorities must start at this value and decrease in priority as
+	 * their enum value increases
+	 */
+	KBASEP_JS_CTX_ATTR_FRAG_PRIORITY_FIRST,
+
+	/**
+	 * Context has high priority fragment atoms. This only affects
+	 * scheduling within a context and against other fragment atoms. It is
+	 * not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_HIGH_PRIORITY_FRAG = KBASEP_JS_CTX_ATTR_FRAG_PRIORITY_FIRST,
+
+	/**
+	 * Context has medium priority fragment atoms. This only affects
+	 * scheduling within a context and against other fragment atoms. It is
+	 * not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_MEDIUM_PRIORITY_FRAG,
+
+	/**
+	 * Context has low priority fragment atoms. This only affects
+	 * scheduling within a context and against other fragment atoms. It is
+	 * not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_LOW_PRIORITY_FRAG,
+
+	/** Last ctx attr about fragment atom priority */
+	KBASEP_JS_CTX_ATTR_FRAG_PRIORITY_LAST = KBASEP_JS_CTX_ATTR_LOW_PRIORITY_FRAG,
+
+	/**
+	 * First Ctx attr about non-fragment atom priority. Ctx Attrs about
+	 * frag atom priorities must start at this value and decrease in
+	 * priority as their enum value increases
+	 */
+	KBASEP_JS_CTX_ATTR_NONFRAG_PRIORITY_FIRST,
+
+	/**
+	 * Context has high priority non-fragment atoms. This only affects
+	 * scheduling within a context and against other non-fragment atoms. It
+	 * is not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_HIGH_PRIORITY_NONFRAG = KBASEP_JS_CTX_ATTR_NONFRAG_PRIORITY_FIRST,
+
+	/**
+	 * Context has medium priority non-fragment atoms. This only affects
+	 * scheduling within a context and against other non-fragment atoms. It
+	 * is not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_MEDIUM_PRIORITY_NONFRAG,
+
+	/**
+	 * Context has low priority non-fragment atoms. This only affects
+	 * scheduling within a context and against other non-fragment atoms. It
+	 * is not to be confused with context priority (e.g. RT priority).
+	 */
+	KBASEP_JS_CTX_ATTR_LOW_PRIORITY_NONFRAG,
+
+	/** Last ctx attr about non-fragment atom priority */
+	KBASEP_JS_CTX_ATTR_NONFRAG_PRIORITY_LAST = KBASEP_JS_CTX_ATTR_LOW_PRIORITY_NONFRAG,
+
 	/** Must be the last in the enum */
 	KBASEP_JS_CTX_ATTR_COUNT
 };
@@ -198,7 +260,7 @@ enum kbasep_js_ctx_attr {
 enum {
 	/** Bit indicating that new atom should be started because this atom completed */
 	KBASE_JS_ATOM_DONE_START_NEW_ATOMS = (1u << 0),
-	/** Bit indicating that the atom was evicted from the JSn_NEXT registers */
+	/** Bit indicating that the atom was evicted from the JS_NEXT registers */
 	KBASE_JS_ATOM_DONE_EVICTED_FROM_NEXT = (1u << 1)
 };
 
@@ -446,6 +508,8 @@ struct kbasep_js_atom_retained_state {
 	enum base_jd_event_code event_code;
 	/** core requirements */
 	base_jd_core_req core_req;
+	/** priority */
+	int sched_priority;
 	/** Job Slot to retry submitting to if submission from IRQ handler failed */
 	int retry_submit_on_slot;
 	/* Core group atom was executed on */
@@ -474,8 +538,23 @@ struct kbasep_js_atom_retained_state {
  */
 #define KBASEP_JS_TICK_RESOLUTION_US 1
 
-#endif				/* _KBASE_JS_DEFS_H_ */
+/*
+ * Internal atom priority defines for kbase_jd_atom::sched_prio
+ */
+#define KBASE_JS_ATOM_SCHED_PRIO_INVALID (-1)
+#define KBASE_JS_ATOM_SCHED_PRIO_MIN     (0)
+#define KBASE_JS_ATOM_SCHED_PRIO_MAX     (2)
+#define KBASE_JS_ATOM_SCHED_PRIO_RANGE   \
+		(1 + KBASE_JS_ATOM_SCHED_PRIO_MAX \
+		   - KBASE_JS_ATOM_SCHED_PRIO_MIN)
+
+/** Default priority in the case of contexts with no atoms, or being lenient
+ *  about invalid priorities from userspace */
+#define KBASE_JS_ATOM_SCHED_PRIO_DEFAULT \
+	(kbasep_js_atom_prio_to_sched_prio(BASE_JD_PRIO_MEDIUM))
 
 	  /** @} *//* end group kbase_js */
 	  /** @} *//* end group base_kbase_api */
 	  /** @} *//* end group base_api */
+
+#endif				/* _KBASE_JS_DEFS_H_ */

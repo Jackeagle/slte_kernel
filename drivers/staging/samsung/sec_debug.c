@@ -39,9 +39,10 @@
 #include <linux/of.h>
 #include <linux/fdtable.h>
 #include <linux/mount.h>
+#include <linux/memblock.h>
 
-extern void exynos5_pmu_debug_save(void);
-extern void exynos5_cmu_debug_save(void);
+extern void exynos_pmu_debug_save(void);
+extern void exynos_cmu_debug_save(void);
 extern void (*mach_restart)(char str, const char *cmd);
 
 #if defined(CONFIG_SEC_DEBUG) && defined(CONFIG_SEC_DEBUG_SUBSYS)
@@ -94,6 +95,11 @@ static atomic_t timer_log_idx[NR_CPUS];
 #ifdef CONFIG_SEC_DEBUG_AUXILIARY_LOG
 #define AUX_LOG_CPU_CLOCK_SWITCH_MAX 128
 #define AUX_LOG_THERMAL_MAX 128
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+#define AUX_LOG_IRQ_MAX 128
+#endif
+#define AUX_LOG_WIFI_MAX 256
+
 #define AUX_LOG_LENGTH 128
 
 struct auxiliary_info {
@@ -106,6 +112,10 @@ struct auxiliary_info {
 struct auxiliary_log {
 	struct auxiliary_info CpuClockSwitchLog[AUX_LOG_CPU_CLOCK_SWITCH_MAX];
 	struct auxiliary_info ThermalLog[AUX_LOG_THERMAL_MAX];
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+	struct auxiliary_info IrqLog[AUX_LOG_IRQ_MAX];
+#endif
+	struct auxiliary_info WifiLog[AUX_LOG_WIFI_MAX];
 };
 
 #else
@@ -316,6 +326,10 @@ static struct auxiliary_log gExcpAuxLog	__cacheline_aligned;
 static struct auxiliary_log *gExcpAuxLogPtr;
 static atomic_t gExcpAuxCpuClockSwitchLogIdx = ATOMIC_INIT(-1);
 static atomic_t gExcpAuxThermalLogIdx = ATOMIC_INIT(-1);
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+static atomic_t gExcpAuxIrqLogIdx = ATOMIC_INIT(-1);
+#endif
+static atomic_t gExcpAuxWifiLogIdx = ATOMIC_INIT(-1);
 #endif
 
 static int bStopLogging;
@@ -457,7 +471,7 @@ static inline void sec_debug_save_core_reg(struct sec_debug_core_t *core_reg)
 	    "mrs r1, spsr\n\t"		/* SPSR_IRQ */
 	    "str r1, [r0,#120]\n\t"
 	    /* MON */
-#if !defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if !defined(CONFIG_SOC_EXYNOS5433)
 	    "mrs r1, cpsr\n\t"		/* switch to monitor mode */
 	    "and r1, r1, #0xFFFFFFE0\n\t"
 	    "orr r1, r1, #0x16\n\t"
@@ -672,10 +686,10 @@ static int sec_debug_panic_handler(struct notifier_block *nb,
 
 	if(sec_debug_level.en.kernel_fault) {
 #ifdef CONFIG_SEC_DEBUG_PMU_LOG
-		exynos5_pmu_debug_save();
+		exynos_pmu_debug_save();
 #endif
 #ifdef CONFIG_SEC_DEBUG_CMU_LOG
-		exynos5_cmu_debug_save();
+		exynos_cmu_debug_save();
 #endif
 #ifdef CONFIG_SEC_DEBUG_FUPLOAD_DUMP_MORE
 		dump_all_task_info();
@@ -815,10 +829,10 @@ void sec_debug_panic_handler_safe(struct pt_regs *regs)
 	__raw_writel(type, EXYNOS_INFORM6);
 
 #ifdef CONFIG_SEC_DEBUG_PMU_LOG
-	exynos5_pmu_debug_save();
+	exynos_pmu_debug_save();
 #endif
 #ifdef CONFIG_SEC_DEBUG_CMU_LOG
-	exynos5_cmu_debug_save();
+	exynos_cmu_debug_save();
 #endif
 
 	local_irq_save(flags);
@@ -871,6 +885,23 @@ void sec_debug_check_crash_key(unsigned int code, int value)
 				}
 			}
 		}
+
+#if defined(CONFIG_SEC_DEBUG_TSP_LOG) && defined(CONFIG_TOUCHSCREEN_FTS)
+		/* dump TSP rawdata
+		 *	Hold volume up key first
+		 *	and then press home key twice
+		 *	and volume down key should not be pressed
+		 */
+		if (volup_p && !voldown_p) {
+			if (code == KEY_HOMEPAGE) {
+				pr_info
+				    ("%s: count to dump tsp rawdata : %d\n",
+				     __func__, ++loopcount);
+				if (loopcount == 2)
+					tsp_dump();
+			}
+		}
+#endif
 	} else {
 		if (code == VOLUME_UP)
 			volup_p = false;
@@ -1121,6 +1152,17 @@ void sec_debug_irq_last_exit_log(void)
 #endif /* CONFIG_SEC_DEBUG_SCHED_LOG */
 
 #ifdef CONFIG_SEC_DEBUG_AUXILIARY_LOG
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+unsigned long long sec_debug_clock() {
+	int cpu;
+
+	if (!sec_debug_level.en.kernel_fault)
+		return 0;
+
+	cpu = raw_smp_processor_id();
+	return cpu_clock(cpu);
+}
+#endif
 void sec_debug_aux_log(int idx, char *fmt, ...)
 {
 	va_list args;
@@ -1152,6 +1194,25 @@ void sec_debug_aux_log(int idx, char *fmt, ...)
 		strncpy((*gExcpAuxLogPtr).ThermalLog[i].log,
 			buf, AUX_LOG_LENGTH);
 		break;
+#ifdef CONFIG_SEC_DEBUG_RT_THROTTLE_ACTIVE
+	case SEC_DEBUG_AUXLOG_IRQ:
+		i = atomic_inc_return(&gExcpAuxIrqLogIdx)
+			& (AUX_LOG_IRQ_MAX - 1);
+		(*gExcpAuxLogPtr).IrqLog[i].time = cpu_clock(cpu);
+		(*gExcpAuxLogPtr).IrqLog[i].cpu = cpu;
+		strncpy((*gExcpAuxLogPtr).IrqLog[i].log,
+			buf, AUX_LOG_LENGTH);
+		break;
+#endif
+	case SEC_DEBUG_AUXLOG_WIFI:
+		i = atomic_inc_return(&gExcpAuxWifiLogIdx)
+			& (AUX_LOG_WIFI_MAX - 1);
+		(*gExcpAuxLogPtr).WifiLog[i].time = cpu_clock(cpu);
+		(*gExcpAuxLogPtr).WifiLog[i].cpu = cpu;
+		strncpy((*gExcpAuxLogPtr).WifiLog[i].log,
+			buf, AUX_LOG_LENGTH);
+		break;
+
 	default:
 		break;
 	}
@@ -1314,25 +1375,23 @@ static int __init sec_bl_mem_setup(char *str)
 {
 	unsigned size = memparse(str, &str);
 	unsigned long base = 0;
+	int ret;
 
 	/* If we encounter any problem parsing str ... */
 	if (!size || *str != '@' || kstrtoul(str + 1, 0, &base))
 		goto out;
 
-	if (reserve_bootmem(base, size, BOOTMEM_EXCLUSIVE)) {
-		pr_err("%s: failed reserving size %d at base 0x%lx\n",
-				__func__, size, base);
-		goto out;
+	ret = memblock_reserve(base, size);
+	if (ret) {
+		pr_err("%s: failed(%d) reserving size %d at base 0x%lx\n",
+				__func__, ret, size, base);
 	}
-
-	pr_notice("%s: bootloader base:0x%lx size:%d\n",
-		__func__, base, size);
 
 out:
 	return 0;
 }
 
-__setup("sec_bl_mem=", sec_bl_mem_setup);
+early_param("sec_bl_mem", sec_bl_mem_setup);
 #endif /* CONFIG_SEC_KEEP_SBOOT */
 
 #ifdef CONFIG_SEC_DEBUG_USER
@@ -1665,12 +1724,6 @@ static void dump_cpu_stat(void)
 #endif /* CONFIG_SEC_DEBUG_FUPLOAD_DUMP_MORE */
 
 #if defined(CONFIG_SEC_DEBUG) && defined(CONFIG_SEC_DEBUG_SUBSYS)
-void sec_debug_subsys_info_set_log_buffer(char* buffer, unsigned size)
-{
-	sec_subsys_log_buf = buffer;
-	sec_subsys_log_size = size;
-}
-
 void sec_debug_subsys_set_reserved_out_buf(unsigned int buf, unsigned int size)
 {
 	reserved_out_buf = buf;
@@ -1681,33 +1734,34 @@ static int __init sec_subsys_log_setup(char *str)
 {
 	unsigned size = memparse(str, &str);
 	unsigned long base = 0;
-	void * buf_base = 0;
-
-	printk("%s\n",__func__);
 
 	/* If we encounter any problem parsing str ... */
 	if (!size || size != roundup_pow_of_two(size) || *str != '@'
-		|| kstrtoul(str + 1, 0, &base))
-			goto out;
-
-	if (reserve_bootmem(base - 8, size + 8, BOOTMEM_EXCLUSIVE)) {
-			pr_err("%s: failed reserving size %d " \
-						"at base 0x%lx\n", __func__, size, base);
-			goto out;
+		|| kstrtoul(str + 1, 0, &base)) {
+		pr_err("%s: failed to parse address.\n", __func__);
+		goto out;
 	}
 
-	buf_base = alloc_bootmem_pages(SZ_2M);
-	if (!buf_base) {
-			pr_err("%s: failed to reserve subsys buf(SZ_2M)\n",__func__);
-			goto out;
+	if (size < SZ_2M || size > SZ_8M) {
+		pr_err("%s: size 0x%x might be wrong.\n", __func__, size);
+		goto out;
 	}
 
-	sec_debug_subsys_info_set_log_buffer(phys_to_virt(base),size);
-	sec_debug_subsys_set_reserved_out_buf(virt_to_phys(buf_base), SZ_2M);
+	if (memblock_reserve(base, size)) {
+		pr_err("%s: failed to reserve size %d " \
+				"at base 0x%lx\n", __func__, size, base);
+		goto out;
+	}
+
+	pr_info("%s, base:0x%lx size:0x%x\n", __func__, base, size);
+
+	sec_subsys_log_buf = phys_to_virt(base);
+	sec_subsys_log_size = round_up(sizeof(struct sec_debug_subsys), PAGE_SIZE);
+	sec_debug_subsys_set_reserved_out_buf(base + sec_subsys_log_size, (size - sec_subsys_log_size));
 out:
 	return 0;
 }
-__setup("sec_summary_log=", sec_subsys_log_setup);
+early_param("sec_summary_log", sec_subsys_log_setup);
 
 int sec_debug_subsys_init(void)
 {

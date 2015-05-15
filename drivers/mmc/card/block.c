@@ -432,12 +432,13 @@ struct scatterlist *mmc_blk_get_sg(struct mmc_card *card,
 			sec_cnt = total_sec_cnt;
 		else
 			sec_cnt = max_seg_size;
-			sg_set_page(sg, virt_to_page(buf), sec_cnt, offset_in_page(buf));
-			buf = buf + sec_cnt;
-			total_sec_cnt = total_sec_cnt - sec_cnt;
-			if (total_sec_cnt == 0)
-				break;
-			sg = sg_next(sg);
+
+		sg_set_page(sg, virt_to_page(buf), sec_cnt, offset_in_page(buf));
+		buf = buf + sec_cnt;
+		total_sec_cnt = total_sec_cnt - sec_cnt;
+		if (total_sec_cnt == 0)
+			break;
+		sg = sg_next(sg);
 	}
 
 	if (sg)
@@ -912,6 +913,7 @@ static int mmc_blk_reset(struct mmc_blk_data *md, struct mmc_host *host,
 static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 	struct mmc_blk_request *brq, int *ecc_err)
 {
+	struct mmc_command *cmd = &brq->cmd;
 	bool prev_cmd_status_valid = true;
 	u32 status, stop_status = 0;
 	int err, retry;
@@ -975,46 +977,44 @@ static int mmc_blk_cmd_recovery(struct mmc_card *card, struct request *req,
 				prev_cmd_status_valid, status);
 
 	/* Check for r/w command errors */
-	if (brq->cmd.error) {
-		int ret;
-		struct mmc_command *cmd = &brq->cmd;
-		struct mmc_blk_data *md = mmc_get_drvdata(card);
-		int type = rq_data_dir(req) == READ ? MMC_BLK_READ : MMC_BLK_WRITE;
-
-		ret = mmc_blk_cmd_error(req, "r/w cmd", brq->cmd.error,
+	if (brq->cmd.error)
+		return mmc_blk_cmd_error(req, "r/w cmd", brq->cmd.error,
 				prev_cmd_status_valid, status);
 
+	/* eMMC read Data timeout */
+	if (mmc_card_mmc(card) &&
+			(card->quirks & MMC_QUIRK_SEC_HW_RESET) &&
+			(cmd->data->flags & MMC_DATA_READ) &&
+			(cmd->data->error == -ETIMEDOUT) &&
+			(R1_CURRENT_STATE(status) == R1_STATE_TRAN)) {
+		struct mmc_blk_data *md = mmc_get_drvdata(card);
+		int type = rq_data_dir(req) == READ ? MMC_BLK_READ : MMC_BLK_WRITE;
+		int ret = 0;
+
 		/* eMMC reset when read data timeout occurs */
-		if (mmc_card_mmc(card) &&
-				(cmd->data->flags & MMC_DATA_READ) &&
-				(cmd->error == -ETIMEDOUT) &&
-				(cmd->data->error == -ETIMEDOUT) &&
-				(R1_CURRENT_STATE(status) == R1_STATE_TRAN)) {
-			pr_err("%s: eMMC card soft-reset: cmd error %d, data error %d, status = %#x.\n",
-					req->rq_disk->disk_name,
-					cmd->error, cmd->data->error, status);
+		pr_err("%s: eMMC card soft-reset: cmd error %d, data error %d, status = %#x.\n",
+				req->rq_disk->disk_name,
+				cmd->error, cmd->data->error, status);
+
+		/* enable MMC_CAP_HW_RESET */
+		card->host->caps |= MMC_CAP_HW_RESET;
+		mdelay(10);
+
+		if (mmc_blk_reset(md, card->host, type)) {
+			pr_err("%s: softreset is failed.\n",
+					mmc_hostname(card->host));
+			ret = ERR_ABORT;
+		} else {
 			card->host->blk_reset_cnt++;
-
-			/* enable MMC_CAP_HW_RESET */
-			card->host->caps |= MMC_CAP_HW_RESET;
-			mdelay(10);
-
-			if (mmc_blk_reset(md, card->host, type)) {
-				pr_err("%s: softreset is failed.\n",
-						mmc_hostname(card->host));
-				return ERR_NOMEDIUM;
-			} else {
-				pr_err("%s: softreset is ok. command retrying.\n",
-						mmc_hostname(card->host));
-			}
-
-			/*
-			 * disable MMC_CAP_HW_RESET and
-			 * return ERR_RETRY to CMD retrying
-			 */
-			card->host->caps &= ~MMC_CAP_HW_RESET;
+			pr_err("%s: softreset is ok. command retrying.\n",
+					mmc_hostname(card->host));
 			ret = ERR_RETRY;
 		}
+
+		/*
+		 * disable MMC_CAP_HW_RESET and return
+		 */
+		card->host->caps &= ~MMC_CAP_HW_RESET;
 		return ret;
 	}
 
@@ -1994,6 +1994,8 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 		case MMC_BLK_ABORT:
 			if (!mmc_blk_reset(md, card->host, type))
 				break;
+			/* clear reset flags */
+			mmc_blk_reset_success(md, type);
 			goto cmd_abort;
 		case MMC_BLK_DATA_ERR: {
 			int err;
@@ -2014,6 +2016,15 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 				disable_multi = 1;
 				break;
 			}
+			/*
+			 * case : SDcard Sector 0 read data error even single read
+			 * skip reading other blocks.
+			 */
+			if (mmc_card_sd(card) &&
+					(unsigned)blk_rq_pos(req) == 0 &&
+					brq->data.error)
+				goto cmd_abort;
+
 			/*
 			 * After an error, we redo I/O one sector at a
 			 * time, so we only reach here after trying to
@@ -2061,9 +2072,14 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *rqc)
 	} else {
 		if (mmc_card_removed(card))
 			req->cmd_flags |= REQ_QUIET;
-		while (ret)
-			ret = blk_end_request(req, -EIO,
-					blk_rq_cur_bytes(req));
+		if (mmc_card_sd(card) && mmc_card_removed(card)) {
+			if (ret)
+				blk_end_request_all(req, -EIO);
+		} else {
+			while (ret)
+				ret = blk_end_request(req, -EIO,
+						blk_rq_cur_bytes(req));
+		}
 	}
 
  start_new_req:
@@ -2664,6 +2680,15 @@ static const struct mmc_fixup blk_fixups[] =
 		  MMC_QUIRK_SEC_ERASE_TRIM_BROKEN),
 	MMC_FIXUP("VZL00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
 		  MMC_QUIRK_SEC_ERASE_TRIM_BROKEN),
+	/* Samsung MoviNAND ePOP */
+	MMC_FIXUP("R3W00M", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_SEC_HW_RESET),
+	MMC_FIXUP("R3W9MA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_SEC_HW_RESET),
+	MMC_FIXUP("R2W9MA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_SEC_HW_RESET),
+	MMC_FIXUP("R2WAMA", CID_MANFID_SAMSUNG, CID_OEMID_ANY, add_quirk_mmc,
+		  MMC_QUIRK_SEC_HW_RESET),
 
 	END_FIXUP
 };

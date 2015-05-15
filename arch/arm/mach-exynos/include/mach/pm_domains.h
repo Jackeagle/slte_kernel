@@ -80,6 +80,8 @@ struct exynos_pm_domain {
 #endif
 
 	struct mutex access_lock;
+	int on_err_count;
+	int off_err_count;
 	void *priv;
 };
 

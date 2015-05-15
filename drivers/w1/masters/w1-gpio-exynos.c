@@ -33,6 +33,8 @@
 #include <asm/io.h>
 #if defined(CONFIG_SOC_EXYNOS5422)
 #define	BASE_ADDRESS	0x140100A0
+#define SHIFT_OFFSET	1
+#define DATA_MASK	(1 << SHIFT_OFFSET)
 #elif defined(CONFIG_SOC_EXYNOS5430)
 #define	BASE_ADDRESS	0x14CC0120
 #endif
@@ -232,6 +234,7 @@ static u8 w1_gpio_read_bit(void *data)
 	int result;
 	void	(*write_bit)(void *, u8);
 	unsigned long irq_flags;
+	unsigned int data_low, data_high;
 
 	if (pdata->is_open_drain) {
 		write_bit = w1_gpio_write_bit_val;
@@ -242,32 +245,22 @@ static u8 w1_gpio_read_bit(void *data)
 	spin_lock_irqsave(&w1_gpio_lock, irq_flags);
 
 	/* sample timing is critical here */
-//	write_bit(data, 0);
-
-	/* below codes same as  write_bit(data, 0); */
 	tmp = __raw_readl(g_addr + 0x4);
-	tmp = tmp & 0xfffffffd;
-	__raw_writel(tmp, (g_addr + 0x4));
-// originally overdriver mode needs 1us delay
-	if (pdata->slave_speed == 0)
-		w1_delay(6);
-//	(pdata->slave_speed == 0)? w1_delay(6) : w1_delay(1);
-//	write_bit(data, 1);
 
-	/* below codes same as  write_bit(data, 1); */
+	data_low = tmp & ~DATA_MASK;
+	data_high = tmp | DATA_MASK;
+
+	__raw_writel(data_low, (g_addr + 0x4));
+	__raw_writel(data_high, (g_addr + 0x4));
+
 	tmp = __raw_readl(g_addr + 0x4);
-	tmp = tmp | 0x00000002;
-	__raw_writel(tmp, (g_addr + 0x4));
-// originally overdriver mode needs 1us dealy
-//	(pdata->slave_speed == 0)? w1_delay(9) : w1_delay(1);
-
-	result = w1_gpio_read_bit_val(data);
+	result = (tmp >> SHIFT_OFFSET) & 0x1;
 
 	(pdata->slave_speed == 0)? w1_delay(55) : w1_delay(8);
 
 	spin_unlock_irqrestore(&w1_gpio_lock, irq_flags);
 
-	return result & 0x1;
+	return result;
 }
 
 /**
@@ -366,16 +359,15 @@ static u8 w1_gpio_read_block(void *data, u8 *buf, int len)
  */
 static u8 w1_gpio_reset_bus(void *data)
 {
-	int result;
+	int result = 0;
 	struct w1_gpio_platform_data *pdata = data;
 	void	(*write_bit)(void *, u8);
 	unsigned long irq_flags;
 
-	if (pdata->is_open_drain) {
+	if (pdata->is_open_drain)
 		write_bit = w1_gpio_write_bit_val;
-	} else {
+	else
 		write_bit = w1_gpio_write_bit_dir;
-	}
 
 	spin_lock_irqsave(&w1_gpio_lock, irq_flags);
 	write_bit(data, 0);
@@ -386,26 +378,30 @@ static u8 w1_gpio_reset_bus(void *data)
 		 * cpu for such a short amount of time AND get it back in
 		 * the maximum amount of time.
 		 */
-	(pdata->slave_speed == 0)? w1_delay(480) : w1_delay(48);
+	w1_delay(48);
 	write_bit(data, 1);
 
-//    originally overdriver mode need 8us delay
-	(pdata->slave_speed == 0)? w1_delay(70) : w1_delay(7);
+	w1_delay(7);
 
-//	result = w1_gpio_read_bit_val(data) & 0x1;
-
-	/* below codes same as w1_gpio_read_bit_val(data) & 0x1 */
 	tmp = __raw_readl(g_addr + 0x4);
 	result = (tmp >> 1) & 0x1;
+
+	/* re-check */
+	w1_delay(5);
+
+	tmp = __raw_readl(g_addr + 0x4);
+	if (result)
+		result = (tmp >> 1) & 0x1;
 
 	/* minmum 70 (above) + 410 = 480 us
 	 * There aren't any timing requirements between a reset and
 	 * the following transactions.  Sleeping is safe here.
 	 */
 	/* w1_delay(410); min required time */
-	(pdata->slave_speed == 0)? msleep(1) : w1_delay(40);
+	w1_delay(40);
 
 	spin_unlock_irqrestore(&w1_gpio_lock, irq_flags);
+
 	return result;
 }
 
@@ -593,8 +589,6 @@ static int w1_gpio_suspend(struct platform_device *pdev, pm_message_t state)
 	return 0;
 }
 
-bool w1_is_suspended;
-
 static int w1_gpio_resume(struct platform_device *pdev)
 {
 	struct w1_gpio_platform_data *pdata = pdev->dev.platform_data;
@@ -604,7 +598,6 @@ static int w1_gpio_resume(struct platform_device *pdev)
 
 	gpio_direction_output(pdata->pin, 1);
 
-	w1_is_suspended = true;
 #ifdef CONFIG_W1_WORKQUEUE
 	schedule_delayed_work(&w1_gdev->w1_dwork, HZ * 2);
 #endif

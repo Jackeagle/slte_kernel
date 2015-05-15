@@ -2122,8 +2122,6 @@ int hdmi_conf_apply(struct hdmi_device *hdmi_dev)
 	hdmiphy_conf_store(hdmi_dev, buffer);
 	hdmiphy_set_mode(hdmi_dev, 1);
 
-	hdmi_reg_init(hdmi_dev);
-
 	/* waiting for HDMIPHY's PLL to get to steady state */
 	for (tries = 100; tries; --tries) {
 		if (is_hdmiphy_ready(hdmi_dev))
@@ -2137,6 +2135,8 @@ int hdmi_conf_apply(struct hdmi_device *hdmi_dev)
 		dev_err(dev, "hdmiphy's pll could not reach steady state.\n");
 		return -EIO;
 	}
+
+	hdmi_reg_init(hdmi_dev);
 
 	return 0;
 }
@@ -2442,6 +2442,7 @@ void hdmi_reg_i2s_audio_init(struct hdmi_device *hdev)
 	/* reset I2S */
 	hdmi_write(hdev, HDMI_I2S_CLK_CON, HDMI_I2S_CLK_DISABLE);
 	hdmi_write(hdev, HDMI_I2S_CLK_CON, HDMI_I2S_CLK_ENABLE);
+	hdmi_write(hdev, HDMI_AUDIO_CLKSEL, HDMI_AUDIO_SPDIF_CLK);
 
 	hdmi_write_mask(hdev, HDMI_I2S_DSD_CON, 0, HDMI_I2S_DSD_ENABLE);
 
@@ -2704,6 +2705,14 @@ void hdmiphy_conf_store(struct hdmi_device *hdev, const char *buf)
 
 	for (i = 1; i < 30; i++)
 		writeb(buf[i], hdev->phy_regs + HDMI_PHY_REG00 + (i * 4));
+}
+
+void hdcp_otp_set_offset(struct hdmi_device *hdev, const char *buf)
+{
+	int i;
+
+	for (i = 0; i < 22; i++)
+		hdmi_write(hdev, HDMI_OTP_SETUP_WIDTH + (i * 4), buf[i]);
 }
 
 void hdcp_otp_key_enable(struct hdmi_device *hdev)

@@ -396,7 +396,7 @@ int w1_reset_overdrive_select_slave(struct w1_slave *sl)
 	if (w1_reset_bus(sl->master))
 		return -1;
 
-	w1_write_8(sl->master, W1_OVSKIP_ROM);
+	w1_write_8(sl->master, W1_SKIP_ROM);
 
 	return 0;
 }

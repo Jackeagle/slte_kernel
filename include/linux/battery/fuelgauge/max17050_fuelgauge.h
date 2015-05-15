@@ -126,11 +126,11 @@ enum {
 #define TEMP_RANGE_MAX_NUM	3
 
 struct battery_data_t {
-	u16 Capacity;
-	u16 low_battery_comp_voltage;
+	u32 Capacity;
+	u32 low_battery_comp_voltage;
 	s32 low_battery_table[CURRENT_RANGE_MAX_NUM][TABLE_MAX];
 	s32 temp_adjust_table[TEMP_RANGE_MAX_NUM][TABLE_MAX];
-	u8	*type_str;
+	u8 *type_str;
 };
 
 struct sec_fg_info {
@@ -149,6 +149,7 @@ struct sec_fg_info {
 
 	/* battery info */
 	u32 soc;
+	bool is_charging;
 
 	/* miscellaneous */
 	unsigned long fullcap_check_interval;

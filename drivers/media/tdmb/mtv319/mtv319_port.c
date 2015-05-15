@@ -28,15 +28,12 @@
 
 
 /* Declares a variable of gurad object if neccessry. */
-#if defined(RTV_IF_SPI) || defined(RTV_IF_EBI2)\
-|| defined(RTV_FIC_I2C_INTR_ENABLED)
-	#if defined(__KERNEL__)
-	struct mutex raontv_guard;
-	#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
-	CRITICAL_SECTION raontv_guard;
-	#else
-	/* non-OS and RTOS. */
-	#endif
+#if defined(__KERNEL__)
+struct mutex raontv_guard;
+#elif defined(WINCE) || defined(WINDOWS) || defined(WIN32)
+CRITICAL_SECTION raontv_guard;
+#else
+/* non-OS and RTOS. */
 #endif
 
 #if defined(RTV_IF_SPI)

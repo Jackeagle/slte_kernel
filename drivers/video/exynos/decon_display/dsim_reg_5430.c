@@ -226,12 +226,11 @@ void dsim_reg_set_dphy_timing_values(struct dphy_timing_value *t)
 	dsim_write(DSIM_PHYTIMING2, val);
 
 	val = DSIM_PHYCTRL_B_DPHYCTL(t->b_dphyctl) |
-		DSIM_PHYCTRL_B_DPHYCTL_VREG_LP;
-	mask = DSIM_PHYCTRL_B_DPHYCTL_MASK | DSIM_PHYCTRL_B_DPHYCTL_VREG_LP;
-#if defined(CONFIG_DECON_LCD_EA8064G) && !defined(CONFIG_SEC_FACTORY)	/* Should be removed */
-	val |= DSIM_PHYCTRL_B_DPHYCTL_SLEW_UP;
-	mask |= DSIM_PHYCTRL_B_DPHYCTL_SLEW_UP;
-#endif
+		DSIM_PHYCTRL_B_DPHYCTL_VREG_LP |
+		DSIM_PHYCTRL_B_DPHYCTL_SLEW_UP;
+	mask = DSIM_PHYCTRL_B_DPHYCTL_MASK |
+		DSIM_PHYCTRL_B_DPHYCTL_VREG_LP |
+		DSIM_PHYCTRL_B_DPHYCTL_SLEW_UP;
 	dsim_write_mask(DSIM_B_DPHYCTRL, val, mask);
 
 	val = DSIM_PHYCTRL_M_DPHYCTL_VREG_HS;

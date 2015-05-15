@@ -1,9 +1,9 @@
-/* drivers/gpu/t6xx/kbase/src/platform/gpu_dvfs_handler.h
+/* drivers/gpu/arm/.../platform/gpu_dvfs_handler.h
  *
  * Copyright 2011 by S.LSI. Samsung Electronics Inc.
  * San#24, Nongseo-Dong, Giheung-Gu, Yongin, Korea
  *
- * Samsung SoC Mali-T604 DVFS driver
+ * Samsung SoC Mali-T Series DVFS driver
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 as
@@ -30,12 +30,21 @@ typedef enum {
 	GPU_DVFS_MIN_UNLOCK,
 } gpu_dvfs_lock_command;
 
+typedef enum {
+	GPU_DVFS_BOOST_SET = 0,
+	GPU_DVFS_BOOST_UNSET,
+	GPU_DVFS_BOOST_GPU_UNSET,
+	GPU_DVFS_BOOST_END,
+} gpu_dvfs_boost_command;
+
 int kbase_platform_dvfs_event(struct kbase_device *kbdev, u32 utilisation);
 int gpu_dvfs_handler_init(struct kbase_device *kbdev);
 int gpu_dvfs_handler_deinit(struct kbase_device *kbdev);
 
 /* gpu_dvfs_api.c */
-int gpu_set_target_clk_vol(int clk);
+int gpu_set_target_clk_vol(int clk, bool pending_is_allowed);
+int gpu_set_target_clk_vol_pending(int clk);
+int gpu_dvfs_boost_lock(gpu_dvfs_boost_command boost_command);
 int gpu_dvfs_clock_lock(gpu_dvfs_lock_command lock_command, gpu_dvfs_lock_type lock_type, int clock);
 void gpu_dvfs_timer_control_locked(bool enable);
 int gpu_dvfs_on_off(bool enable);
@@ -63,6 +72,8 @@ typedef enum {
 	GPU_CONTROL_PM_QOS_DEINIT,
 	GPU_CONTROL_PM_QOS_SET,
 	GPU_CONTROL_PM_QOS_RESET,
+	GPU_CONTROL_PM_QOS_EGL_SET,
+	GPU_CONTROL_PM_QOS_EGL_RESET,
 } gpu_pmqos_state;
 
 int gpu_pm_qos_command(struct exynos_context *platform, gpu_pmqos_state state);

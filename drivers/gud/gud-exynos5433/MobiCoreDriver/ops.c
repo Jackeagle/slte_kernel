@@ -30,6 +30,8 @@
 #include <linux/cpu.h>
 #include <linux/moduleparam.h>
 
+#include <linux/interrupt.h>
+#include <linux/irq.h>
 
 #include "main.h"
 #include "fastcall.h"
@@ -38,14 +40,14 @@
 #include "pm.h"
 #include "debug.h"
 
-/*##################################
-#mobicore_security_team_add
-##################################*/
-#define MC_STATUS_HALT  3
-#define SYS_STATE_HALT  (4 << 8)
-/*##################################*/
 /* MobiCore context data */
 static struct mc_context *ctx;
+static int disable_local_timer;
+
+#ifdef CONFIG_SECURE_OS_BOOSTER_API
+int mc_timer(void);
+#endif
+
 #ifdef TBASE_CORE_SWITCHER
 static uint32_t active_cpu;
 
@@ -98,6 +100,16 @@ static void fastcall_work_func(struct work_struct *work);
 
 static struct task_struct *fastcall_thread;
 static DEFINE_KTHREAD_WORKER(fastcall_worker);
+
+void mc_set_schedule_policy(int core)
+{
+	if (core == DEFAULT_BIG_CORE)
+		disable_local_timer = 1;
+	else
+		disable_local_timer = 0;
+
+	return;
+}
 
 bool mc_fastcall(void *data)
 {
@@ -179,6 +191,7 @@ static void fastcall_work_func(struct work_struct *work)
 	uint32_t cpu_swap = 0, new_cpu;
 	uint32_t cpu_id[] = CPU_IDS;
 #endif
+	struct irq_desc *desc = irq_to_desc(MC_INTR_LOCAL_TIMER);
 
 #ifdef MC_CRYPTO_CLOCK_MANAGEMENT
 	mc_pm_clock_enable();
@@ -193,9 +206,20 @@ static void fastcall_work_func(struct work_struct *work)
 		new_cpu = fc_generic->as_in.param[0];
 		fc_generic->as_in.param[0] = cpu_id[fc_generic->as_in.param[0]];
 	}
+
+	if (disable_local_timer) {
+		disable_irq(MC_INTR_LOCAL_TIMER);
+#ifdef CONFIG_SECURE_OS_BOOSTER_API
+		mc_timer();
+#endif
+	}
 #endif
 	smc(fc_work->data);
 #ifdef TBASE_CORE_SWITCHER
+	if (disable_local_timer) {
+		if (desc->depth != 0)
+			enable_irq(MC_INTR_LOCAL_TIMER);
+	}
 	if (cpu_swap) {
 		if (fc_generic->as_out.ret == 0) {
 			cpumask_t cpu;
@@ -219,10 +243,85 @@ static void fastcall_work_func(struct work_struct *work)
 #endif
 }
 
+#ifdef DUMP_TBASE_HALT_STATUS
+static void mc_info_ext(uint32_t ext_info_id, uint32_t *ext_info)
+{
+	union mc_fc_info fc_info;
+
+	memset(&fc_info, 0, sizeof(fc_info));
+	fc_info.as_in.cmd = MC_FC_INFO;
+	fc_info.as_in.ext_info_id = ext_info_id;
+
+	MCDRV_DBG(mcd, "<- cmd=0x%08x, ext_info_id=0x%08x",
+		  fc_info.as_in.cmd, fc_info.as_in.ext_info_id);
+
+	mc_fastcall(&(fc_info.as_generic));
+
+	*ext_info = fc_info.as_out.ext_info;
+}
+
+static void mc_dump_halt_status(uint32_t *flag, uint32_t *halt_code,
+				uint32_t *fault_thread)
+{
+	uint32_t ext_info;
+
+	dev_info(mcd, "Dump <t-base internal status:\n");
+	mc_info_ext(MC_EXT_INFO_ID_FLAGS, &ext_info);
+	dev_info(mcd, "Flag = 0x%08x\n", ext_info);
+	*flag = ext_info;
+	mc_info_ext(MC_EXT_INFO_ID_HALT_CODE, &ext_info);
+	dev_info(mcd, "Halt code = 0x%08x\n", ext_info);
+	*halt_code = ext_info;
+	mc_info_ext(MC_EXT_INFO_ID_HALT_IP, &ext_info);
+	dev_info(mcd, "Halt IP = 0x%08x\n", ext_info);
+
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_CNT, &ext_info);
+	dev_info(mcd, "Fault counter = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_CAUSE, &ext_info);
+	dev_info(mcd, "Fault cause = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_META, &ext_info);
+	dev_info(mcd, "Fault meta = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_THREAD, &ext_info);
+	dev_info(mcd, "Fault thread = 0x%08x\n", ext_info);
+	*fault_thread = ext_info;
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_IP, &ext_info);
+	dev_info(mcd, "Fault IP = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_SP, &ext_info);
+	dev_info(mcd, "Fault SP = 0x%08x\n", ext_info);
+
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_DFSR, &ext_info);
+	dev_info(mcd, "Fault ARCH DFSR = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_ADFSR, &ext_info);
+	dev_info(mcd, "Fault ARCH ADFSR = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_DFAR, &ext_info);
+	dev_info(mcd, "Fault ARCH DFAR = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_IFSR, &ext_info);
+	dev_info(mcd, "Fault ARCH IFSR = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_AIFSR, &ext_info);
+	dev_info(mcd, "Fault ARCH AIFSR = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_FAULT_ARCH_IFAR, &ext_info);
+	dev_info(mcd, "Fault ARCH IFAR = 0x%08x\n", ext_info);
+
+	mc_info_ext(MC_EXT_INFO_ID_MC_EXC_PARTNER, &ext_info);
+	dev_info(mcd, "ExcH partner = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_MC_EXC_IPCPEER, &ext_info);
+	dev_info(mcd, "ExcH peer = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_MC_EXC_IPCMSG, &ext_info);
+	dev_info(mcd, "ExcH msg = 0x%08x\n", ext_info);
+	mc_info_ext(MC_EXT_INFO_ID_MC_EXC_IPCDATA, &ext_info);
+	dev_info(mcd, "ExcH data = 0x%08x\n", ext_info);
+}
+#endif
+
 int mc_info(uint32_t ext_info_id, uint32_t *state, uint32_t *ext_info)
 {
 	int ret = 0;
 	union mc_fc_info fc_info;
+#ifdef DUMP_TBASE_HALT_STATUS
+	uint32_t flag = 0;
+	uint32_t halt_code = 0;
+	uint32_t fault_thread = 0;
+#endif
 
 	MCDRV_DBG_VERBOSE(mcd, "enter");
 
@@ -247,14 +346,16 @@ int mc_info(uint32_t ext_info_id, uint32_t *state, uint32_t *ext_info)
 	*state  = fc_info.as_out.state;
 	*ext_info = fc_info.as_out.ext_info;
 
-/*##################################
-#mobicore_security_team_add
-##################################*/
-  if(*state == MC_STATUS_HALT || (ext_info_id == 1 && (*ext_info & SYS_STATE_HALT))){
-          MCDRV_DBG_ERROR(mcd, "MobiCore halt is detected");
-          panic("Mobicore Halt\n");
-  }
-/*##################################*/
+#ifdef DUMP_TBASE_HALT_STATUS
+	if ((*state == MC_STATUS_HALT) || ((ext_info_id == 1) && (*ext_info & SYS_STATE_HALT))) {
+		MCDRV_DBG_ERROR(mcd, "<t-base detects a system crash at secure world.");
+		mc_dump_halt_status(&flag, &halt_code, &fault_thread);
+		panic("<t-base detects a system crash at secure world: "
+				"Flag(0x%08x), Halt code(0x%08x), Fault thread(0x%08x)\n",
+				flag, halt_code, fault_thread);
+	}
+#endif
+
 	MCDRV_DBG_VERBOSE(mcd, "exit with %d/0x%08X", ret, ret);
 
 	return ret;

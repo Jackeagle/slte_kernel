@@ -217,21 +217,6 @@ struct mem_ipc_device {
 
 /*============================================================================*/
 
-#ifdef GROUP_MEM_CP_CRASH
-/**
-@addtogroup group_mem_cp_crash
-@{
-*/
-
-#define FORCE_CRASH_ACK_TIMEOUT		(10 * HZ)
-
-/**
-@}
-*/
-#endif
-
-/*============================================================================*/
-
 #ifdef GROUP_MEM_LINK_SNAPSHOT
 /**
 @addtogroup group_mem_link_snapshot
@@ -438,6 +423,8 @@ struct mem_link_device {
 	struct delayed_work cp_sleep_dwork;	/* to hold ap2cp_wakeup */
 
 	spinlock_t pm_lock;
+
+	unsigned long long last_cp2ap_intr;
 #endif
 	atomic_t ref_cnt;
 
@@ -1018,7 +1005,6 @@ void send_res_ack(struct mem_link_device *mld, struct mem_ipc_device *dev);
 @{
 */
 
-void mem_handle_cp_crash(struct mem_link_device *mld, enum modem_state state);
 void mem_forced_cp_crash(struct mem_link_device *mld);
 
 /**
@@ -1075,41 +1061,4 @@ static inline struct sk_buff *mem_alloc_skb(unsigned int len)
 	return skb;
 }
 
-#ifdef GROUP_MEM_LINK_IOSM_MESSAGE
-
-/* direction: CP -> AP */
-#define IOSM_C2A_MDM_READY	0x80
-#define IOSM_C2A_CONF_CH_RSP	0xA3	/* answer of flow control msg */
-#define IOSM_C2A_STOP_TX_CH	0xB0
-#define IOSM_C2A_START_TX_CH	0xB1
-#define IOSM_C2A_ACK		0xE0
-#define IOSM_C2A_NACK		0xE1
-
-/* direction: AP -> CP */
-#define IOSM_A2C_AP_READY	0x00
-#define IOSM_A2C_CONF_CH_REQ	0x22	/* flow control on/off */
-#define IOSM_A2C_OPEN_CH	0x24
-#define IOSM_A2C_CLOSE_CH	0x25
-#define IOSM_A2C_STOP_TX_CH	0x30
-#define IOSM_A2C_START_TX_CH	0x30
-#define IOSM_A2C_ACK		0x60
-#define IOSM_A2C_NACK		0x61
-
-#define IOSM_TRANS_ID_MAX	255
-#define IOSM_MSG_AREA_SIZE	(CTRL_RGN_SIZE / 2)
-#define IOSM_MSG_TX_OFFSET	CMD_RGN_OFFSET
-#define IOSM_MSG_RX_OFFSET	(CMD_RGN_OFFSET + IOSM_MSG_AREA_SIZE)
-#define IOSM_MSG_DESC_OFFSET	(CMD_RGN_OFFSET + CMD_RGN_SIZE)
-
-void tx_iosm_message(struct mem_link_device *, u8, u32 *);
-void iosm_event_work(struct work_struct *work);
-void iosm_event_bh(struct mem_link_device *mld, u16 cmd);
-
 #endif
-
-#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
-extern int is_rndis_use(void);
-#endif
-
-#endif
-

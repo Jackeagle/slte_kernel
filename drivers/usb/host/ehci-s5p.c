@@ -196,6 +196,7 @@ static void s5p_ehci_phy_init(struct platform_device *pdev)
 
 	if (s5p_ehci->phy) {
 		usb_phy_init(s5p_ehci->phy);
+		s5p_ehci->post_lpa_resume = 0;
 	} else if (s5p_ehci->pdata->phy_init) {
 		s5p_ehci->pdata->phy_init(pdev, USB_PHY_TYPE_HOST);
 	} else {
@@ -251,11 +252,13 @@ static ssize_t store_ehci_power(struct device *dev,
 		s5p_ehci->power_on = 0;
 		usb_remove_hcd(hcd);
 
-		if (s5p_ehci->phy)
-			usb_phy_shutdown(s5p_ehci->phy);
-		else if (s5p_ehci->pdata->phy_exit)
+		if (s5p_ehci->phy) {
+			/* Shutdown PHY only if it wasn't shutdown before */
+			if (!s5p_ehci->post_lpa_resume)
+				usb_phy_shutdown(s5p_ehci->phy);
+		} else if (s5p_ehci->pdata->phy_exit) {
 			s5p_ehci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
-
+		}
 		if (pm_qos_request_active(&s5p_ehci_mif_qos))
 			pm_qos_remove_request(&s5p_ehci_mif_qos);
 	} else if (power_on) {
@@ -505,10 +508,17 @@ static int s5p_ehci_probe(struct platform_device *pdev)
 	if (s5p_ehci->otg)
 		s5p_ehci->otg->set_host(s5p_ehci->otg, &hcd->self);
 
-	if (s5p_ehci->phy)
+	if (s5p_ehci->phy) {
+		/* Make sure PHY is initialized */
 		usb_phy_init(s5p_ehci->phy);
-	else if (s5p_ehci->pdata->phy_init)
+		/*
+		 * PHY can be runtime suspended (e.g. by OHCI driver), so
+		 * make sure PHY is active
+		 */
+		pm_runtime_get_sync(s5p_ehci->phy->dev);
+	} else if (s5p_ehci->pdata->phy_init) {
 		s5p_ehci->pdata->phy_init(pdev, USB_PHY_TYPE_HOST);
+	}
 
 	ehci = hcd_to_ehci(hcd);
 	ehci->caps = hcd->regs;
@@ -566,10 +576,12 @@ static int s5p_ehci_probe(struct platform_device *pdev)
 	return 0;
 
 fail_add_hcd:
-	if (s5p_ehci->phy)
+	if (s5p_ehci->phy) {
+		pm_runtime_put_sync(s5p_ehci->phy->dev);
 		usb_phy_shutdown(s5p_ehci->phy);
-	else if (s5p_ehci->pdata->phy_exit)
+	} else if (s5p_ehci->pdata->phy_exit) {
 		s5p_ehci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
+	}
 fail_io:
 	clk_disable_unprepare(s5p_ehci->clk);
 fail_clk:
@@ -593,12 +605,17 @@ static int s5p_ehci_remove(struct platform_device *pdev)
 	if (s5p_ehci->otg)
 		s5p_ehci->otg->set_host(s5p_ehci->otg, &hcd->self);
 
-	if (s5p_ehci->phy)
-		usb_phy_shutdown(s5p_ehci->phy);
-	else if (s5p_ehci->pdata->phy_exit)
+	if (s5p_ehci->phy) {
+		/* Shutdown PHY only if it wasn't shutdown before */
+		if (!s5p_ehci->post_lpa_resume)
+			usb_phy_shutdown(s5p_ehci->phy);
+	} else if (s5p_ehci->pdata->phy_exit) {
 		s5p_ehci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
-
+	}
 	clk_disable_unprepare(s5p_ehci->clk);
+#if defined(CONFIG_MDM_HSIC_PM)
+	s5p_ehci->otg->host = NULL;
+#endif
 #if defined(CONFIG_LINK_DEVICE_HSIC)
 	unregister_reboot_notifier(&s5p_ehci->reboot_nb);
 #endif
@@ -682,8 +699,7 @@ static int s5p_ehci_runtime_resume(struct device *dev)
 
 		if (s5p_ehci->post_lpa_resume)
 			usb_phy_init(phy);
-		else
-			pm_runtime_get_sync(phy->dev);
+		pm_runtime_get_sync(phy->dev);
 	} else if (pdata && pdata->phy_resume) {
 		rc = pdata->phy_resume(pdev, USB_PHY_TYPE_HOST);
 		s5p_ehci->post_lpa_resume = !!rc;
@@ -753,28 +769,19 @@ static int s5p_ehci_suspend(struct device *dev)
 	if (s5p_ehci->otg)
 		s5p_ehci->otg->set_host(s5p_ehci->otg, &hcd->self);
 
-	if (s5p_ehci->phy)
-		usb_phy_shutdown(s5p_ehci->phy);
-	else if (s5p_ehci->pdata->phy_exit)
+	if (s5p_ehci->phy) {
+		/* Shutdown PHY only if it wasn't shutdown before */
+		if (!s5p_ehci->post_lpa_resume)
+			usb_phy_shutdown(s5p_ehci->phy);
+	} else if (s5p_ehci->pdata->phy_exit) {
 		s5p_ehci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
+	}
 #if defined(CONFIG_LINK_DEVICE_HSIC)
 	raw_notifier_call_chain(&hsic_notifier,
 				STATE_HSIC_PHY_SHUTDOWN, NULL);
 #endif
-#if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
-	/* If ehci suspend with runtime ACTIVE, release phy usage count*/
-	if (s5p_ehci->phy && !pm_runtime_status_suspended(dev)) {
-		pr_info("%s: phy put sync\n", __func__);
-		pm_runtime_put_sync(s5p_ehci->phy->dev);
-	}
-#endif
 	clk_disable_unprepare(s5p_ehci->clk);
 
-#if defined(CONFIG_LINK_DEVICE_HSIC)
-/*FIXME: Which module increas the phy rpm usage count when lpa to supend? */
-	if (s5p_ehci->phy && s5p_ehci->post_lpa_resume)
-		pm_runtime_put_noidle(s5p_ehci->phy->dev);
-#endif
 	return rc;
 }
 
@@ -794,10 +801,19 @@ static int s5p_ehci_resume(struct device *dev)
 	if (s5p_ehci->otg)
 		s5p_ehci->otg->set_host(s5p_ehci->otg, &hcd->self);
 
-	if (s5p_ehci->phy)
+	if (s5p_ehci->phy) {
 		usb_phy_init(s5p_ehci->phy);
-	else if (s5p_ehci->pdata->phy_init)
+		s5p_ehci->post_lpa_resume = 0;
+		
+		/*
+		 * We are going to change runtime status to active.
+		 * Make sure we get the phy only if we didn't get it before.
+		 */
+		if (pm_runtime_suspended(dev))
+			pm_runtime_get_sync(s5p_ehci->phy->dev);
+	} else if (s5p_ehci->pdata->phy_init) {
 		s5p_ehci->pdata->phy_init(pdev, USB_PHY_TYPE_HOST);
+	}
 
 	/* DMA burst Enable */
 	writel(EHCI_INSNREG00_ENABLE_DMA_BURST, EHCI_INSNREG00(hcd->regs));
@@ -820,8 +836,6 @@ static int s5p_ehci_resume(struct device *dev)
 #endif
 
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
-	if (s5p_ehci->phy)
-		pm_runtime_get_sync(s5p_ehci->phy->dev);
 	pm_runtime_mark_last_busy(&hcd->self.root_hub->dev);
 #endif
 	return 0;

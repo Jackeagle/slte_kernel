@@ -1,7 +1,7 @@
 /*
  * Misc system wide definitions
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -76,13 +76,8 @@
 #undef BCM47XX_CA9
 
 #ifndef BCMFASTPATH
-#if defined(BCM47XX_CA9)
-#define BCMFASTPATH		__attribute__ ((__section__ (".text.fastpath")))
-#define BCMFASTPATH_HOST	__attribute__ ((__section__ (".text.fastpath_host")))
-#else
 #define BCMFASTPATH
 #define BCMFASTPATH_HOST
-#endif
 #endif /* BCMFASTPATH */
 
 
@@ -216,11 +211,7 @@ typedef struct {
 /* add 40 bytes to allow for extra RPC header and info  */
 #define BCMEXTRAHDROOM 260
 #else /* BCM_RPC_NOCOPY || BCM_RPC_TXNOCOPY */
-#if defined(BCM47XX_CA9)
-#define BCMEXTRAHDROOM 224
-#else
 #define BCMEXTRAHDROOM 204
-#endif /* linux && BCM47XX_CA9 */
 #endif /* BCM_RPC_NOCOPY || BCM_RPC_TXNOCOPY */
 
 /* Packet alignment for most efficient SDIO (can change based on platform) */

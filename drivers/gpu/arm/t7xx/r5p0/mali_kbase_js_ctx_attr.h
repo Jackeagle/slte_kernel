@@ -56,6 +56,7 @@ void kbasep_js_ctx_attr_set_initial_attrs(struct kbase_device *kbdev, struct kba
  *
  * Requires:
  * - jsctx mutex
+ * - runpool mutex
  * - runpool_irq spinlock
  * - ctx->is_scheduled is true
  */
@@ -69,6 +70,7 @@ void kbasep_js_ctx_attr_runpool_retain_ctx(struct kbase_device *kbdev, struct kb
  *
  * Requires:
  * - jsctx mutex
+ * - runpool mutex
  * - runpool_irq spinlock
  * - ctx->is_scheduled is true
  *
@@ -87,7 +89,8 @@ mali_bool kbasep_js_ctx_attr_runpool_release_ctx(struct kbase_device *kbdev, str
  *
  * Requires:
  * - jsctx mutex
- * - If the context is scheduled, then runpool_irq spinlock must also be held
+ * - runpool mutex
+ * - runpool_irq spinlock
  */
 void kbasep_js_ctx_attr_ctx_retain_atom(struct kbase_device *kbdev, struct kbase_context *kctx, struct kbase_jd_atom *katom);
 
@@ -98,7 +101,8 @@ void kbasep_js_ctx_attr_ctx_retain_atom(struct kbase_device *kbdev, struct kbase
  *
  * Requires:
  * - jsctx mutex
- * - If the context is scheduled, then runpool_irq spinlock must also be held
+ * - runpool mutex
+ * - runpool_irq spinlock
  *
  * This is a no-op when \a katom_retained_state is invalid.
  *
@@ -112,7 +116,8 @@ mali_bool kbasep_js_ctx_attr_ctx_release_atom(struct kbase_device *kbdev, struct
 
 /**
  * Requires:
- * - runpool_irq spinlock
+ * - runpool_irq spinlock if the context is scheduled in
+ * - runpool mutex if the context is in the process of being scheduled out
  */
 static INLINE s8 kbasep_js_ctx_attr_count_on_runpool(struct kbase_device *kbdev, enum kbasep_js_ctx_attr attribute)
 {
@@ -131,25 +136,72 @@ static INLINE s8 kbasep_js_ctx_attr_count_on_runpool(struct kbase_device *kbdev,
  */
 static INLINE mali_bool kbasep_js_ctx_attr_is_attr_on_runpool(struct kbase_device *kbdev, enum kbasep_js_ctx_attr attribute)
 {
+	lockdep_assert_held(&kbdev->js_data.runpool_irq.lock);
+
 	/* In general, attributes are 'on' when they have a non-zero refcount (note: the refcount will never be < 0) */
 	return (mali_bool) kbasep_js_ctx_attr_count_on_runpool(kbdev, attribute);
 }
 
 /**
  * Requires:
- * - jsctx mutex
+ * - runpool_irq spinlock
  */
-static INLINE mali_bool kbasep_js_ctx_attr_is_attr_on_ctx(struct kbase_context *kctx, enum kbasep_js_ctx_attr attribute)
+static INLINE u32 kbasep_js_ctx_attr_count_on_ctx(struct kbase_context *kctx, enum kbasep_js_ctx_attr attribute)
 {
 	struct kbasep_js_kctx_info *js_kctx_info;
 
 	KBASE_DEBUG_ASSERT(kctx != NULL);
 	KBASE_DEBUG_ASSERT(attribute < KBASEP_JS_CTX_ATTR_COUNT);
+	lockdep_assert_held(&kctx->kbdev->js_data.runpool_irq.lock);
 	js_kctx_info = &kctx->jctx.sched_info;
 
-	/* In general, attributes are 'on' when they have a refcount (which should never be < 0) */
-	return (mali_bool) (js_kctx_info->ctx.ctx_attr_ref_count[attribute]);
+	/* In general, attributes are 'on' when they have a refcount (which
+	 * should never be < 0) */
+	return js_kctx_info->ctx.ctx_attr_ref_count[attribute];
 }
+
+
+/**
+ * Requires:
+ * - runpool_irq spinlock
+ */
+static INLINE mali_bool kbasep_js_ctx_attr_is_attr_on_ctx(struct kbase_context *kctx, enum kbasep_js_ctx_attr attribute)
+{
+	lockdep_assert_held(&kctx->kbdev->js_data.runpool_irq.lock);
+
+	/* In general, attributes are 'on' when they have a refcount (which
+	 * should never be < 0) */
+	return (mali_bool)(kbasep_js_ctx_attr_count_on_ctx(kctx, attribute));
+}
+
+/**
+ * Convert an atom priority to Context Attribute
+ */
+static INLINE enum kbasep_js_ctx_attr
+kbasep_js_ctx_attr_sched_prio_to_attr(base_jd_core_req core_req,
+                                      int sched_priority)
+{
+	int idx;
+	int ret;
+	KBASE_DEBUG_ASSERT(KBASE_JS_ATOM_SCHED_PRIO_MIN <= sched_priority
+			   && sched_priority <= KBASE_JS_ATOM_SCHED_PRIO_MAX);
+	/* Map to 0-based index */
+	idx = sched_priority - KBASE_JS_ATOM_SCHED_PRIO_MIN;
+
+	if (!DEFAULT_ATOM_PRIORITY_BLOCKS_ENTIRE_GPU) {
+		/* Map to frag/non-frag enum */
+		if (core_req & BASE_JD_REQ_FS)
+			ret = idx + KBASEP_JS_CTX_ATTR_FRAG_PRIORITY_FIRST;
+		else
+			ret = idx + KBASEP_JS_CTX_ATTR_NONFRAG_PRIORITY_FIRST;
+	} else {
+		/* Map everything to the non-fragment enum */
+		ret = idx + KBASEP_JS_CTX_ATTR_NONFRAG_PRIORITY_FIRST;
+	}
+
+	return (enum kbasep_js_ctx_attr)ret;
+}
+
 
 	  /** @} *//* end group kbase_js */
 	  /** @} *//* end group base_kbase_api */

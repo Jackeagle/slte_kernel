@@ -2165,7 +2165,7 @@ static bool zone_reclaimable(struct zone *zone)
 {
 	return zone->pages_scanned < zone_reclaimable_pages(zone) * 6;
 }
-
+#ifndef CONFIG_ZOOM_KILLER
 /* All zones in zonelist are unreclaimable? */
 static bool all_unreclaimable(struct zonelist *zonelist,
 		struct scan_control *sc)
@@ -2185,7 +2185,7 @@ static bool all_unreclaimable(struct zonelist *zonelist,
 
 	return true;
 }
-
+#endif
 /*
  * This is the main entry point to direct page reclaim.
  *
@@ -2299,9 +2299,11 @@ out:
 	if (aborted_reclaim)
 		return 1;
 
+#ifndef CONFIG_ZOOM_KILLER
 	/* top priority shrink_zones still had more to do? don't OOM, then */
 	if (global_reclaim(sc) && !all_unreclaimable(zonelist, sc))
 		return 1;
+#endif
 
 	return 0;
 }

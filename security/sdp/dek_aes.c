@@ -21,13 +21,11 @@ void dek_aes_key_free(struct crypto_blkcipher *sdp_tfm)
 	crypto_free_blkcipher(sdp_tfm);
 }
 
-void dek_aes_encrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len) {
+int dek_aes_encrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len) {
 	struct blkcipher_desc desc;
 	struct scatterlist src_sg, dst_sg;
 	int bsize = crypto_blkcipher_blocksize(sdp_tfm);
 	u8 iv[bsize];
-
-	printk("dek: dek_aes_encrypt\n");
 
 	memset(&iv, 0, sizeof(iv));
 	desc.tfm = sdp_tfm;
@@ -37,16 +35,14 @@ void dek_aes_encrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int
 	sg_init_one(&src_sg, src, len);
 	sg_init_one(&dst_sg, dst, len);
 
-	crypto_blkcipher_encrypt_iv(&desc, &dst_sg, &src_sg, len);
+	return crypto_blkcipher_encrypt_iv(&desc, &dst_sg, &src_sg, len);
 }
 
-void dek_aes_decrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len) {
+int dek_aes_decrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int len) {
 	struct blkcipher_desc desc;
 	struct scatterlist src_sg, dst_sg;
 	int bsize = crypto_blkcipher_blocksize(sdp_tfm);
 	u8 iv[bsize];
-
-	printk("dek: dek_aes_decrypt\n");
 
 	memset(&iv, 0, sizeof(iv));
 	desc.tfm = sdp_tfm;
@@ -56,5 +52,5 @@ void dek_aes_decrypt(struct crypto_blkcipher *sdp_tfm, char *src, char *dst, int
 	sg_init_one(&src_sg, src, len);
 	sg_init_one(&dst_sg, dst, len);
 
-	crypto_blkcipher_decrypt_iv(&desc, &dst_sg, &src_sg, len);
+	return crypto_blkcipher_decrypt_iv(&desc, &dst_sg, &src_sg, len);
 }

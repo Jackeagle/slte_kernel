@@ -2044,8 +2044,6 @@ static int __init exynos5430_asv_apply_vol_offset(void)
 
 	if (!strcmp(subtype, "slte_eur_open") && (system_rev < 2))
 		apply_offset = true;
-	else if (!strcmp(subtype, "kcat6_eur_open") && (system_rev < 3))
-		apply_offset = true;
 
 	if (apply_offset) {
 		/* XXX: To avoid unknowable kernel crashes,

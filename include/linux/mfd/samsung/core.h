@@ -147,6 +147,7 @@ struct sec_platform_data {
 	bool				dvs_en;
 	bool				ap_buck_avp_en;
 	bool				sub_buck_avp_en;
+	unsigned int                    smpl_warn_vth;
 
 	/* ---- RTC ---- */
 	struct sec_wtsr_smpl *wtsr_smpl;

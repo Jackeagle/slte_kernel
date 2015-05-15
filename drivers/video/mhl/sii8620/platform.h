@@ -26,7 +26,7 @@
 #ifdef CONFIG_SII8620_CHECK_MONITOR
 #define MC_FC_RET_OK 0
 #define MC_FC_RET_ERR_INVALID 1
-#define MC_FC_HDCP_VALUE 0x83000000
+#define MC_FC_HDCP_VALUE 0x81000060
 /* Use the arch_extension sec pseudo op before switching to secure world */
 #if defined(__GNUC__) && \
 defined(__GNUC_MINOR__) && \
@@ -137,6 +137,14 @@ enum hpd_control_mode {
 	HPD_CTRL_PUSH_PULL
 };
 
+#ifdef CONFIG_MHL3_SEC_FEATURE
+enum mhl_event_switch_value {
+	MHL_EVENT_CLR = 0,
+	MHL_EVENT_HOMETHEATER,
+	MHL_EVENT_OTG
+};
+#endif
+
 enum hpd_control_mode platform_get_hpd_control_mode(void);
 void platform_mhl_tx_hw_reset(uint32_t reset_period, uint32_t reset_delay);
 void mhl_tx_vbus_control(enum vbus_power_state power_state);
@@ -204,7 +212,11 @@ extern bool use_spi;
 extern bool wait_for_user_intr;
 extern int debug_level;
 extern bool debug_reg_dump;
+#ifdef CONFIG_MHL3_DVI_WR
+extern int force_ocbus_for_ects;
+#else
 extern bool force_ocbus_for_ects;
+#endif
 extern bool continue_to_ecbus;
 extern int crystal_khz;
 extern int gpio_index;
@@ -247,6 +259,7 @@ extern bool input_dev_ucp;
 #define ANSI_ESC_WHITE_TEXT "\x1b[37m\x1b[1m"
 #else
 #define ANSI_ESC_RESET_TEXT ""
+#define ANSI_ESC_YELLOW_BG ""
 #define ANSI_ESC_WHITE_BG ""
 #define ANSI_ESC_RED_TEXT "\n\n"
 #define ANSI_ESC_YELLOW_TEXT "\n\n"

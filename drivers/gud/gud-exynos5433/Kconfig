@@ -34,8 +34,14 @@ config MOBICORE_API
       Enable Linux Kernel MobiCore API
 
 config TRUSTONIC_TRUSTED_UI
-    tristate "Trustonic Trusted UI"
-    depends on MOBICORE_DRIVER
+    tristate "TBase Trusted UI"
+    depends on ARM_TRUSTZONE && MOBICORE_DRIVER
     ---help---
-      Enable Trustonic Trusted UI
+    Enable Linux Kernel Tusted UI
 
+config TRUSTONIC_TRUSTED_UI_FB_BLANK
+    bool "TBase Trusted UI use fb_blank"
+    default y
+    depends on TRUSTONIC_TRUSTED_UI
+
+source "drivers/gud/gud-exynos5433/sec-os-booster/Kconfig"

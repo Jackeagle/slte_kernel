@@ -470,8 +470,12 @@ void __show_regs_without_extra(struct pt_regs *regs)
 
 void __show_regs(struct pt_regs *regs)
 {
+	int nbytes = 128;
+#ifdef CONFIG_SEC_DEBUG
+	nbytes = nbytes * 2;
+#endif
 	__show_regs_without_extra(regs);
-	show_extra_register_data(regs, 128);
+	show_extra_register_data(regs, nbytes);
 }
 
 void show_regs(struct pt_regs * regs)

@@ -214,6 +214,7 @@ struct max77843_charger_data {
 	int		soft_reg_recovery_cnt;
 
 	bool afc_detect;
+	bool is_mdock;
 
 	int pmic_ver;
 	int input_curr_limit_step;

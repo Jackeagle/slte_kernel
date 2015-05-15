@@ -9,120 +9,149 @@
  * the Free Software Foundation; either version 2 of the License, or
  * (at your option) any later version.
  */
-#include <linux/power_supply.h>
+#include <linux/version.h>
+#include <linux/usb_notify.h>
 
-#define PSY_CHG_NAME "battery"
+#define SMARTDOCK_INDEX	1
+#define MMDOCK_INDEX		2
 
-int usb_open_count;
-bool is_smartdock;
-bool is_lan_hub;
-
-static struct usb_device_id battery_notify_exception_table[] = {
-/* add exception table list */
-{ USB_DEVICE(0x1d6b, 0x0003), }, /* XHCI Host Controller */
-{ USB_DEVICE(0x1d6b, 0x0002), }, /* EHCI Host Controller */
-{ USB_DEVICE(0x1519, 0x0443), }, /* CDC Modem */
-{ USB_DEVICE(0x8087, 0x0716), }, /* Qualcomm modem */
-{ USB_DEVICE(0x08bb, 0x2704), }, /* TI USB Audio DAC 1 */
-{ USB_DEVICE(0x08bb, 0x27c4), }, /* TI USB Audio DAC 2 */
-{ USB_DEVICE(0x0424, 0x9512), }, /* SMSC USB LAN HUB 9512 */
-{ USB_DEVICE(0x0424, 0xec00), }, /* SMSC LAN Driver */
-{ }	/* Terminating entry */
+struct dev_table {
+	struct usb_device_id dev;
+	int index;
 };
 
+static struct dev_table enable_notify_hub_table[] = {
+	{ .dev = { USB_DEVICE(0x0424, 0x2514), },
+	   .index = SMARTDOCK_INDEX,
+	}, /* SMART DOCK HUB 1 */
+	{ .dev = { USB_DEVICE(0x1a40, 0x0101), },
+	   .index = SMARTDOCK_INDEX,
+	}, /* SMART DOCK HUB 2 */
+	{ .dev = { USB_DEVICE(0x0424, 0x9512), },
+	   .index = MMDOCK_INDEX,
+	}, /* SMSC USB LAN HUB 9512 */
+	{}
+};
 
-/* real battery driver notification function */
-static void set_online(int host_state)
+static struct dev_table essential_device_table[] = {
+	{ .dev = { USB_DEVICE(0x08bb, 0x2704), },
+	   .index = SMARTDOCK_INDEX,
+	}, /* TI USB Audio DAC 1 */
+	{ .dev = { USB_DEVICE(0x08bb, 0x27c4), },
+	   .index = SMARTDOCK_INDEX,
+	}, /* TI USB Audio DAC 2 */
+	{ .dev = { USB_DEVICE(0x0424, 0xec00), },
+	   .index = MMDOCK_INDEX,
+	}, /* SMSC LAN Driver */
+	{}
+};
+
+static int check_essential_device(struct usb_device *dev, int index)
 {
-	struct power_supply *psy = power_supply_get_by_name(PSY_CHG_NAME);
-	union power_supply_propval value;
+	struct dev_table *id;
+	int ret = 0;
 
-	if (!psy) {
-		pr_err("%s: fail to get %s psy\n", __func__, PSY_CHG_NAME);
-		return;
+	/* check VID, PID */
+	for (id = essential_device_table; id->dev.match_flags; id++) {
+		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(dev->descriptor.idProduct) &&
+		id->index == index) {
+			ret = 1;
+			break;
+		}
 	}
-	if (host_state)
-		value.intval = POWER_SUPPLY_TYPE_SMART_OTG;
-	else
-		value.intval = POWER_SUPPLY_TYPE_SMART_NOTG;
+	return ret;
+}
 
-	psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
-	return;
+static int is_notify_hub(struct usb_device *dev)
+{
+	struct dev_table *id;
+	struct usb_device *hdev;
+	int ret = 0;
+
+	hdev = dev->parent;
+	if (!hdev)
+		goto skip;
+	/* check VID, PID */
+	for (id = enable_notify_hub_table; id->dev.match_flags; id++) {
+		if ((id->dev.match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
+		(id->dev.match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
+		id->dev.idVendor == le16_to_cpu(hdev->descriptor.idVendor) &&
+		id->dev.idProduct == le16_to_cpu(hdev->descriptor.idProduct)) {
+			ret = (hdev->parent &&
+			(hdev->parent == dev->bus->root_hub)) ? id->index : 0;
+			break;
+		}
+	}
+skip:
+	return ret;
 }
 
 static int call_battery_notify(struct usb_device *dev, bool bOnOff)
 {
-	struct usb_device_id	*id = battery_notify_exception_table;
+	struct usb_device *hdev;
+	struct usb_device *udev;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+	struct usb_hub *hub;
+#endif
+	struct otg_notify *o_notify = get_otg_notify();
+	int index = 0;
+	int count = 0;
+	int port;
 
-	/* Smart Dock hub must be skipped */
-	if ((le16_to_cpu(dev->descriptor.idVendor) == 0x1a40 &&
-	     le16_to_cpu(dev->descriptor.idProduct) == 0x0101) ||
-	     (le16_to_cpu(dev->descriptor.idVendor) == 0x0424 &&
-	     le16_to_cpu(dev->descriptor.idProduct) == 0x2514)) {
-		if (bOnOff) {
-			is_smartdock = 1;
-			usb_open_count = 0;
-			pr_info("%s : smartdock is connected\n", __func__);
-		} else {
-			is_smartdock = 0;
-			usb_open_count = 0;
-			pr_info("%s : smartdock is disconnected\n", __func__);
-		}
-		return 0;
-	}
+	index = is_notify_hub(dev);
+	if (!index)
+		goto skip;
+	if (check_essential_device(dev, index))
+		goto skip;
 
-	/* Lan Hub adapter must be skipped */
-	else if ((le16_to_cpu(dev->descriptor.idVendor) == 0x0424 &&
-	     le16_to_cpu(dev->descriptor.idProduct) == 0x9512)) {
-		if (bOnOff) {
-			is_lan_hub = 1;
-			usb_open_count = 0;
-			pr_info("%s : Lan Hub adapter is connected\n", __func__);
-		} else {
-			is_lan_hub = 0;
-			usb_open_count = 0;
-			pr_info("%s : Lan Hub adapter is disconnected\n", __func__);
-		}
-		return 0;
-	}
+	hdev = dev->parent;
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+	hub = usb_hub_to_struct_hub(hdev);
+	if (!hub)
+		goto skip;
+#endif
 
-	if (is_smartdock) {
-		/* check VID, PID */
-		for (id = battery_notify_exception_table; id->match_flags; id++) {
-			if ((id->match_flags & USB_DEVICE_ID_MATCH_VENDOR) &&
-				(id->match_flags & USB_DEVICE_ID_MATCH_PRODUCT) &&
-				id->idVendor == le16_to_cpu(dev->descriptor.idVendor) &&
-				id->idProduct == le16_to_cpu(dev->descriptor.idProduct)) {
-					pr_info("%s : VID : 0x%x, PID : 0x%x skipped.\n",
-						__func__, id->idVendor, id->idProduct);
-				return 0;
+	for (port = 1; port <= hdev->maxchild; port++) {
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0))
+		udev = hub->ports[port-1]->child;
+#else
+		udev = hdev->children[port-1];
+#endif
+		if (udev) {
+			if (!check_essential_device(udev, index)) {
+				if (!bOnOff && (udev == dev))
+					continue;
+				else
+					count++;
 			}
 		}
-		if (bOnOff)
-			usb_open_count++;
-		else
-			usb_open_count--;
-
-		/* battery driver notification */
-		if (usb_open_count == 1 && bOnOff && is_smartdock) {
-				pr_info("%s : VID : 0x%x, PID : 0x%x set 1000mA.\n",
-						__func__,
-						le16_to_cpu(dev->descriptor.idVendor),
-						le16_to_cpu(dev->descriptor.idProduct));
-				set_online(1);
-		} else if (usb_open_count == 0 && !bOnOff) {
-				pr_info("%s : VID : 0x%x, PID : 0x%x set 1700mA.\n",
-						__func__,
-						le16_to_cpu(dev->descriptor.idVendor),
-						le16_to_cpu(dev->descriptor.idProduct));
-				set_online(0);
-		} else {
-			pr_info("%s : VID : 0x%x, PID : 0x%x meaningless, bOnOff=%d, usb_open_count=%d\n",
-					__func__, id->idVendor, id->idProduct, bOnOff, usb_open_count);
-				/* Nothing to do */
-		}
 	}
 
-	return 1;
+	pr_info("%s : VID : 0x%x, PID : 0x%x, bOnOff=%d, count=%d\n", __func__,
+		dev->descriptor.idVendor, dev->descriptor.idProduct,
+			bOnOff, count);
+	if (bOnOff) {
+		if (count == 1) {
+			if (index == SMARTDOCK_INDEX)
+				send_otg_notify(o_notify,
+					NOTIFY_EVENT_SMTD_EXT_CURRENT, 1);
+			else if (index == MMDOCK_INDEX)
+				send_otg_notify(o_notify,
+					NOTIFY_EVENT_MMD_EXT_CURRENT, 1);
+		}
+	} else {
+		if (!count) {
+			if (index == SMARTDOCK_INDEX)
+				send_otg_notify(o_notify,
+					NOTIFY_EVENT_SMTD_EXT_CURRENT, 0);
+			else if (index == MMDOCK_INDEX)
+				send_otg_notify(o_notify,
+					NOTIFY_EVENT_MMD_EXT_CURRENT, 0);
+		}
+	}
+skip:
+	return 0;
 }
-

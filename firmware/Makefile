@@ -136,10 +136,15 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCH) += cypress/cypress_ha_m07.fw cypress/cypress_ha_m09.fw
-fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCH_20055) += cypress/cypress_slte.fw
+fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCH_20055) += cypress/cypress_slte.fw cypress/cypress_klimt.fw
 fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCH_20075) += \
 						cypress/cypress_20075_k_m06.fw	\
 						cypress/cypress_20075_l_m06.fw
+fw-shipped-$(CONFIG_KEYBOARD_ABOV_TOUCH) += abov/abov_tk.fw
+fw-shipped-$(CONFIG_KEYBOARD_TC300K) += coreriver/tc300k_chagall.fw \
+										coreriver/tc350k_gts28.fw \
+										coreriver/tc350k_gts210.fw \
+										coreriver/tc350k_gts210_swap.fw
 fw-shipped-$(CONFIG_KEYBOARD_CYPRESS_TOUCH_MBR31X5) += cypress/cypress_t.fw
 fw-shipped-$(or $(CONFIG_EPEN_WACOM_G10PM), \
 				$(CONFIG_EPEN_WACOM_W9012)) += epen/W9010_T.bin
@@ -154,20 +159,41 @@ TSPFIRMWARE_DIRECTORY = firmware/tsp_synaptics
 ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
 fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI) += tsp_synaptics/synaptics_b0_h.fw \
 	tsp_synaptics/synaptics_b0_fac.fw
+ifdef CONFIG_TOUCHSCREEN_CHAGALLVE
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_DSX) += \
+						tsp_synaptics/synaptics_s5710_chagallve.fw
+else
+ifdef CONFIG_TOUCHSCREEN_KLIMTVE
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_DSX) += \
+						tsp_synaptics/synaptics_s5707_klimtve.fw
+else
 fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_DSX) += \
 						tsp_synaptics/synaptics_s5100_a2_k.fw	\
 						tsp_synaptics/synaptics_s5100_a2_k_FHD.fw	\
 						tsp_synaptics/synaptics_s5100_a2_k_WQHD.fw	\
 						tsp_synaptics/synaptics_s5100_a3_kq_WQHD.fw	\
 						tsp_synaptics/synaptics_s5100_a3_l_WQHD.fw	\
-						tsp_synaptics/synaptics_s5100_a3_k_FHD.fw
+						tsp_synaptics/synaptics_s5100_a3_k_FHD.fw	\
+						tsp_synaptics/synaptics_5710_chagall.fw
+endif
+endif
 else
 $(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
 endif
 
+fw-shipped-$(CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_DSX2) += tsp_synaptics/synaptics_5807_gts210.fw \
+						tsp_synaptics/synaptics_5807_gts28.fw
+
 TSPFIRMWARE_DIRECTORY = firmware/tsp_stm
 ifeq ($(shell test -d $(TSPFIRMWARE_DIRECTORY) && echo yes),yes)
-fw-shipped-$(CONFIG_TOUCHSCREEN_FTS) += tsp_stm/stm_s.fw tsp_stm/stm_s_sync.fw tsp_stm/stm_t.fw tsp_stm/stm_tb.fw
+fw-shipped-$(CONFIG_TOUCHSCREEN_FTS) += \
+						tsp_stm/stm_s.fw	\
+						tsp_stm/stm_s_sync.fw	\
+						tsp_stm/stm_t.fw	\
+						tsp_stm/stm_tb.fw	\
+						tsp_stm/stm_tb_seper_1.fw	\
+						tsp_stm/stm_tb_seper_2.fw	\
+						tsp_stm/stm_tb_integ.fw
 else
 $(warning '$(TSPFIRMWARE_DIRECTORY)' directory dose not exist)
 endif

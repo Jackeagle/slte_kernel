@@ -81,7 +81,7 @@ static u8 led_current_shift[MAX77804_LED_MAX] = {
 	0,
 };
 
-#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430_REV_1) || defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 extern struct class *camera_class; /*sys/class/camera*/
 struct device *flash_dev;
 #endif
@@ -294,7 +294,7 @@ void max77804_led_get_status(struct led_classdev *led_cdev, bool status, bool on
 		__func__, status, onoff, value[0], value[1], value[2], value[3], value[4], value[5]);
 }
 
-#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430_REV_1) || defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 static ssize_t max77804_flash(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -493,7 +493,7 @@ static int max77804_led_probe(struct platform_device *pdev)
 		}
 	}
 	/* print_all_reg_value(max77804->i2c); */
-#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430_REV_1) || defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	if (camera_class == NULL) {
 		camera_class = class_create(THIS_MODULE, "camera");
 		if (IS_ERR(camera_class)) {
@@ -553,7 +553,7 @@ static int __devexit max77804_led_remove(struct platform_device *pdev)
 		kfree(led_datas[i]);
 	}
 	kfree(led_datas);
-#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430_REV_1) || defined(CONFIG_SOC_EXYNOS5433_REV_1)
+#if defined(CONFIG_SOC_EXYNOS5422_REV_0) || defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
 	device_remove_file(flash_dev, &dev_attr_rear_flash);
 	device_destroy(camera_class, 0);
 	class_destroy(camera_class);

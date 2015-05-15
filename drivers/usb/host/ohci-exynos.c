@@ -35,20 +35,25 @@ static void exynos_ohci_phy_enable(struct exynos_ohci_hcd *exynos_ohci)
 {
 	struct platform_device *pdev = to_platform_device(exynos_ohci->dev);
 
-	if (exynos_ohci->phy)
+	if (exynos_ohci->phy) {
 		usb_phy_init(exynos_ohci->phy);
-	else if (exynos_ohci->pdata && exynos_ohci->pdata->phy_init)
+		exynos_ohci->post_lpa_resume = 0;
+	} else if (exynos_ohci->pdata && exynos_ohci->pdata->phy_init) {
 		exynos_ohci->pdata->phy_init(pdev, USB_PHY_TYPE_HOST);
+	}
 }
 
 static void exynos_ohci_phy_disable(struct exynos_ohci_hcd *exynos_ohci)
 {
 	struct platform_device *pdev = to_platform_device(exynos_ohci->dev);
 
-	if (exynos_ohci->phy)
-		usb_phy_shutdown(exynos_ohci->phy);
-	else if (exynos_ohci->pdata && exynos_ohci->pdata->phy_exit)
+	if (exynos_ohci->phy) {
+		/* Shutdown PHY only if it wasn't shutdown before */
+		if (!exynos_ohci->post_lpa_resume)
+			usb_phy_shutdown(exynos_ohci->phy);
+	} else if (exynos_ohci->pdata && exynos_ohci->pdata->phy_exit) {
 		exynos_ohci->pdata->phy_exit(pdev, USB_PHY_TYPE_HOST);
+	}
 }
 
 static int ohci_exynos_reset(struct usb_hcd *hcd)
@@ -313,7 +318,14 @@ skip_phy:
 		exynos_ohci->otg->set_host(exynos_ohci->otg,
 					&exynos_ohci->hcd->self);
 
+	/* Make sure PHY is initialized */
 	exynos_ohci_phy_enable(exynos_ohci);
+	if (exynos_ohci->phy)
+		/*
+		 * PHY can be runtime suspended (e.g. by EHCI driver), so
+		 * make sure PHY is active
+		 */
+		pm_runtime_get_sync(exynos_ohci->phy->dev);
 
 	ohci = hcd_to_ohci(hcd);
 	ohci_hcd_init(ohci);
@@ -351,6 +363,8 @@ skip_phy:
 	return 0;
 
 fail_add_hcd:
+	if (exynos_ohci->phy)
+		pm_runtime_put_sync(exynos_ohci->phy->dev);
 	exynos_ohci_phy_disable(exynos_ohci);
 fail_io:
 	clk_disable_unprepare(exynos_ohci->clk);
@@ -446,9 +460,8 @@ static int exynos_ohci_runtime_resume(struct device *dev)
 		if (exynos_ohci->post_lpa_resume) {
 			usb_phy_init(phy);
 			exynos_ohci->post_lpa_resume = 0;
-		} else {
-			pm_runtime_get_sync(phy->dev);
 		}
+		pm_runtime_get_sync(phy->dev);
 	} else if (pdata->phy_resume) {
 		pdata->phy_resume(pdev, USB_PHY_TYPE_HOST);
 	}
@@ -513,6 +526,14 @@ static int exynos_ohci_resume(struct device *dev)
 					&exynos_ohci->hcd->self);
 
 	exynos_ohci_phy_enable(exynos_ohci);
+	if (exynos_ohci->phy) {
+		/*
+		 * We are going to change runtime status to active.
+		 * Make sure we get the phy only if we didn't get it before.
+		 */
+		if (pm_runtime_suspended(dev))
+			pm_runtime_get_sync(exynos_ohci->phy->dev);
+	}
 
 	ohci_resume(hcd, false);
 

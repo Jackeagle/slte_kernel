@@ -38,15 +38,15 @@
 
 // Defines the max size of outgoing packet. That should match the max size of incoming packet from the remote TL
 #ifndef TLCUST_MAX_OUTGOING_PACKET_SIZE
-    #define TLCUST_MAX_OUTGOING_PACKET_SIZE 1024
+    #define TLCUST_MAX_OUTGOING_PACKET_SIZE 2048
 #endif
 
 // Defines the max size of incoming packet. That should match the max size of outgoing packet from the remote TL
 #ifndef TLCUST_MAX_INCOMING_PACKET_SIZE
-    #define TLCUST_MAX_INCOMING_PACKET_SIZE 1024
+    #define TLCUST_MAX_INCOMING_PACKET_SIZE 2048
 #endif
 
-// Defines the number of millisecond before retrying a reliable packet when no acknowledgement is received. 
+// Defines the number of millisecond before retrying a reliable packet when no acknowledgement is received.
 #ifndef TLCUST_RELIABLE_RETRY_TIMEOUT_MS
     #define TLCUST_RELIABLE_RETRY_TIMEOUT_MS 1000
 #endif

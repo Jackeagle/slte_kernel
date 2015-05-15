@@ -27,12 +27,15 @@ struct touchkey_platform_data {
 	u32 irq_gpio_flags;
 	u32 sda_gpio_flags;
 	u32 scl_gpio_flags;
+	u32 multi_fw_ver;
 	bool i2c_gpio;
 	u32 stabilizing_time;
 	u32 ic_type;
 	bool boot_on_ldo;
 	bool led_by_ldo;
 	bool glove_mode_keep_status;
+	u8 fw_crc_check;
+	u8 tk_use_lcdtype_check;
 	char *fw_path;
 	void (*init_platform_hw)(void);
 	int (*suspend) (void);

@@ -7,6 +7,10 @@ config BATTERY_SAMSUNG
 	 To see battery-related functions,
 	 refer to sec_charging_common.h
 
+config BATTERY_SWELLING
+	bool "prevent battery swellin "
+	help
+	  Say Y to include support for prevent battery swelling
 
 # Fuel Gauge
 
@@ -130,6 +134,44 @@ config FUELGAUGE_MAX77823_COULOMB_COUNTING
 	 This mode is for target that consumes high current
 	 like tablet.
 
+config FUELGAUGE_MAX77849
+	tristate "MAX77849 fuel gauge driver"
+	default n
+	depends on BATTERY_SAMSUNG
+	help
+	 Say Y to include support
+	 It is based on the MAX17050 fuel gauge driver.
+	 This fuel-gauge can be used in voltage-tracking mode
+	 or coulomb-counting mode.
+
+config FUELGAUGE_SM5703
+	 tristate "SM5703 fuel gauge driver"
+	 default n
+	 depends on BATTERY_SAMSUNG
+	 help
+	  Say Y to include support SM5703 FUELGAUGE.
+	  Using coulomb counting.
+
+config FUELGAUGE_MAX77849_VOLTAGE_TRACKING
+	tristate "use MAX77849 fuel gauge only as voltage tracking"
+	default n
+	depends on FUELGAUGE_MAX77849
+	help
+	 Say Y to use MAX77849 fuel gauge
+	 only as voltage tracking.
+	 This mode is for target that consumes low current
+	 like smart-phone.
+
+config FUELGAUGE_MAX77849_COULOMB_COUNTING
+	tristate "use MAX77849 fuel gauge as coulomb counting (including voltage tracking)"
+	default n
+	depends on FUELGAUGE_MAX77849
+	help
+	 Say Y to use MAX77849 fuel gauge
+	 as coulomb counting (including voltage tracking).
+	 This mode is for target that consumes high current
+	 like tablet.
+
 # Charger
 
 config CHARGER_DUMMY
@@ -240,7 +282,40 @@ config CHARGER_MAX77804
 	  Say Y here to enable support for the MAX77804 charger
 	  MAX77804 incluse muic, pmic, haptic, led,
 	  flash driver.
-	  You have to define MFD_MAX77693
+	  You have to define MFD_MAX77804
+
+config CHARGER_MAX77888
+	tristate "MAX77888 battery charger support"
+	depends on (MFD_MAX77888) && I2C
+	help
+	  Say Y here to enable support for the MAX77888 charger
+	  MAX77888 incluse muic, pmic, haptic, led,
+	  flash driver.
+	  You have to define MFD_MAX77888
+
+config CHARGER_MAX77849
+	tristate "MAX77849 battery charger support"
+	depends on MFD_MAX77849 && I2C
+	help
+	  Say Y here to enable support for the MAX77849 charger
+	  MAX77849 incluse muic, pmic, haptic, led,
+	  flash driver.
+	  You have to define MFD_MAX7784
+
+config CHARGER_SM5703
+	tristate "SM5703 battery charger support"
+	depends on MFD_SM5703 && I2C
+	help
+	  Say Y here to enable support for the SM5703 charger
+	  SM5703 incluse led, flash driver.
+	  You have to define MFD_SM5703
+
+config AFC_CHARGER_MODE
+	bool "afc charging support in sec battery driver"
+	default n
+	depends on CHARGER_MAX77843
+	help
+	  Say Y to include support for sec afc charging support
 
 config SAMSUNG_LPM_MODE
 	bool "Off charging mode support in sec battery driver"
@@ -251,3 +326,14 @@ config SAMSUNG_LPM_MODE
 	  Before enable this feature,
 	  implemet power off charging in the bootloader.
 
+config EN_OOPS
+	bool "enable oops filter"
+	default n
+	help
+	  Say Y to enable oops filter
+
+config FAKE_CAPACITY
+	bool "Fake capacity"
+	default n
+	help
+	  fake battery level to 50%

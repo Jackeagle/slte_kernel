@@ -213,8 +213,7 @@ static int bbd_init_vars(struct bbd_device *pbbd_dev)
 
 static int __init bbd_device_init(void)
 {
-	int ret   = -ENOMEM;
-	int index =  0;
+	int i, ret = -ENOMEM;
 	dev_t devno[BBD_DEVICE_INDEX] = {0,};
 	struct device *dev = NULL;
 	struct class *bbd_class;	
@@ -228,82 +227,87 @@ static int __init bbd_device_init(void)
 		"bbd_ssi_spi_debug" };
 
 	gpbbd_dev = bbd_alloc(sizeof(struct bbd_device));
-	if (gpbbd_dev == NULL)
-		return ret;
+	if (!gpbbd_dev)
+		goto exit;
 
 	ret = bbd_init_vars(gpbbd_dev);
 	if (ret < 0)
-		return ret;
+		goto exit;
 
 	bbd_class = class_create(THIS_MODULE, "bbd");
 	if (IS_ERR(bbd_class)) {
-		printk(KERN_ERR "BBD:%s() failed to create class (ret=%d)\n",
-					__func__, ret);
-		return ret;
+		printk(KERN_ERR "BBD:%s() failed to create class\n", __func__);
+		goto free_bbd_dev;
 	}
 
-	for (index = 0; index < BBD_DEVICE_INDEX; index++) {
-		printk(KERN_INFO "BBD:%s(%d,%d)##### 204024 /dev/%s\n",
-                            __func__, BBD_DEVICE_MAJOR,index, dev_name[index]);
-
-		devno[index] = MKDEV(BBD_DEVICE_MAJOR, index);
-                if (dev_name[index])
-                    ret = register_chrdev_region(devno[index], 1, dev_name[index]);
-                else
-                    ret = -EFAULT;
-		if (ret < 0) {
-			printk(KERN_ERR "BBD:%s() failed to register char dev(%d) (ret=%d)\n",
-						__func__, index, ret);
-			return ret;
-		}
-
-		dev = device_create(bbd_class, NULL, MKDEV(BBD_DEVICE_MAJOR, index), NULL, 
-					"%s", dev_name[index]);
-		if (IS_ERR_OR_NULL(dev)) {
-			printk(KERN_ERR "BBD:%s() failed to create device %s (ret=%d)\n",
-						__func__, dev_name[index], ret);
-			return ret;
-		}
-
-		cdev_init(&gpbbd_dev->dev[index], &bbd_fops[index]);
-
-		gpbbd_dev->dev[index].owner = THIS_MODULE;
-		gpbbd_dev->dev[index].ops   = &bbd_fops[index];
-		ret = cdev_add(&gpbbd_dev->dev[index], devno[index], 1);
+	for (i=0; i<BBD_DEVICE_INDEX; i++) {
+		BUG_ON(!dev_name[i]);
+		printk(KERN_INFO "BBD:%s(%d,%d)##### 204024 /dev/%s\n", __func__, BBD_DEVICE_MAJOR,i, dev_name[i]);
+		devno[i] = MKDEV(BBD_DEVICE_MAJOR, i);
+		ret = register_chrdev_region(devno[i], 1, dev_name[i]);
 		if (ret) {
-			printk(KERN_ERR "failed to add bbd_device device(ret=%d).\n",
-						ret);
-			return ret;
+			printk(KERN_ERR "BBD:%s() failed to register char dev(%d) (ret=%d)\n", __func__, i, ret);
+			while(--i)
+				unregister_chrdev_region(devno[i], 1);
+			goto free_bbd_class;
+		}
+		}
+
+	for (i=0; i<BBD_DEVICE_INDEX; i++) {
+		dev = device_create(bbd_class, NULL, MKDEV(BBD_DEVICE_MAJOR, i), NULL, "%s", dev_name[i]);
+		if (IS_ERR_OR_NULL(dev)) {
+			printk(KERN_ERR "BBD:%s() failed to create device %s\n", __func__, dev_name[i]);
+			while(--i) 
+				device_destroy(bbd_class, devno[i]);
+			goto unregister_dev;
+		}
+		}
+
+	for (i=0; i<BBD_DEVICE_INDEX; i++) {
+		cdev_init(&gpbbd_dev->dev[i], &bbd_fops[i]);
+		gpbbd_dev->dev[i].owner = THIS_MODULE;
+		gpbbd_dev->dev[i].ops   = &bbd_fops[i];
+		ret = cdev_add(&gpbbd_dev->dev[i], devno[i], 1);
+		if (ret) {
+			printk(KERN_ERR "failed to add bbd_device device(ret=%d).\n", ret);
+			while(--i)
+				cdev_del(&gpbbd_dev->dev[i]);
+			goto destroy_dev;
 		}
 	}
 
-	ret = platform_device_register(&bbd_platform_dev);
-	if (ret) {
-		printk(KERN_ERR "%s(): failed to register platfrom device(bbd_device)\n",
-		__func__);
-		goto err;
+	if (platform_device_register(&bbd_platform_dev)) {
+		printk(KERN_ERR "%s(): failed to register platfrom device(bbd_device)\n", __func__);
+		goto del_cdev;
 	}
+
 	dev = &bbd_platform_dev.dev;
 	dev_set_drvdata(dev, (void *)gpbbd_dev);
 
-	ret = bbd_sysfs_init(&dev->kobj);
-	if (ret < 0) {
-		goto err;
-	}
+	if (bbd_sysfs_init(&dev->kobj))
+		goto unreg_platform_dev;
 
         bbd_ssi_spi_open();
 
 	return 0;
 
-err:
-	for (index = 0; index < BBD_DEVICE_INDEX; index++) {
-		cdev_del(&gpbbd_dev->dev[index]);
-		unregister_chrdev_region(MKDEV(bbd_dev_major, index), 1);
-	}
-        if (gpbbd_dev) {
+unreg_platform_dev:
+	platform_device_unregister(&bbd_platform_dev);	
+del_cdev:
+	for (i=0; i<BBD_DEVICE_INDEX; i++)
+		cdev_del(&gpbbd_dev->dev[i]);
+destroy_dev:
+	for (i=0; i<BBD_DEVICE_INDEX; i++)
+		device_destroy(bbd_class, devno[i]);
+unregister_dev:
+	for (i=0; i<BBD_DEVICE_INDEX; i++)
+		unregister_chrdev_region(MKDEV(bbd_dev_major, i), 1);
+free_bbd_class:
+	class_destroy(bbd_class);	
+free_bbd_dev:
             bbd_free(gpbbd_dev);
             gpbbd_dev = 0;
-        }
+exit:
 	return ret;
 }
 
@@ -313,7 +317,7 @@ static void __exit bbd_device_exit(void)
 {
 	struct bbd_device *pbbd_dev = gpbbd_dev;
 	struct device *dev = &bbd_platform_dev.dev;
-	int index = 0;
+	int i=0;
 	int freedActive = 0;
 	int freedIdle   = 0;
 
@@ -321,9 +325,9 @@ static void __exit bbd_device_exit(void)
 		return;
 
 
-	for (index = 0; index < BBD_DEVICE_INDEX; index++) {
-		cdev_del(&pbbd_dev->dev[index]);
-		unregister_chrdev_region(MKDEV(bbd_dev_major, index), 1);
+	for (i=0; i<BBD_DEVICE_INDEX; i++) {
+		cdev_del(&pbbd_dev->dev[i]);
+		unregister_chrdev_region(MKDEV(bbd_dev_major, i), 1);
 	}
 
         BbdEngine_dtor(&pbbd_dev->bbd_engine);

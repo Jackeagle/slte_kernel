@@ -220,6 +220,8 @@ bool mc_check_owner_fd(struct mc_instance *instance, int32_t fd)
 
 	rcu_read_lock();
 	fp = fcheck_files(current->files, fd);
+	if (fp == NULL)
+		goto out;
 	s = __get_socket(fp);
 	if (s)
 		peer = get_pid_task(s->sk_peer_pid, PIDTYPE_PID);
@@ -1437,8 +1439,8 @@ free_pm:
 #ifdef MC_PM_RUNTIME
 	mc_pm_free();
 free_isr:
-	free_irq(MC_INTR_SSIQ, &ctx);
 #endif
+	free_irq(MC_INTR_SSIQ, &ctx);
 err_req_irq:
 	mc_fastcall_destroy();
 error:

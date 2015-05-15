@@ -42,7 +42,7 @@
 #include <mach/exynos-fimc-is-sensor.h>
 
 static int exynos_fimc_is_sensor_pin_control(struct platform_device *pdev,
-	struct exynos_sensor_pin *pin_ctrls, int channel)
+	struct pinctrl *pinctrl, struct exynos_sensor_pin *pin_ctrls, int channel)
 {
 	int ret = 0;
 	char ch_name[30];
@@ -52,8 +52,7 @@ static int exynos_fimc_is_sensor_pin_control(struct platform_device *pdev,
 	char* name = pin_ctrls->name;
 	enum pin_act act = pin_ctrls->act;
 	int voltage = pin_ctrls->voltage;
-
-	struct pinctrl *pinctrl_ch;
+	struct pinctrl_state *s;
 
 	snprintf(ch_name, sizeof(ch_name), "%s%d", name, channel);
 	pr_info("%s(pin(%d), act(%d), ch(%s), delay(%d), voltage(%d))\n", __func__, pin, act, ch_name, delay, voltage);
@@ -93,14 +92,14 @@ static int exynos_fimc_is_sensor_pin_control(struct platform_device *pdev,
 		}
 		break;
 	case PIN_FUNCTION:
-		/* I2C(GPC2), CIS_CLK(GPD7) */
-		pinctrl_ch = devm_pinctrl_get_select(&pdev->dev, ch_name);
-		if (IS_ERR(pinctrl_ch))
-			pr_err("%s: cam %s pins are not configured\n", __func__, ch_name);
-		usleep_range(1000, 1000);
-		if (!IS_ERR(pinctrl_ch))
-			devm_pinctrl_put(pinctrl_ch);
+		s = (struct pinctrl_state *)pin_ctrls->pin;
+		ret = pinctrl_select_state(pinctrl, s);
+		if (ret < 0) {
+			pr_err("%s: cam %s, state %p pinctrl_select_statee is failed\n", __func__, ch_name, s);
+			return ret;
+		}
 
+		usleep_range(1000, 1000);
 		break;
 	case PIN_REGULATOR_ON:
 		{
@@ -194,10 +193,11 @@ int exynos_fimc_is_sensor_pins_cfg(struct platform_device *pdev,
 		}
 
 		ret = exynos_fimc_is_sensor_pin_control(pdev,
+			pdata->pinctrl,
 			&pin_ctrls[scenario][enable][i],
 			pdata->csi_ch);
 		if (ret) {
-			pr_err("exynos5_fimc_is_sensor_gpio(%d, %s, %d, %d) is fail(%d)",
+			pr_err("exynos5_fimc_is_sensor_gpio(%lu, %s, %d, %d) is fail(%d)",
 				pin_ctrls[scenario][enable][i].pin,
 				pin_ctrls[scenario][enable][i].name,
 				pin_ctrls[scenario][enable][i].act,
@@ -455,20 +455,12 @@ int exynos5430_fimc_is_sensor_iclk_cfg(struct platform_device *pdev,
 		fimc_is_set_parent_dt(pdev, "mout_phyclk_rxbyteclkhs0_s2a", "phyclk_rxbyteclkhs0_s2a");
 
 		/* MIPI-CSIS1 */
-#ifdef CONFIG_SOC_EXYNOS5433
 		fimc_is_set_parent_dt(pdev, "mout_aclk_csis1_a", "mout_aclk_cam0_400_user");
-#else
-		fimc_is_set_parent_dt(pdev, "mout_aclk_csis1_a", "mout_aclk_cam0_552_user");
-#endif
 		fimc_is_set_parent_dt(pdev, "mout_aclk_csis1_b", "mout_aclk_csis1_a");
 		fimc_is_set_rate_dt(pdev, "dout_aclk_csis1", 552 * 1000000);
 
 		/* FIMC-LITE1 */
-#ifdef CONFIG_SOC_EXYNOS5433
 		fimc_is_set_parent_dt(pdev, "mout_aclk_lite_b_a", "mout_aclk_cam0_400_user");
-#else
-		fimc_is_set_parent_dt(pdev, "mout_aclk_lite_b_a", "mout_aclk_cam0_552_user");
-#endif
 		fimc_is_set_parent_dt(pdev, "mout_aclk_lite_b_b", "mout_aclk_lite_b_a");
 		fimc_is_set_rate_dt(pdev, "dout_aclk_lite_b", 552 * 1000000);
 		fimc_is_set_rate_dt(pdev, "dout_pclk_lite_b", 276 * 1000000);

@@ -143,6 +143,8 @@ void dw_mci_reg_dump(struct dw_mci *host)
 	dev_err(host->dev, ": ciu_en_win:           %d\n",
 			atomic_read(&host->ciu_en_win));
 	dev_err(host->dev, ": ===========================================\n");
+	if ((mci_readl(host, IDSTS) == 0x4000) && (mci_readl(host, MPSTAT) & 0x1))
+		panic("eMMC DMA BUS hang.\n");
 }
 
 /*
@@ -176,6 +178,7 @@ static void exynos_sfr_save(unsigned int i)
 #if defined(CONFIG_SOC_EXYNOS5433)
 	dw_mci_save_sfr[i][15] = mci_readl(host, DBADDRL);
 	dw_mci_save_sfr[i][16] = mci_readl(host, DBADDRU);
+	dw_mci_save_sfr[i][20] = mci_readl(host, MPSECURITY);
 #else
 	dw_mci_save_sfr[i][15] = mci_readl(host, DBADDR);
 #endif
@@ -194,13 +197,38 @@ static void exynos_sfr_save(unsigned int i)
 	atomic_dec_return(&host->ciu_en_win);
 }
 
+#if defined(CONFIG_SOC_EXYNOS5433)
+static void dw_mci_exynos_smu_reset(struct dw_mci *host)
+{
+	u32 i;
+	bool is_smu;
+
+	is_smu = (host->pdata->quirks & DW_MCI_QUIRK_BYPASS_SMU) ?
+				true : false;
+#ifdef CONFIG_MMC_DW_FMP_DM_CRYPT
+	is_smu = is_smu || ((host->pdata->quirks & DW_MCI_QUIRK_USE_SMU) ?
+				true : false);
+#endif
+	if (is_smu) {
+		for (i = 1; i < 8; i++) {
+			__raw_writel(0x0, host->regs + SDMMC_MPSBEGIN0 + (0x10 * i));
+			__raw_writel(0x0, host->regs + SDMMC_MPSEND0 + (0x10 * i));
+			__raw_writel(0x0, host->regs + SDMMC_MPSCTRL0 + (0x10 * i));
+		}
+	}
+}
+#endif
+
 static void exynos_sfr_restore(unsigned int i)
 {
 	struct dw_mci *host = dw_mci_lpa_host[i];
+	const struct dw_mci_drv_data *drv_data;
 
 	int startbit_clear = false;
 	unsigned int cmd_status = 0;
 	unsigned long timeout = jiffies + msecs_to_jiffies(500);
+
+	drv_data = host->drv_data;
 
 	mci_writel(host, CTRL , dw_mci_save_sfr[i][0]);
 	mci_writel(host, PWREN, dw_mci_save_sfr[i][1]);
@@ -220,6 +248,11 @@ static void exynos_sfr_restore(unsigned int i)
 #if defined(CONFIG_SOC_EXYNOS5433)
 	mci_writel(host, DBADDRL, dw_mci_save_sfr[i][15]);
 	mci_writel(host, DBADDRU, dw_mci_save_sfr[i][16]);
+	if (drv_data && drv_data->cfg_smu) {
+		mci_writel(host, MPSECURITY, dw_mci_save_sfr[i][20]);
+		dw_mci_exynos_smu_reset(host);
+		drv_data->cfg_smu(host);
+	}
 #else
 	mci_writel(host, DBADDR, dw_mci_save_sfr[i][15]);
 #endif
@@ -428,6 +461,7 @@ static int dw_mci_exynos_setup_clock(struct dw_mci *host)
 
 	return 0;
 }
+
 static void dw_mci_exynos_register_dump(struct dw_mci *host)
 {
 	u32 i;
@@ -463,6 +497,7 @@ static void dw_mci_exynos_register_dump(struct dw_mci *host)
 	dev_err(host->dev, ": DDR200_DLINE_CTRL:	0x%08x\n",
 		mci_readl(host, DDR200_DLINE_CTRL));
 }
+
 static void dw_mci_exynos_prepare_command(struct dw_mci *host, u32 *cmdr)
 {
 	/*
@@ -494,6 +529,8 @@ static void dw_mci_exynos_set_bus_hz(struct dw_mci *host, u32 want_bus_hz,
 
 	if (timing == MMC_TIMING_MMC_HS200_DDR)
 		tmp_reg = priv->ddr200_timing;
+	else if (timing == MMC_TIMING_MMC_HS200_DDR_ULP)
+		tmp_reg = priv->ddr200_ulp_timing;
 	else if (timing == MMC_TIMING_UHS_DDR50)
 		tmp_reg = priv->ddr_timing;
 	else
@@ -544,10 +581,16 @@ static void dw_mci_exynos_set_ios(struct dw_mci *host, unsigned int tuning, stru
 		return;
 	}
 
+	if ((host->pdata->quirks & DW_MCI_QUIRK_ENABLE_ULP) &&
+			(timing == MMC_TIMING_MMC_HS200_DDR))
+		timing = MMC_TIMING_MMC_HS200_DDR_ULP;
+
 	cclkin = clk_tbl[timing];
 	rddqs = DWMCI_DDR200_RDDQS_EN_DEF;
 	dline = DWMCI_DDR200_DLINE_CTRL_DEF;
 	clksel = mci_readl(host, CLKSEL);
+	clksel &= ~(BIT(19));
+
 	if (host->bus_hz != cclkin) {
 		dw_mci_exynos_set_bus_hz(host, cclkin, timing);
 		host->bus_hz = cclkin;
@@ -573,6 +616,28 @@ static void dw_mci_exynos_set_ios(struct dw_mci *host, unsigned int tuning, stru
 				DWMCI_RD_DQS_DELAY_CTRL(90);
 			host->quirks &= ~DW_MCI_QUIRK_NO_DETECT_EBIT;
 		}
+	} else if (timing == MMC_TIMING_MMC_HS200_DDR_ULP) {
+		clksel = ((priv->ddr200_ulp_timing & 0xfffffff8) | pdata->clk_smpl);
+		if (pdata->is_fine_tuned)
+			clksel |= BIT(6);
+
+		if (!tuning) {
+			rddqs &= ~((0xFF << 16) | (0xFF << 8));
+			rddqs |= (DWMCI_TXDT_CRC_TIMER_SET(priv->ddr200_tx_t_fastlimit,
+						priv->ddr200_tx_t_initval) |
+					DWMCI_RDDQS_EN | DWMCI_AXI_NON_BLOCKING_WRITE);
+			if (timing_org == MMC_TIMING_MMC_HS200_DDR_ES)
+				rddqs |= DWMCI_RESP_RCLK_MODE;
+			if (priv->delay_line || priv->tx_delay_line)
+				dline = DWMCI_WD_DQS_DELAY_CTRL(priv->tx_delay_line) |
+				DWMCI_FIFO_CLK_DELAY_CTRL(0x2) |
+				DWMCI_RD_DQS_DELAY_CTRL(priv->delay_line);
+			else
+				dline = DWMCI_FIFO_CLK_DELAY_CTRL(0x2) |
+				DWMCI_RD_DQS_DELAY_CTRL(90);
+			host->quirks &= ~DW_MCI_QUIRK_NO_DETECT_EBIT;
+			clksel |= BIT(19);
+		}
 	} else if (timing == MMC_TIMING_MMC_HS200 ||
 			timing == MMC_TIMING_UHS_SDR104) {
 		clksel = (clksel & 0xfff8ffff) | (priv->selclk_drv << 16);
@@ -580,6 +645,8 @@ static void dw_mci_exynos_set_ios(struct dw_mci *host, unsigned int tuning, stru
 		clksel = (clksel & 0xfff8ffff) | (priv->selclk_drv << 16);
 	} else if (timing == MMC_TIMING_UHS_DDR50) {
 		clksel = priv->ddr_timing;
+	} else if (timing == MMC_TIMING_MMC_HS || timing == MMC_TIMING_SD_HS) {
+		clksel = priv->sdr_hs_timing;
 	} else {
 		clksel = priv->sdr_timing;
 	}
@@ -681,6 +748,13 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 	priv->sdr_timing = SDMMC_CLKSEL_TIMING(timing[0], timing[1], timing[2], timing[3]);
 
 	ret = of_property_read_u32_array(np,
+			"samsung,dw-mshc-sdr-hs-timing", timing, 4);
+	if (ret)
+		priv->sdr_hs_timing = priv->sdr_timing;
+	else
+		priv->sdr_hs_timing = SDMMC_CLKSEL_TIMING(timing[0], timing[1], timing[2], timing[3]);
+
+	ret = of_property_read_u32_array(np,
 			"samsung,dw-mshc-ddr-timing", timing, 4);
 	if (ret)
 		goto err_ref_clk;
@@ -724,9 +798,28 @@ static int dw_mci_exynos_parse_dt(struct dw_mci *host)
 
 		priv->ddr200_timing = SDMMC_CLKSEL_TIMING(timing[0], timing[1], timing[2], timing[3]);
 
-		/* Delay Line */
+		ret = of_property_read_u32_array(np,
+			"samsung,dw-mshc-ddr200-ulp-timing", timing, 4);
+		if (!ret)
+			priv->ddr200_ulp_timing = SDMMC_CLKSEL_TIMING(timing[0], timing[1], timing[2], timing[3]);
+		else
+			ret = 0;
+
+		/* Rx Delay Line */
 		of_property_read_u32(np,
 			"samsung,dw-mshc-ddr200-delay-line", &priv->delay_line);
+
+		/* Tx Delay Line */
+		of_property_read_u32(np,
+			"samsung,dw-mshc-ddr200-tx-delay-line", &priv->tx_delay_line);
+
+		/* The fast RXCRC packet arrival time */
+		of_property_read_u32(np,
+			"samsung,dw-mshc-txdt-crc-timer-fastlimit", &priv->ddr200_tx_t_fastlimit);
+
+		/* Initial value of the timeout down counter for RXCRC packet */
+		of_property_read_u32(np,
+			"samsung,dw-mshc-txdt-crc-timer-initval", &priv->ddr200_tx_t_initval);
 		break;
 	/* dwmmc1 : SDIO    */
 	case 1:
@@ -1002,11 +1095,9 @@ static int find_median_of_16bits(struct dw_mci *host, unsigned int map, bool for
 
 	orig_bits = map | (map << 16);
 
-	if (divratio == 1) {
+	if (divratio == 1)
 		if (!(priv->ctrl_flag & DW_MMC_EXYNOS_ENABLE_SHIFT))
 			orig_bits = orig_bits & (orig_bits >> 8);
-		i = 3;
-	}
 
 	for (i = 0; i < NUM_OF_MASK; i++) {
 		sel = __find_median_of_16bits(orig_bits, mask[i], NUM_OF_MASK-i);

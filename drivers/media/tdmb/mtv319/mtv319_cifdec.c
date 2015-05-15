@@ -430,16 +430,12 @@ static INLINE void cifb_queue_unlink(struct CIFB_HEAD_INFO *q,
 	q->cnt--;
 }
 
-static INLINE struct CIFB_INFO * cifb_queue_free(struct CIFB_HEAD_INFO *q,
+static INLINE void cifb_queue_free(struct CIFB_HEAD_INFO *q,
 						struct CIFB_INFO *cifb)
 {
-	struct CIFB_INFO *next = cifb->ptNext;
-
 	CIF_ASSERT(q->cnt != 0);
 	cifb_queue_unlink(q, cifb);
 	cifb_free_buffer(cifb);
-
-	return next;
 }
 
 static INLINE struct CIFB_INFO *cifb_peek_frist(struct CIFB_HEAD_INFO *q)
@@ -452,7 +448,7 @@ static void cifb_queue_release_all(struct CIFB_HEAD_INFO *q)
 	struct CIFB_INFO *cifb;
 
 	while ((cifb = cifb_peek_frist(q)) != NULL)
-		cifb = cifb_queue_free(q, cifb);
+		cifb_queue_free(q, cifb);
 
 	CIF_ASSERT(g_nCifBufPoolFreeCnt == NUM_CIF_BUF_POOL);
 }
@@ -489,6 +485,7 @@ static INLINE struct CIFB_INFO *cifb_copydec(U8 *dec_buf, struct CIFB_INFO *cifb
 			struct CIFB_HEAD_INFO *head, UINT len)
 {
 	UINT copied;
+	struct CIFB_INFO *next;
 
 	CIF_ASSERT(cifb != NULL);
 	CIF_ASSERT(len && (head->tts_len >= len));
@@ -498,9 +495,11 @@ static INLINE struct CIFB_INFO *cifb_copydec(U8 *dec_buf, struct CIFB_INFO *cifb
 		if (copied)
 			CIF_DATA_COPY(dec_buf, cifb->ts_ptr, copied);
 
-		if (cifb->ts_size == copied)
-			cifb = cifb_queue_free(head, cifb);
-		else {
+		if (cifb->ts_size == copied) {
+			next = cifb->ptNext;
+			cifb_queue_free(head, cifb);
+			cifb = next;
+		} else {
 			cifb->ts_ptr += copied;
 			cifb->ts_size -= copied;
 			head->tts_len -= copied;
@@ -630,20 +629,20 @@ static UINT copy_dmb_188(struct RTV_CIF_DEC_INFO *dec, UINT idx,
 			CIF_DATA_COPY(subch_ptr, cifb->ts_ptr, 188);
 			subch_ptr += 188;
 			dec->subch_size[idx] += 188;
-			cifb = cifb_queue_free(tspq, cifb);
+			cifb_queue_free(tspq, cifb);
 		} else {
 			if (cifb->cont == RTV_MCH_HDR_CONT_FIRST) {
 				if (cifb->ts_ptr[0] == 0x47) {
 					if (tspq->cnt > 1) {
 						if (cifb->ptNext->cont == RTV_MCH_HDR_CONT_LAST) {
-							cifb = cifb_copydec(subch_ptr,
+							cifb_copydec(subch_ptr,
 									cifb, tspq, 188);
 							subch_ptr += 188;
 							dec->subch_size[idx] += 188;
 						}
 						else {
 							CIF_ERR_STAT_INC(CIFDEC_S__MISSING_LAST_DMB_TS);
-							cifb = cifb_queue_free(tspq, cifb); /* Discard TSP */
+							cifb_queue_free(tspq, cifb); /* Discard TSP */
 						}
 					} else {
 						/* Copy ts data into buffer. NOT input buffer! */
@@ -658,10 +657,10 @@ static UINT copy_dmb_188(struct RTV_CIF_DEC_INFO *dec, UINT idx,
 					}
 				} else {
 					CIF_ERR_STAT_INC(CIFDEC_S__INVALID_SYNC_BYTE);
-					cifb = cifb_queue_free(tspq, cifb); /* Discard TSP */
+					cifb_queue_free(tspq, cifb); /* Discard TSP */
 				}
 			} else
-				cifb = cifb_queue_free(tspq, cifb); /* Discard the TSP. */
+				cifb_queue_free(tspq, cifb); /* Discard the TSP. */
 		}
 	}
 
@@ -837,19 +836,19 @@ static void proc_fic(struct RTV_CIF_DEC_INFO *dec, struct CIFB_HEAD_INFO *tspq)
 						goto stop_fic_decode;
 					}
 
-					cifb = cifb_queue_free(tspq, cifb);
+					cifb_queue_free(tspq, cifb);
 				}
 			}
 			else if (cifb->cont == RTV_MCH_HDR_CONT_ALONE) {
 				dec->fic_size = cifb->data_len; /* FINISHED */
-				cifb = cifb_copydec(dec->fic_buf_ptr, cifb,
+				cifb_copydec(dec->fic_buf_ptr, cifb,
 							tspq, cifb->data_len);
 			}
 			else
-				cifb = cifb_queue_free(tspq, cifb); /* Discard the TSP. */
+				cifb_queue_free(tspq, cifb); /* Discard the TSP. */
 		} else { /* Already decoded ? */
 			/* Discard the TSP. */
-			cifb = cifb_queue_free(tspq, cifb);
+			cifb_queue_free(tspq, cifb);
 			/*CIF_DBGMSG0("[proc_fic] Already decoded.\n");*/
 		}
 	}

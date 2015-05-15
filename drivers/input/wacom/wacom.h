@@ -38,7 +38,10 @@
 
 /*Wacom Command*/
 #define COM_COORD_NUM	12
-#define COM_QUERY_NUM	11
+#define COM_RESERVED_NUM	2
+#define COM_QUERY_NUM	14
+#define COM_QUERY_POS	(COM_COORD_NUM+COM_RESERVED_NUM)
+#define COM_QUERY_BUFFER (COM_QUERY_POS+COM_QUERY_NUM)
 #define COM_QUERY_RETRY 3
 
 #define COM_SAMPLERATE_STOP 0x30
@@ -49,6 +52,22 @@
 #define COM_QUERY          0x2A
 #define COM_FLASH          0xff
 #define COM_CHECKSUM       0x63
+
+/* query data format */
+#define EPEN_REG_HEADER 0x00
+#define EPEN_REG_X1 0x01
+#define EPEN_REG_X2 0x02
+#define EPEN_REG_Y1 0x03
+#define EPEN_REG_Y2 0x04
+#define EPEN_REG_PRESSURE1 0x05
+#define EPEN_REG_PRESSURE2 0x06
+#define EPEN_REG_FWVER1 0X07
+#define EPEN_REG_FWVER2 0X08
+#define EPEN_REG_MPUVER 0X09
+#define EPEN_REG_BLVER 0X0A
+#define EPEN_REG_TILT_X 0X0B
+#define EPEN_REG_TILT_Y 0X0C
+#define EPEN_REG_HEIGHT 0X0D
 
 /*Information for input_dev*/
 #define EMR 0
@@ -88,12 +107,8 @@
 #define WACOM_I2C_MODE_NORMAL 0
 
 #define EPEN_RESUME_DELAY 180
+#define EPEN_OFF_TIME_LIMIT 10000	// usec
 
-
-/* Wacom Booster */
-//#if !defined(CONFIG_INPUT_BOOSTER)
-//#define WACOM_BOOSTER
-//#endif
 
 #if 1//defined(CONFIG_HA)
 /* softkey block workaround */
@@ -101,6 +116,11 @@
 #define SOFTKEY_BLOCK_DURATION (HZ / 10)
 
 /* LCD freq sync */
+#ifdef CONFIG_WACOM_LCD_FREQ_COMPENSATE
+/* NOISE from LDI. read Vsync at wacom firmware. */
+#define LCD_FREQ_SYNC
+#endif
+
 #ifdef LCD_FREQ_SYNC
 #define LCD_FREQ_BOTTOM 60100
 #define LCD_FREQ_TOP 60500
@@ -148,6 +168,8 @@
 
 #endif /*End of Model config*/
 
+//#define WACOM_USE_I2C_GPIO
+
 #ifdef WACOM_USE_PDATA
 #undef WACOM_USE_QUERY_DATA
 #endif
@@ -175,14 +197,14 @@ enum {
 
 /* header ver 1 */
 struct fw_image {
-	//u8 hdr_ver;
-	//u8 hdr_len;
-	//u16 first_fw_ver;
-	//u16 second_fw_ver;
-	//u16 third_ver;
-	//u32 fw_len;
-	//u16 checksum;
-	//u16 alignment_dummy;
+	u8 hdr_ver;
+	u8 hdr_len;
+	u16 fw_ver1;
+	u16 fw_ver2;
+	u16 fw_ver3;
+	u32 fw_len;
+	u8 checksum[5];
+	u8 alignment_dummy[3];
 	u8 data[0];
 } __attribute__ ((packed));
 
@@ -243,6 +265,11 @@ struct wacom_i2c {
 	bool do_crc_check;
 	struct pinctrl *pinctrl_irq;
 	struct pinctrl_state *pin_state_irq;
+#ifdef WACOM_USE_I2C_GPIO
+	struct pinctrl *pinctrl_i2c;
+	struct pinctrl_state *pin_state_i2c;
+	struct pinctrl_state *pin_state_gpio;
+#endif
 };
 
 #endif /* _LINUX_WACOM_H */

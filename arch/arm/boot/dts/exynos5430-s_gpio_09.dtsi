@@ -244,7 +244,7 @@
 		PIN_SLP(gpf0-2, INPUT, DOWN);	/* NC */
 		PIN_SLP(gpf0-3, INPUT, NONE);	/* OCP_FLAG */
 		PIN_SLP(gpf0-4, INPUT, DOWN);	/* NC */
-		PIN_SLP(gpf0-5, OUT0, NONE);	/* HOST_ACTIVE */
+		PIN_SLP(gpf0-5, OUT0, NONE);    /* HOST_ACTIVE */
 		PIN_SLP(gpf0-6, INPUT, DOWN);	/* NC */
 		PIN_SLP(gpf0-7, INPUT, DOWN);	/* CCI_MODE(NC) */
 
@@ -276,7 +276,7 @@
 		PIN_SLP(gpf4-4, INPUT, DOWN);	/* NC */
 		PIN_SLP(gpf4-5, PREV, NONE);	/* AP_DUMP_INT */
 		PIN_SLP(gpf4-6, INPUT, DOWN);	/* NC */
-		PIN_SLP(gpf4-7, INPUT, DOWN);	/* NC */
+		PIN_SLP(gpf4-7, OUT0, NONE);	/* NC */
 
 		PIN_SLP(gpf5-0, INPUT, DOWN);	/* NC */
 		PIN_SLP(gpf5-1, INPUT, DOWN);	/* NC */

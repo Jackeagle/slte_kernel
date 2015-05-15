@@ -61,6 +61,7 @@ snd-soc-smdk5422-wm8994-objs := smdk5422_wm8994.o
 snd-soc-universal5430-dummy-objs := universal5430_dummy.o
 snd-soc-pacific-wm5102-objs := pacific_arizona.o
 snd-soc-pacific-florida-objs := pacific_arizona.o
+snd-soc-pacific-wm1814-objs := pacific_arizona.o
 snd-soc-pacific-hdmi-objs := pacific_hdmi.o
 
 obj-$(CONFIG_SND_SOC_SAMSUNG_JIVE_WM8750) += snd-soc-jive-wm8750.o
@@ -92,6 +93,7 @@ obj-$(CONFIG_SND_SOC_SAMSUNG_SMDK5422_WM8994) += snd-soc-smdk5422-wm8994.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_UNIVERSAL5430_DUMMY) += snd-soc-universal5430-dummy.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_PACIFIC_WM5102) += snd-soc-pacific-wm5102.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_PACIFIC_FLORIDA) += snd-soc-pacific-florida.o
+obj-$(CONFIG_SND_SOC_SAMSUNG_PACIFIC_WM1814) += snd-soc-pacific-wm1814.o
 obj-$(CONFIG_SND_SOC_SAMSUNG_PACIFIC_HDMI) += snd-soc-pacific-hdmi.o
 
 obj-$(CONFIG_SND_SAMSUNG_SEIREN) += seiren/

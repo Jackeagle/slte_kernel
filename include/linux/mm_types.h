@@ -38,6 +38,25 @@ struct address_space;
  * allows the use of atomic double word operations on the flags/mapping
  * and lru list pointers also.
  */
+
+#ifdef CONFIG_PTRACK_DEBUG
+#define PTRACK_ADDRS_COUNT 16
+struct ptrack {
+	unsigned long addr;	/* Called from address */
+#ifdef CONFIG_STACKTRACE
+	unsigned long addrs[PTRACK_ADDRS_COUNT];	/* Called from address */
+#endif
+	int cpu;		/* Was running on cpu */
+	int pid;		/* Pid context */
+	u64 when;		/* When did the operation occur */
+};
+
+enum ptrack_item {
+	PTRACK_ALLOC = 0,
+	PTRACK_FREE,
+	PTRACK_ITEM_NUM};
+#endif
+
 struct page {
 	/* First double word block */
 	unsigned long flags;		/* Atomic flags, some possibly
@@ -177,6 +196,13 @@ struct page {
 #ifdef LAST_NID_NOT_IN_PAGE_FLAGS
 	int _last_nid;
 #endif
+
+#ifdef CONFIG_PTRACK_DEBUG
+	struct ptrack * ptrack;
+#ifdef CONFIG_BUFFERED_PTRACK
+	int ptrack_curr[PTRACK_ITEM_NUM];
+#endif
+#endif
 }
 /*
  * The struct page can be forced to be double word aligned so that atomic ops
@@ -311,6 +337,10 @@ enum {
 	MM_FILEPAGES,
 	MM_ANONPAGES,
 	MM_SWAPENTS,
+#ifdef CONFIG_ZOOM_KILLER
+	MM_LOW_FILEPAGES,
+	MM_LOW_ANONPAGES,
+#endif
 	NR_MM_COUNTERS
 };
 

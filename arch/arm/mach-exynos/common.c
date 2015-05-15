@@ -1667,7 +1667,7 @@ static int __init exynos_armpmu_init(void)
 arch_initcall(exynos_armpmu_init);
 
 
-#ifdef CONFIG_SOC_EXYNOS5433_REV_1
+#ifdef CONFIG_SOC_EXYNOS5433
 static int  __init exynos_set_debug_mem(void)
 {
 	int ret;

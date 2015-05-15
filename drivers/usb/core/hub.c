@@ -731,18 +731,18 @@ static void hub_tt_work(struct work_struct *work)
 
 /**
  * usb_hub_set_port_power - control hub port's power state
- * @hdev: target hub
+ * @hdev: USB device belonging to the usb hub
+ * @hub: target hub
  * @port1: port index
  * @set: expected status
  *
  * call this function to control port's power via setting or
  * clearing the port's PORT_POWER feature.
  */
-int usb_hub_set_port_power(struct usb_device *hdev, int port1,
-		bool set)
+int usb_hub_set_port_power(struct usb_device *hdev, struct usb_hub *hub,
+			   int port1, bool set)
 {
 	int ret;
-	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 
 	if (set)
@@ -1794,15 +1794,17 @@ hub_ioctl(struct usb_interface *intf, unsigned int code, void *user_data)
 static int find_port_owner(struct usb_device *hdev, unsigned port1,
 		struct dev_state ***ppowner)
 {
+	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
+
 	if (hdev->state == USB_STATE_NOTATTACHED)
 		return -ENODEV;
 	if (port1 == 0 || port1 > hdev->maxchild)
 		return -EINVAL;
 
-	/* This assumes that devices not managed by the hub driver
+	/* Devices not managed by the hub driver
 	 * will always have maxchild equal to 0.
 	 */
-	*ppowner = &(usb_hub_to_struct_hub(hdev)->ports[port1 - 1]->port_owner);
+	*ppowner = &(hub->ports[port1 - 1]->port_owner);
 	return 0;
 }
 
@@ -2042,9 +2044,6 @@ void usb_disconnect(struct usb_device **pdev)
 	dev_info(&udev->dev, "USB disconnect, device number %d\n",
 			udev->devnum);
 
-#ifdef CONFIG_USB_HOST_NOTIFY
-	call_battery_notify(udev, 0);
-#endif
 	usb_lock_device(udev);
 
 	/* Free up all the children before we remove this device */
@@ -2052,6 +2051,10 @@ void usb_disconnect(struct usb_device **pdev)
 		if (hub->ports[i]->child)
 			usb_disconnect(&hub->ports[i]->child);
 	}
+
+#ifdef CONFIG_USB_HOST_NOTIFY
+	call_battery_notify(udev, 0);
+#endif
 
 	/* deallocate hcd/hardware state ... nuking all pending urbs and
 	 * cleaning up all state associated with the current configuration
@@ -2346,9 +2349,7 @@ int usb_new_device(struct usb_device *udev)
 	if (udev->manufacturer)
 		add_device_randomness(udev->manufacturer,
 				      strlen(udev->manufacturer));
-#ifdef CONFIG_USB_HOST_NOTIFY
-	call_battery_notify(udev, 1);
-#endif
+
 	device_enable_async_suspend(&udev->dev);
 
 	/*
@@ -2392,6 +2393,9 @@ int usb_new_device(struct usb_device *udev)
 	(void) usb_create_ep_devs(&udev->dev, &udev->ep0, udev);
 	usb_mark_last_busy(udev);
 	pm_runtime_put_sync_autosuspend(&udev->dev);
+#ifdef CONFIG_USB_HOST_NOTIFY
+	call_battery_notify(udev, 1);
+#endif
 	return err;
 
 fail:
@@ -3129,6 +3133,20 @@ static int finish_port_resume(struct usb_device *udev)
 	if (status == 0) {
 		devstatus = 0;
 		status = usb_get_status(udev, USB_RECIP_DEVICE, 0, &devstatus);
+
+		/* check usb_get_status return value 
+		 * if it succeeded, it returns transfer len.
+		 * if it fails, returns 0 or minus
+		 */
+		if (status <= 0)	{
+			dev_dbg(&udev->dev, "usb_get_status error(%d,%d). reinit.\n", 
+				status, devstatus);
+
+			/* try one more */
+			usb_ep0_reinit(udev);
+			status = usb_get_status(udev, USB_RECIP_DEVICE, 0, &devstatus);
+		}
+
 		if (status >= 0)
 			status = (status > 0 ? 0 : -ENODEV);
 
@@ -4425,7 +4443,8 @@ static void hub_port_connect_change(struct usb_hub *hub, int port1,
 #if defined(CONFIG_LINK_DEVICE_HSIC) || defined(CONFIG_MDM_HSIC_PM)
 		} else if (udev->state == USB_STATE_CONFIGURED &&
 			udev->persist_enabled &&
-			udev->dev.power.runtime_status == RPM_RESUMING) {
+			(udev->dev.power.runtime_status == RPM_RESUMING ||
+			 udev->dev.power.runtime_status == RPM_ACTIVE)) {
 			/* usb 1-2 runtime resume was called by host wakeup
 			 * isr routine . Nothing to do */
 			pr_info("%s: aleady host-wakup resumed\n", __func__);
@@ -5425,7 +5444,8 @@ void usb_set_hub_port_connect_type(struct usb_device *hdev, int port1,
 {
 	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
 
-	hub->ports[port1 - 1]->connect_type = type;
+	if (hub)
+		hub->ports[port1 - 1]->connect_type = type;
 }
 
 /**
@@ -5440,6 +5460,9 @@ enum usb_port_connect_type
 usb_get_hub_port_connect_type(struct usb_device *hdev, int port1)
 {
 	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
+
+	if (!hub)
+		return USB_PORT_CONNECT_TYPE_UNKNOWN;
 
 	return hub->ports[port1 - 1]->connect_type;
 }
@@ -5498,6 +5521,9 @@ acpi_handle usb_get_hub_port_acpi_handle(struct usb_device *hdev,
 	int port1)
 {
 	struct usb_hub *hub = usb_hub_to_struct_hub(hdev);
+
+	if (!hub)
+		return NULL;
 
 	return DEVICE_ACPI_HANDLE(&hub->ports[port1 - 1]->dev);
 }

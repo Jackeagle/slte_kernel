@@ -128,14 +128,14 @@ enum exynos5433_clks {
 	aclk_decon = 610, aclk_disp0nd_333, aclk_disp1nd_333, aclk_xiu_disp1x,
 	aclk_xiu_decon0x, aclk_xiu_decon1x, aclk_axius_disp1x,
 	aclk_bts_deconm0 = 620, aclk_bts_deconm1, aclk_bts_deconm2, aclk_bts_deconm3,
-	aclk_smmu_decon0x, aclk_smmu_decon1x, aclk_ppmu_decon0x, aclk_ppmu_decon1x,
+	aclk_ppmu_decon0x = 626, aclk_ppmu_decon1x,
 	aclk_dispnp_100 = 630, aclk_ahb_disph, aclk_ahb2apb_dispsfr0p,
 	aclk_ahb2apb_dispsfr1p, aclk_ahb2apb_dispsfr2p, pclk_decon, pclk_tv_mixer,
 	pclk_dsim0 = 640, pclk_mdnie, pclk_mic, pclk_hdmi, pclk_hdmiphy,
 	pclk_sysreg_disp, pclk_pmu_disp, pclk_asyncaxi_tvx,
 	pclk_bts_deconm0 = 650, pclk_bts_deconm1, pclk_bts_deconm2, pclk_bts_deconm3, pclk_bts_deconm4,
-	pclk_bts_mixerm0, pclk_bts_mixerm1, pclk_smmu_decon0x, pclk_smmu_decon1x,
-	pclk_smmu_tvx = 660, pclk_ppmu_decon0x, pclk_ppmu_decon1x, pclk_ppmu_tvx,
+	pclk_bts_mixerm0, pclk_bts_mixerm1,
+	pclk_ppmu_decon0x = 661, pclk_ppmu_decon1x, pclk_ppmu_tvx,
 
 	/* mfc0 gate */
 	aclk_mfc0 = 680, aclk_mfc0nd_333, aclk_xiu_mfc0x, aclk_bts_mfc0_0, aclk_bts_mfc0_1,
@@ -300,8 +300,7 @@ enum exynos5433_clks {
 
 	/* disp1 ip gate */
 	gate_ppmu_tvx = 2120, gate_ppmu_decon1x, gate_ppmu_decon0x,
-	gate_smmu_tvx, gate_smmu_decon1x, gate_smmu_decon0x,
-	gate_bts_mixerm1, gate_bts_mixerm0,
+	gate_bts_mixerm1 = 2126, gate_bts_mixerm0,
 	gate_bts_deconm4 = 2130, gate_bts_deconm3, gate_bts_deconm2,
 	gate_bts_deconm1, gate_bts_deconm0,
 	gate_ahb2apb_dispsfr2p, gate_ahb2apb_dispsfr1p,
@@ -454,6 +453,7 @@ enum exynos5433_clks {
 	gate_custom_efuse, gate_custom_efuse_apbif,
 	gate_antirbk_cnt, gate_antirbk_cnt_apbif,
 	gate_rtc = 2515,
+	gate_otp_con,
 
 	/* cam0 ip gate */
 	gate_pmu_cam0 = 2520, gate_sysreg_cam0,
@@ -585,8 +585,8 @@ enum exynos5433_clks {
 	gate_decon_eclk, gate_decon_vclk, gate_decontv_eclk, gate_dsd_clk, gate_dsim0_clk,
 
 	/* gates for EVT1 */
-	gate_ppmu_tv1x = 2800, gate_ppmu_tv0x, gate_smmu_tv1x,
-	gate_smmu_tv0x, gate_bts_decontv_m3,
+	gate_ppmu_tv1x = 2800, gate_ppmu_tv0x,
+	gate_bts_decontv_m3 = 2804,
 	gate_bts_decontv_m2, gate_bts_decontv_m1,
 	gate_bts_decontv_m0, gate_xiu_tv1x,
 	gate_xiu_tv0x,
@@ -948,9 +948,16 @@ static __initdata void *exynos5433_clk_regs[] = {
 	EXYNOS5430_ENABLE_ACLK_TOP,
 	EXYNOS5430_ENABLE_ACLK_MIF3,
 	EXYNOS5430_ENABLE_ACLK_CPIF,
+	EXYNOS5430_ENABLE_ACLK_FSYS0,
+	EXYNOS5430_ENABLE_ACLK_FSYS1,
+	EXYNOS5430_ENABLE_ACLK_PERIC,
 	EXYNOS5430_ENABLE_PCLK_CPIF,
+	EXYNOS5430_ENABLE_PCLK_FSYS,
+	EXYNOS5430_ENABLE_PCLK_PERIC,
+	EXYNOS5430_ENABLE_PCLK_PERIC1,
 	EXYNOS5430_ENABLE_SCLK_CPIF,
 	EXYNOS5430_ENABLE_SCLK_FSYS,
+	EXYNOS5430_ENABLE_SCLK_PERIC,
 	EXYNOS5430_ENABLE_SCLK_TOP_CAM1,
 	EXYNOS5430_AUD_PLL_CON0,
 	EXYNOS5430_SRC_SEL_EGL0,
@@ -985,6 +992,7 @@ static __initdata void *exynos5433_clk_regs[] = {
 	EXYNOS5430_SRC_SEL_TOP_FSYS1,
 	EXYNOS5430_SRC_SEL_TOP_PERIC0,
 	EXYNOS5430_SRC_SEL_TOP_PERIC1,
+	EXYNOS5430_SRC_SEL_CPIF0,
 	EXYNOS5430_DIV_EGL0,
 	EXYNOS5430_DIV_EGL1,
 	EXYNOS5430_DIV_KFC0,
@@ -1006,11 +1014,14 @@ static __initdata void *exynos5433_clk_regs[] = {
 	EXYNOS5430_DIV_TOP_CAM11,
 	EXYNOS5430_DIV_TOP_FSYS0,
 	EXYNOS5430_DIV_TOP_FSYS1,
+	EXYNOS5430_DIV_TOP_FSYS2,
 	EXYNOS5430_DIV_TOP_PERIC0,
 	EXYNOS5430_DIV_TOP_PERIC1,
 	EXYNOS5430_DIV_TOP_PERIC2,
 	EXYNOS5430_DIV_TOP_PERIC3,
 	EXYNOS5430_DIV_TOP_PERIC4,
+	EXYNOS5430_DIV_FSYS,
+	EXYNOS5430_DIV_CPIF,
 	/* CLK_SRC */
 	EXYNOS5430_SRC_ENABLE_TOP0,
 	EXYNOS5430_SRC_ENABLE_TOP2,
@@ -1019,12 +1030,21 @@ static __initdata void *exynos5433_clk_regs[] = {
 	EXYNOS5430_SRC_ENABLE_TOP_MSCL,
 	EXYNOS5430_SRC_ENABLE_TOP_CAM1,
 	EXYNOS5430_SRC_ENABLE_TOP_DISP,
+	EXYNOS5430_SRC_ENABLE_FSYS0,
+	EXYNOS5430_SRC_ENABLE_FSYS1,
+	EXYNOS5430_SRC_ENABLE_FSYS2,
+	EXYNOS5430_SRC_ENABLE_FSYS3,
+	EXYNOS5430_SRC_ENABLE_FSYS4,
 	/* CLK_ENALBE_IP */
 	EXYNOS5430_ENABLE_IP_TOP,
 	EXYNOS5430_EGL_STOPCTRL,
+	EXYNOS5430_KFC_STOPCTRL,
 	EXYNOS5430_ENABLE_IP_CPIF0,
 	EXYNOS5430_ENABLE_IP_CPIF1,
 	EXYNOS5430_ENABLE_IP_PERIC0,
+	EXYNOS5430_ENABLE_IP_PERIC1,
+	EXYNOS5430_ENABLE_IP_PERIC2,
+	EXYNOS5430_ENABLE_IP_PERIS0,
 	EXYNOS5430_ENABLE_IP_FSYS0,
 	EXYNOS5430_ENABLE_IP_FSYS1,
 	EXYNOS5430_ENABLE_IP_IMEM0,
@@ -1032,6 +1052,12 @@ static __initdata void *exynos5433_clk_regs[] = {
 	EXYNOS5430_ENABLE_IP_IMEM_SECURE_SMMU_SSS,
 	EXYNOS5430_ENABLE_IP_IMEM_SECURE_SMMU_SLIMSSS,
 	EXYNOS5430_ENABLE_IP_IMEM_SECURE_SMMU_RTIC,
+	EXYNOS5430_ENABLE_IP_IMEM_SECURE_RTIC,
+	EXYNOS5430_ENABLE_IP_PERIS_SECURE_CUSTOM_EFUSE,
+	EXYNOS5430_ENABLE_IP_PERIS_SECURE_ANTIRBK_CNT,
+	EXYNOS5430_ENABLE_IP_PERIS_SECURE_OTP_CON,
+	/* PLL_FREQ_DET */
+	EXYNOS5430_DIV_EGL_PLL_FREQ_DET,
 	/* PLL */
 	EXYNOS5430_AUD_PLL_LOCK,
 	EXYNOS5430_AUD_PLL_CON0,
@@ -2081,8 +2107,6 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(aclk_bts_deconm1, "aclk_bts_deconm1", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 20, CLK_IGNORE_UNUSED, 0),
 	CGTE(aclk_bts_deconm2, "aclk_bts_deconm2", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 21, CLK_IGNORE_UNUSED, 0),
 	CGTE(aclk_bts_deconm3, "aclk_bts_deconm3", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 22, CLK_IGNORE_UNUSED, 0),
-	CGTE(aclk_smmu_decon0x, "aclk_smmu_decon0x", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 26, CLK_IGNORE_UNUSED, 0),
-	CGTE(aclk_smmu_decon1x, "aclk_smmu_decon1x", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 27, CLK_IGNORE_UNUSED, 0),
 	CGTE(aclk_ppmu_decon0x, "aclk_ppmu_decon0x", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 29, CLK_IGNORE_UNUSED, 0),
 	CGTE(aclk_ppmu_decon1x, "aclk_ppmu_decon1x", "mout_aclk_disp_333_user", EXYNOS5430_ENABLE_ACLK_DISP1, 30, CLK_IGNORE_UNUSED, 0),
 
@@ -2108,9 +2132,6 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(pclk_bts_deconm4, "pclk_bts_deconm4", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 15, CLK_IGNORE_UNUSED, 0),
 	CGTE(pclk_bts_mixerm0, "pclk_bts_mixerm0", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 16, CLK_IGNORE_UNUSED, 0),
 	CGTE(pclk_bts_mixerm1, "pclk_bts_mixerm1", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 17, CLK_IGNORE_UNUSED, 0),
-	CGTE(pclk_smmu_decon0x, "pclk_smmu_decon0x", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 18, CLK_IGNORE_UNUSED, 0),
-	CGTE(pclk_smmu_decon1x, "pclk_smmu_decon1x", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 19, CLK_IGNORE_UNUSED, 0),
-	CGTE(pclk_smmu_tvx, "pclk_smmu_tvx", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 20, CLK_IGNORE_UNUSED, 0),
 	CGTE(pclk_ppmu_decon0x, "pclk_ppmu_decon0x", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 21, CLK_IGNORE_UNUSED, 0),
 	CGTE(pclk_ppmu_decon1x, "pclk_ppmu_decon1x", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 22, CLK_IGNORE_UNUSED, 0),
 	CGTE(pclk_ppmu_tvx, "pclk_ppmu_tvx", "dout_pclk_disp", EXYNOS5430_ENABLE_PCLK_DISP, 23, CLK_IGNORE_UNUSED, 0),
@@ -2557,10 +2578,6 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_ppmu_tv0x, "gate_ppmu_tv0x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 29, 0, 0),
 	CGTE(gate_ppmu_decon1x, "gate_ppmu_decon1x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 28, 0, 0),
 	CGTE(gate_ppmu_decon0x, "gate_ppmu_decon0x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 27, 0, 0),
-	CGTE(gate_smmu_tv1x, "gate_smmu_tv1x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 26, 0, 0),
-	CGTE(gate_smmu_tv0x, "gate_smmu_tv0x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 25, 0, 0),
-	CGTE(gate_smmu_decon1x, "gate_smmu_decon1x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 24, CLK_IGNORE_UNUSED, 0),
-	CGTE(gate_smmu_decon0x, "gate_smmu_decon0x", NULL, EXYNOS5430_ENABLE_IP_DISP1, 23, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_bts_decontv_m3, "gate_bts_decontv_m3", NULL, EXYNOS5430_ENABLE_IP_DISP1, 22, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_bts_decontv_m2, "gate_bts_decontv_m2", NULL, EXYNOS5430_ENABLE_IP_DISP1, 21, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_bts_decontv_m1, "gate_bts_decontv_m1", NULL, EXYNOS5430_ENABLE_IP_DISP1, 20, CLK_IGNORE_UNUSED, 0),
@@ -2634,7 +2651,7 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_ppmu_g2dx, "gate_ppmu_g2dx", NULL, EXYNOS5430_ENABLE_IP_G2D1, 12, 0, 0),
 	CGTE(gate_smmu_mdma1, "gate_smmu_mdma1", NULL, EXYNOS5430_ENABLE_IP_G2D1, 11, 0, 0),
 	CGTE(gate_bts_mdma1, "gate_bts_mdma1", NULL, EXYNOS5430_ENABLE_IP_G2D1, 9, 0, 0),
-	CGTE(gate_bts_g2d, "gate_bts_g2d", NULL, EXYNOS5430_ENABLE_IP_G2D1, 8, 0, 0),
+	CGTE(gate_bts_g2d, "gate_bts_g2d", NULL, EXYNOS5430_ENABLE_IP_G2D1, 8, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_alb_g2d, "gate_alb_g2d", NULL, EXYNOS5430_ENABLE_IP_G2D1, 7, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_axius_g2dx, "gate_axius_g2dx", NULL, EXYNOS5430_ENABLE_IP_G2D1, 6, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_asyncaxi_sysx, "gate_asyncaxi_sysx", NULL, EXYNOS5430_ENABLE_IP_G2D1, 5, CLK_IGNORE_UNUSED, 0),
@@ -2672,7 +2689,11 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_dsd_clk, "gate_dsd_clk", NULL, EXYNOS5430_ENABLE_IP_MIF3, 8, CLK_IGNORE_UNUSED, 0),
 #else
 	CGTE(gate_decontv_eclk, "gate_decontv_eclk", NULL, EXYNOS5430_ENABLE_IP_MIF3, 7, 0, 0),
+#if !defined(CONFIG_FB_HIBERNATION_DISPLAY_CLOCK_GATING)
+	CGTE(gate_dsd_clk, "gate_dsd_clk", NULL, EXYNOS5430_ENABLE_IP_MIF3, 8, CLK_IGNORE_UNUSED, 0),
+#else
 	CGTE(gate_dsd_clk, "gate_dsd_clk", NULL, EXYNOS5430_ENABLE_IP_MIF3, 8, 0, 0),
+#endif
 #endif
 	CGTE(gate_dsim0_clk, "gate_dsim0_clk", NULL, EXYNOS5430_ENABLE_IP_MIF3, 9, CLK_IGNORE_UNUSED, 0),
 
@@ -2709,8 +2730,8 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 
 	CGTE(gate_ppmu_hevc_1, "gate_ppmu_hevc_1", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 9, 0, 0),
 	CGTE(gate_ppmu_hevc_0, "gate_ppmu_hevc_0", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 8, 0, 0),
-	CGTE(gate_bts_hevc_1, "gate_bts_hevc_1", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 5, 0, 0),
-	CGTE(gate_bts_hevc_0, "gate_bts_hevc_0", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 4, 0, 0),
+	CGTE(gate_bts_hevc_1, "gate_bts_hevc_1", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 5, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_hevc_0, "gate_bts_hevc_0", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 4, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_ahb2apb_hevcp, "gate_ahb2apb_hevcp", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 3, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_xiu_hevcx, "gate_xiu_hevcx", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 2, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_hevcnp_100, "gate_hevcnp_100", NULL, EXYNOS5430_ENABLE_IP_HEVC1, 1, CLK_IGNORE_UNUSED, 0),
@@ -2764,8 +2785,8 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_ppmu_mfc0_1, "gate_ppmu_mfc0_1", NULL, EXYNOS5430_ENABLE_IP_MFC01, 9, 0, 0),
 	CGTE(gate_ppmu_mfc0_0, "gate_ppmu_mfc0_0", NULL, EXYNOS5430_ENABLE_IP_MFC01, 8, 0, 0),
 
-	CGTE(gate_bts_mfc0_1, "gate_bts_mfc0_1", NULL, EXYNOS5430_ENABLE_IP_MFC01, 5, 0, 0),
-	CGTE(gate_bts_mfc0_0, "gate_bts_mfc0_0", NULL, EXYNOS5430_ENABLE_IP_MFC01, 4, 0, 0),
+	CGTE(gate_bts_mfc0_1, "gate_bts_mfc0_1", NULL, EXYNOS5430_ENABLE_IP_MFC01, 5, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_mfc0_0, "gate_bts_mfc0_0", NULL, EXYNOS5430_ENABLE_IP_MFC01, 4, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_ahb2apb_mfc0p, "gate_ahb2apb_mfc0p", NULL, EXYNOS5430_ENABLE_IP_MFC01, 3, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_xiu_mfc0x, "gate_xiu_mfc0x", NULL, EXYNOS5430_ENABLE_IP_MFC01, 2, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_mfc0np_83, "gate_mfc0np_83", NULL, EXYNOS5430_ENABLE_IP_MFC01, 1, CLK_IGNORE_UNUSED, 0),
@@ -2784,9 +2805,9 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_ppmu_jpeg, "gate_ppmu_jpeg", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 9, 0, 0),
 	CGTE(gate_ppmu_m2mscaler1, "gate_ppmu_m2mscaler1", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 8, 0, 0),
 	CGTE(gate_ppmu_m2mscaler0, "gate_ppmu_m2mscaler0", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 7, 0, 0),
-	CGTE(gate_bts_jpeg, "gate_bts_jpeg", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 6, 0, 0),
-	CGTE(gate_bts_m2mscaler1, "gate_bts_m2mscaler1", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 5, 0, 0),
-	CGTE(gate_bts_m2mscaler0, "gate_bts_m2mscaler0", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 4, 0, 0),
+	CGTE(gate_bts_jpeg, "gate_bts_jpeg", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 6, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_m2mscaler1, "gate_bts_m2mscaler1", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 5, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_m2mscaler0, "gate_bts_m2mscaler0", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 4, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_ahb2apb_mscl0p, "gate_ahb2apb_mscl0p", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 3, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_xiu_msclx, "gate_xiu_msclx", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 2, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_msclnp_100, "gate_msclnp_100", NULL, EXYNOS5430_ENABLE_IP_MSCL1, 1, CLK_IGNORE_UNUSED, 0),
@@ -2896,6 +2917,8 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 
 	CGTE(gate_antirbk_cnt, "gate_antirbk_cnt", NULL, EXYNOS5430_ENABLE_IP_PERIS_SECURE_ANTIRBK_CNT, 1, 0, 0),
 	CGTE(gate_antirbk_cnt_apbif, "gate_antirbk_cnt_apbif", NULL, EXYNOS5430_ENABLE_IP_PERIS_SECURE_ANTIRBK_CNT, 0, 0, 0),
+
+	CGTE(gate_otp_con, "gate_otp_con", NULL, EXYNOS5430_ENABLE_IP_PERIS_SECURE_OTP_CON, 1, 0, 0),
 
 	/* CAM0 */
 	CGTE(gate_pmu_cam0, "gate_pmu_cam0", NULL, EXYNOS5430_ENABLE_IP_CAM00, 9, CLK_IGNORE_UNUSED, 0),
@@ -3084,13 +3107,13 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 	CGTE(gate_smmu_scalerc, "gate_smmu_scalerc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 9, 0, 0),
 	CGTE(gate_smmu_drc, "gate_smmu_drc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 8, 0, 0),
 	CGTE(gate_smmu_isp, "gate_smmu_isp", NULL, EXYNOS5430_ENABLE_IP_ISP2, 7, 0, 0),
-	CGTE(gate_bts_scalerp, "gate_bts_scalerp", NULL, EXYNOS5430_ENABLE_IP_ISP2, 6, 0, 0),
-	CGTE(gate_bts_3dnr, "gate_bts_3dnr", NULL, EXYNOS5430_ENABLE_IP_ISP2, 5, 0, 0),
-	CGTE(gate_bts_dis1, "gate_bts_dis1", NULL, EXYNOS5430_ENABLE_IP_ISP2, 4, 0, 0),
-	CGTE(gate_bts_dis0, "gate_bts_dis0", NULL, EXYNOS5430_ENABLE_IP_ISP2, 3, 0, 0),
-	CGTE(gate_bts_scalerc, "gate_bts_scalerc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 2, 0, 0),
-	CGTE(gate_bts_drc, "gate_bts_drc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 1, 0, 0),
-	CGTE(gate_bts_isp, "gate_bts_isp", NULL, EXYNOS5430_ENABLE_IP_ISP2, 0, 0, 0),
+	CGTE(gate_bts_scalerp, "gate_bts_scalerp", NULL, EXYNOS5430_ENABLE_IP_ISP2, 6, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_3dnr, "gate_bts_3dnr", NULL, EXYNOS5430_ENABLE_IP_ISP2, 5, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_dis1, "gate_bts_dis1", NULL, EXYNOS5430_ENABLE_IP_ISP2, 4, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_dis0, "gate_bts_dis0", NULL, EXYNOS5430_ENABLE_IP_ISP2, 3, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_scalerc, "gate_bts_scalerc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 2, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_drc, "gate_bts_drc", NULL, EXYNOS5430_ENABLE_IP_ISP2, 1, CLK_IGNORE_UNUSED, 0),
+	CGTE(gate_bts_isp, "gate_bts_isp", NULL, EXYNOS5430_ENABLE_IP_ISP2, 0, CLK_IGNORE_UNUSED, 0),
 
 	CGTE(gate_pixelasync_dis, "gate_pixelasync_dis", NULL, EXYNOS5430_ENABLE_IP_ISP3, 3, CLK_IGNORE_UNUSED, 0),
 	CGTE(gate_pixelasyncs_scalerp, "gate_pixelasyncs_scalerp", NULL, EXYNOS5430_ENABLE_IP_ISP3, 2, CLK_IGNORE_UNUSED, 0),
@@ -3191,6 +3214,7 @@ struct samsung_gate_clock exynos5433_gate_clks[] __initdata = {
 
 struct samsung_pll_rate_table pll_g3d_rate_table[] = {
 	/* rate		p	m	s	k */
+	{ 730000000U,	6,	365,	1,	0},
 	{ 700000000U,	6,	350,	1,	0},
 	{ 600000000U,	5,	500,	2,	0},
 	{ 550000000U,	6,	550,	2,	0},
@@ -3259,6 +3283,7 @@ struct samsung_pll_rate_table pll_disp_rate_table[] = {
 	/* rate		p	m	s	k */
 	{ 278000000U,	3,	278,	3,	0},
 	{ 250000000U,	3,	250,	3,	0},
+	{ 214000000U,	3,	214,	3,	0},
 	{ 142000000U,	3,	142,	3,	0},
 	{  67000000U,	3,	67,	3,	0},
 };

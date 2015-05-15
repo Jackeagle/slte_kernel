@@ -1204,24 +1204,26 @@ static void max77823_chgin_isr_work(struct work_struct *work)
 					value.intval = POWER_SUPPLY_HEALTH_UNDERVOLTAGE;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
-				} else if ((battery_health == \
-							POWER_SUPPLY_HEALTH_OVERVOLTAGE) &&
-						(chgin_dtls != 0x02)) {
+				}
+			} else {
+				if ((battery_health ==			\
+				     POWER_SUPPLY_HEALTH_OVERVOLTAGE) &&
+				    (chgin_dtls != 0x02)) {
 					pr_info("%s: vbus_state : 0x%d, chg_state : 0x%d\n", __func__, chgin_dtls, chg_dtls);
 					pr_info("%s: overvoltage->normal\n", __func__);
 					value.intval = POWER_SUPPLY_HEALTH_GOOD;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
-				} else if ((battery_health == \
-							POWER_SUPPLY_HEALTH_UNDERVOLTAGE) &&
-						!((chgin_dtls == 0x0) || (chgin_dtls == 0x01))){
+				} else if ((battery_health ==		\
+					    POWER_SUPPLY_HEALTH_UNDERVOLTAGE) &&
+					   !((chgin_dtls == 0x0) || (chgin_dtls == 0x01))){
 					pr_info("%s: vbus_state : 0x%d, chg_state : 0x%d\n", __func__, chgin_dtls, chg_dtls);
 					pr_info("%s: undervoltage->normal\n", __func__);
 					value.intval = POWER_SUPPLY_HEALTH_GOOD;
 					psy_do_property("battery", set,
 							POWER_SUPPLY_PROP_HEALTH, value);
 					max77823_set_input_current(charger,
-							charger->charging_current_max);
+								   charger->charging_current_max);
 				}
 			}
 			break;

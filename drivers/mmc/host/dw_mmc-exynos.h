@@ -36,14 +36,19 @@ enum dw_mci_exynos_type {
 struct dw_mci_exynos_priv_data {
 	u8			ciu_div;
 	u32			sdr_timing;
+	u32			sdr_hs_timing;
 	u32			ddr_timing;
 	u32			hs200_timing;
 	u32			ddr200_timing;
+	u32			ddr200_ulp_timing;
+	u32			ddr200_tx_t_fastlimit;
+	u32			ddr200_tx_t_initval;
 	u32			*ref_clk;
 	const char		*drv_str_pin;
 	const char		*drv_str_addr;
 	int			drv_str_val;
 	u32			delay_line;
+	u32			tx_delay_line;
 	int			drv_str_base_val;
 	u32			drv_str_num;
 	int			cd_gpio;

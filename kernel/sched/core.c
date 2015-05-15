@@ -3031,10 +3031,10 @@ need_resched:
 		 */
 		cpu = smp_processor_id();
 		rq = cpu_rq(cpu);
+		sec_debug_task_log(cpu, rq->curr);
 	} else
 		raw_spin_unlock_irq(&rq->lock);
 
-	sec_debug_task_log(cpu, rq->curr);
 	post_schedule(rq);
 
 	sched_preempt_enable_no_resched();

@@ -1293,6 +1293,7 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 	int disp_qos = LV3;
 	int mif_qos = LV8;
 	int ret = false;
+	int tv_layer_value;
 
 	mutex_lock(&media_mutex);
 
@@ -1310,24 +1311,31 @@ void exynos5_update_media_layers(enum devfreq_media_type media_type, unsigned in
 		media_enabled_gscl_local = value;
 		break;
 	case TYPE_TV:
+		media_enabled_tv = !!value;
+		tv_layer_value = value;
+		if (tv_layer_value == 0)
+			break;
 		switch (media_resolution) {
 		case RESOLUTION_HD:
-			media_num_mixer_layer =
-				((value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
-					+ (media_resolution_bandwidth - 1)) / TRAFFIC_BYTES_FHD_32BIT_60FPS);
+			tv_layer_value = (tv_layer_value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
+					+ (TRAFFIC_BYTES_FHD_32BIT_60FPS - 1));
+			if (tv_layer_value < 0)
+				tv_layer_value = 0;
+			media_num_mixer_layer = tv_layer_value / TRAFFIC_BYTES_FHD_32BIT_60FPS;
 			break;
 		case RESOLUTION_FULLHD:
 		case RESOLUTION_WQHD:
 		case RESOLUTION_WQXGA:
-			media_num_mixer_layer =
-				((value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
-					+ (media_resolution_bandwidth - 1)) / media_resolution_bandwidth);
+			tv_layer_value = (tv_layer_value - (TRAFFIC_BYTES_FHD_32BIT_60FPS * 2)
+					+ (media_resolution_bandwidth - 1));
+			if (tv_layer_value < 0)
+				tv_layer_value = 0;
+			media_num_mixer_layer = tv_layer_value / media_resolution_bandwidth;
 			break;
 		default:
 			pr_err("DEVFREQ(MIF) : can't calculate mixer layer by traffic(%u)\n", media_resolution);
 			break;
 		}
-		media_enabled_tv = !!value;
 		break;
 	case TYPE_RESOLUTION:
 		switch (value) {

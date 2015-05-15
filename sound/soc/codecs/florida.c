@@ -215,6 +215,8 @@ static int florida_sysclk_ev(struct snd_soc_dapm_widget *w,
 		break;
 	}
 
+	udelay(1000);
+
 	return 0;
 }
 
@@ -364,7 +366,7 @@ ARIZONA_MIXER_CONTROLS("EQ3", ARIZONA_EQ3MIX_INPUT_1_SOURCE),
 ARIZONA_MIXER_CONTROLS("EQ4", ARIZONA_EQ4MIX_INPUT_1_SOURCE),
 
 SND_SOC_BYTES("EQ1 Coefficients", ARIZONA_EQ1_3, 19),
-SOC_SINGLE("EQ1 Mode Switch", ARIZONA_EQ1_2, ARIZONA_EQ1_B1_MODE, 1, 0),
+SOC_SINGLE("EQ1 Mode Switch", ARIZONA_EQ1_2, ARIZONA_EQ1_B1_MODE_SHIFT, 1, 0),
 SOC_SINGLE_TLV("EQ1 B1 Volume", ARIZONA_EQ1_1, ARIZONA_EQ1_B1_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 SOC_SINGLE_TLV("EQ1 B2 Volume", ARIZONA_EQ1_1, ARIZONA_EQ1_B2_GAIN_SHIFT,
@@ -377,7 +379,7 @@ SOC_SINGLE_TLV("EQ1 B5 Volume", ARIZONA_EQ1_2, ARIZONA_EQ1_B5_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 
 SND_SOC_BYTES("EQ2 Coefficients", ARIZONA_EQ2_3, 19),
-SOC_SINGLE("EQ2 Mode Switch", ARIZONA_EQ2_2, ARIZONA_EQ2_B1_MODE, 1, 0),
+SOC_SINGLE("EQ2 Mode Switch", ARIZONA_EQ2_2, ARIZONA_EQ2_B1_MODE_SHIFT, 1, 0),
 SOC_SINGLE_TLV("EQ2 B1 Volume", ARIZONA_EQ2_1, ARIZONA_EQ2_B1_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 SOC_SINGLE_TLV("EQ2 B2 Volume", ARIZONA_EQ2_1, ARIZONA_EQ2_B2_GAIN_SHIFT,
@@ -390,7 +392,7 @@ SOC_SINGLE_TLV("EQ2 B5 Volume", ARIZONA_EQ2_2, ARIZONA_EQ2_B5_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 
 SND_SOC_BYTES("EQ3 Coefficients", ARIZONA_EQ3_3, 19),
-SOC_SINGLE("EQ3 Mode Switch", ARIZONA_EQ3_2, ARIZONA_EQ3_B1_MODE, 1, 0),
+SOC_SINGLE("EQ3 Mode Switch", ARIZONA_EQ3_2, ARIZONA_EQ3_B1_MODE_SHIFT, 1, 0),
 SOC_SINGLE_TLV("EQ3 B1 Volume", ARIZONA_EQ3_1, ARIZONA_EQ3_B1_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 SOC_SINGLE_TLV("EQ3 B2 Volume", ARIZONA_EQ3_1, ARIZONA_EQ3_B2_GAIN_SHIFT,
@@ -403,7 +405,7 @@ SOC_SINGLE_TLV("EQ3 B5 Volume", ARIZONA_EQ3_2, ARIZONA_EQ3_B5_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 
 SND_SOC_BYTES("EQ4 Coefficients", ARIZONA_EQ4_3, 19),
-SOC_SINGLE("EQ4 Mode Switch", ARIZONA_EQ4_2, ARIZONA_EQ4_B1_MODE, 1, 0),
+SOC_SINGLE("EQ4 Mode Switch", ARIZONA_EQ4_2, ARIZONA_EQ4_B1_MODE_SHIFT, 1, 0),
 SOC_SINGLE_TLV("EQ4 B1 Volume", ARIZONA_EQ4_1, ARIZONA_EQ4_B1_GAIN_SHIFT,
 	       24, 0, eq_tlv),
 SOC_SINGLE_TLV("EQ4 B2 Volume", ARIZONA_EQ4_1, ARIZONA_EQ4_B2_GAIN_SHIFT,
@@ -442,6 +444,8 @@ SOC_ENUM("LHPF4 Mode", arizona_lhpf4_mode),
 
 ARIZONA_SAMPLE_RATE_CONTROL("Sample Rate 2", 2),
 ARIZONA_SAMPLE_RATE_CONTROL("Sample Rate 3", 3),
+
+SOC_VALUE_ENUM("FX Rate", arizona_fx_rate),
 
 SOC_VALUE_ENUM("ISRC1 FSL", arizona_isrc_fsl[0]),
 SOC_VALUE_ENUM("ISRC2 FSL", arizona_isrc_fsl[1]),
@@ -528,12 +532,15 @@ SOC_DOUBLE("SPKDAT1 Switch", ARIZONA_PDM_SPK1_CTRL_1, ARIZONA_SPK1L_MUTE_SHIFT,
 SOC_DOUBLE("SPKDAT2 Switch", ARIZONA_PDM_SPK2_CTRL_1, ARIZONA_SPK2L_MUTE_SHIFT,
 	   ARIZONA_SPK2R_MUTE_SHIFT, 1, 1),
 
-SOC_DOUBLE("HPOUT1 DRE Switch", ARIZONA_DRE_ENABLE,
-	   ARIZONA_DRE1L_ENA_SHIFT, ARIZONA_DRE1R_ENA_SHIFT, 1, 0),
-SOC_DOUBLE("HPOUT2 DRE Switch", ARIZONA_DRE_ENABLE,
-	   ARIZONA_DRE2L_ENA_SHIFT, ARIZONA_DRE2R_ENA_SHIFT, 1, 0),
-SOC_DOUBLE("HPOUT3 DRE Switch", ARIZONA_DRE_ENABLE,
-	   ARIZONA_DRE3L_ENA_SHIFT, ARIZONA_DRE3R_ENA_SHIFT, 1, 0),
+SOC_DOUBLE_EXT("HPOUT1 DRE Switch", ARIZONA_DRE_ENABLE,
+	   ARIZONA_DRE1L_ENA_SHIFT, ARIZONA_DRE1R_ENA_SHIFT, 1, 0,
+	   snd_soc_get_volsw, arizona_put_dre),
+SOC_DOUBLE_EXT("HPOUT2 DRE Switch", ARIZONA_DRE_ENABLE,
+	   ARIZONA_DRE2L_ENA_SHIFT, ARIZONA_DRE2R_ENA_SHIFT, 1, 0,
+	   snd_soc_get_volsw, arizona_put_dre),
+SOC_DOUBLE_EXT("HPOUT3 DRE Switch", ARIZONA_DRE_ENABLE,
+	   ARIZONA_DRE3L_ENA_SHIFT, ARIZONA_DRE3R_ENA_SHIFT, 1, 0,
+	   snd_soc_get_volsw, arizona_put_dre),
 
 SOC_ENUM("Output Ramp Up", arizona_out_vi_ramp),
 SOC_ENUM("Output Ramp Down", arizona_out_vd_ramp),
@@ -545,6 +552,7 @@ SOC_SINGLE_TLV("Noise Gate Threshold Volume", ARIZONA_NOISE_GATE_CONTROL,
 SOC_ENUM("Noise Gate Hold", arizona_ng_hold),
 
 SOC_VALUE_ENUM("Output Rate 1", arizona_output_rate),
+SOC_VALUE_ENUM("In Rate", arizona_input_rate),
 
 FLORIDA_NG_SRC("HPOUT1L", ARIZONA_NOISE_GATE_SELECT_1L),
 FLORIDA_NG_SRC("HPOUT1R", ARIZONA_NOISE_GATE_SELECT_1R),
@@ -1890,7 +1898,8 @@ static irqreturn_t adsp2_irq(int irq, void *data)
 	mutex_lock(&florida->compr_info.lock);
 
 	if (!florida->compr_info.trig &&
-	    florida->core.adsp[2].fw_id == 0x4000d &&
+	    (florida->core.adsp[2].fw_id == 0x4000d ||
+	    florida->core.adsp[2].fw_id == 0x40036) &&
 	    florida->core.adsp[2].running) {
 		if (florida->core.arizona->pdata.ez2ctrl_trigger)
 			florida->core.arizona->pdata.ez2ctrl_trigger();
@@ -2159,7 +2168,7 @@ static int florida_codec_probe(struct snd_soc_codec *codec)
 
 	ret = regmap_update_bits(arizona->regmap, ARIZONA_IRQ2_STATUS_3_MASK,
 				 ARIZONA_IM_DRC2_SIG_DET_EINT2,
-				 ARIZONA_IM_DRC2_SIG_DET_EINT2);
+				 0);
 	if (ret != 0) {
 		dev_err(arizona->dev,
 			"Failed to unmask DRC2 IRQ for DSP: %d\n",
@@ -2179,7 +2188,7 @@ static int florida_codec_remove(struct snd_soc_codec *codec)
 	arizona_free_irq(arizona, ARIZONA_IRQ_DSP_IRQ1, priv);
 	regmap_update_bits(arizona->regmap, ARIZONA_IRQ2_STATUS_3_MASK,
 			   ARIZONA_IM_DRC2_SIG_DET_EINT2,
-			   0);
+			   ARIZONA_IM_DRC2_SIG_DET_EINT2);
 
 	priv->core.arizona->dapm = NULL;
 
@@ -2283,7 +2292,7 @@ static int florida_probe(struct platform_device *pdev)
 
 		ret = wm_adsp2_init(&florida->core.adsp[i], &florida->fw_lock);
 		if (ret != 0)
-			return ret;
+			goto error;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(florida->fll); i++)
@@ -2322,16 +2331,27 @@ static int florida_probe(struct platform_device *pdev)
 			"Failed to register codec: %d\n",
 			ret);
 		snd_soc_unregister_platform(&pdev->dev);
+		goto error;
 	}
 
+	return ret;
+
 error:
+	mutex_destroy(&florida->compr_info.lock);
+	mutex_destroy(&florida->fw_lock);
+
 	return ret;
 }
 
 static int florida_remove(struct platform_device *pdev)
 {
+	struct florida_priv *florida = platform_get_drvdata(pdev);
+
 	snd_soc_unregister_codec(&pdev->dev);
 	pm_runtime_disable(&pdev->dev);
+
+	mutex_destroy(&florida->compr_info.lock);
+	mutex_destroy(&florida->fw_lock);
 
 	return 0;
 }

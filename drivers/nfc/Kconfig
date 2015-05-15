@@ -126,4 +126,15 @@ config SEC_NFC_CLK_REQ
 	  Say Y here to compile support for SAMSUNG NFC CLK REQ feature into the
 	  kernel.
 
+config SEC_NFC_MARGINTIME
+	bool "SEC NFC MARGINTIME"
+	default n
+	help
+	  SAMSUNG SEC NFC MARGINTIME feature.
+	  This feature provides support for SAMSUNG NFC products.
+	  You should select this feature if your NFC product uses AVDD Cap 10uF .
+
+	  Say Y here to compile support for SAMSUNG SEC NFC MARGINTIME feature into the
+	  kernel.
+
 endmenu

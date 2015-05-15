@@ -24,6 +24,11 @@
 #define CALIBRATION_FILE_PATH	"/efs/calibration_data"
 #define CALIBRATION_DATA_AMOUNT	20
 
+#define MAX_ACCEL_1G	16384
+#define MAX_ACCEL_2G	32767
+#define MIN_ACCEL_2G	-32768
+#define MAX_ACCEL_4G	65536
+
 static ssize_t accel_vendor_show(struct device *dev,
 	struct device_attribute *attr, char *buf)
 {

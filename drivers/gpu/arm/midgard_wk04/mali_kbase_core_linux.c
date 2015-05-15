@@ -891,6 +891,7 @@ copy_failed:
 #if SLSI_INTEGRATION
 	case KBASE_FUNC_SET_MIN_LOCK :
 		{
+			struct exynos_context *platform = (struct exynos_context *)kbdev->platform_context;
 			if (!kctx->ctx_need_qos) {
 				kctx->ctx_need_qos = true;
 				set_hmp_boost(1);
@@ -908,6 +909,7 @@ copy_failed:
 
 	case KBASE_FUNC_UNSET_MIN_LOCK :
 		{
+			struct exynos_context *platform = (struct exynos_context *)kbdev->platform_context;
 			if (kctx->ctx_need_qos) {
 				kctx->ctx_need_qos = false;
 				set_hmp_boost(0);

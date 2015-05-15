@@ -15,13 +15,13 @@ TRACE_EVENT(mif_event,
 	TP_STRUCT__entry(
 		__field(void *, skbaddr)
 		__field(unsigned, size)
-		__array(char, function, 32)
+		__array(char, function, SZ_32)
 	),
 
 	TP_fast_assign(
 		__entry->skbaddr = skb;
 		__entry->size = size;
-		memcpy(__entry->function, function, 32);
+		memcpy(__entry->function, function, SZ_32);
 	),
 
 	TP_printk("mif: skbaddr=%p, size=%d, function=%s",
@@ -47,6 +47,28 @@ TRACE_EVENT(send_sig,
 	),
 
 	TP_printk("mif: mask=%x, value=%d", __entry->mask, __entry->value)
+);
+
+TRACE_EVENT(mif_log,
+
+	TP_PROTO(const char *tag, u8 ch,
+		unsigned char *str),
+
+	TP_ARGS(tag, ch, str),
+
+	TP_STRUCT__entry(
+		__array(char, tag, SZ_16)
+		__field(u8, ch)
+		__array(char, str, SZ_256)
+	),
+
+	TP_fast_assign(
+		memcpy(__entry->tag, tag, SZ_16);
+		__entry->ch = ch;
+		memcpy(__entry->str, str, ch);
+	),
+
+	TP_printk("%s(%x): %s\n", __entry->tag, __entry->ch, __entry->str)
 );
 #endif
 

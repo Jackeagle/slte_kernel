@@ -88,16 +88,19 @@
 #define FW_IMX240_Q	"H16US"
 #define FW_IMX240_Q_C1	"H16UL"
 #define FW_2P2_12M	"G16LL"
-#define FW_4H5		"F08LL"
+#define FW_4H5_F		"F08LL"
+#define FW_4H5_H		"H08LL"
+#define FW_2P3		"J16LL"
 
 #define SDCARD_FW
 #define FIMC_IS_SETFILE_SDCARD_PATH		"/data/media/0/"
 #define FIMC_IS_FW				"fimc_is_fw2.bin"
 #define FIMC_IS_FW_2P2				"fimc_is_fw2_2p2.bin"
 #define FIMC_IS_FW_2P2_12M				"fimc_is_fw2_2p2_12m.bin"
+#define FIMC_IS_FW_2P3				"fimc_is_fw2_2p3.bin"
 #define FIMC_IS_FW_3L2				"fimc_is_fw2_3l2.bin"
 #define FIMC_IS_FW_4H5				"fimc_is_fw2_4h5.bin"
-#define FIMC_IS_FW_IMX134			"fimc_is_fw2_IMX134.bin"
+#define FIMC_IS_FW_IMX134			"fimc_is_fw2_imx134.bin"
 #define FIMC_IS_FW_IMX240		"fimc_is_fw2_imx240.bin"
 #define FIMC_IS_FW_COMPANION_EVT0				"companion_fw_evt0.bin"
 #define FIMC_IS_FW_COMPANION_EVT1				"companion_fw_evt1.bin"
@@ -115,6 +118,7 @@
 #define FIMC_IS_6D1_SETF			"setfile_6d1.bin"
 #define FIMC_IS_2P2_SETF			"setfile_2p2.bin"
 #define FIMC_IS_2P2_12M_SETF			"setfile_2p2_12m.bin"
+#define FIMC_IS_2P3_SETF			"setfile_2p3.bin"
 #define FIMC_IS_COMPANION_MASTER_SETF			"companion_master_setfile.bin"
 #define FIMC_IS_COMPANION_MODE_SETF			"companion_mode_setfile.bin"
 #define FIMC_IS_COMPANION_2P2_MASTER_SETF			"companion_2p2_master_setfile.bin"
@@ -124,7 +128,7 @@
 #define FIMC_IS_COMPANION_2P2_12M_MASTER_SETF			"companion_2p2_12m_master_setfile.bin"
 #define FIMC_IS_COMPANION_2P2_12M_MODE_SETF			"companion_2p2_12m_mode_setfile.bin"
 #define FIMC_IS_FW_PATH				"/system/vendor/firmware/"
-#define FIMC_IS_FW_DUMP_PATH			"/data/"
+#define FIMC_IS_FW_DUMP_PATH		"/data/"
 
 #define FIMC_IS_FW_BASE_MASK			((1 << 26) - 1)
 #define FIMC_IS_VERSION_SIZE			42
@@ -132,18 +136,29 @@
 #define FIMC_IS_SETFILE_VER_SIZE		52
 
 #define FIMC_IS_CAL_SDCARD			"/data/cal_data.bin"
+#define FIMC_IS_CAL_SDCARD_FRONT			"/data/cal_data_front.bin"
 
+#if defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
+#define FIMC_IS_MAX_FW_SIZE			(8 * 1024)
+#define HEADER_CRC32_LEN			(80 / 2)
+#define OEM_CRC32_LEN				(64 / 2)
+#define AWB_CRC32_LEN				(32 / 2)
+#define SHADING_CRC32_LEN			(6623 / 2)
+#else
 /*#define FIMC_IS_MAX_CAL_SIZE			(20 * 1024)*/
 #define FIMC_IS_MAX_FW_SIZE			(2048 * 1024)
-#define FIMC_IS_MAX_COMPANION_FW_SIZE			(120 * 1024)
-#define FIMC_IS_CAL_START_ADDR			(0x013D0000)
-#define FIMC_IS_CAL_RETRY_CNT			(2)
-#define FIMC_IS_FW_RETRY_CNT			(2)
-
 #define HEADER_CRC32_LEN (224 / 2)
 #define OEM_CRC32_LEN (192 / 2)
 #define AWB_CRC32_LEN (32 / 2)
 #define SHADING_CRC32_LEN (2336 / 2)
+#endif
+
+#define FIMC_IS_MAX_COMPANION_FW_SIZE			(120 * 1024)
+#define FIMC_IS_CAL_START_ADDR			(0x013D0000)
+#define FIMC_IS_CAL_START_ADDR_FRONT			(0x013E0000)
+
+#define FIMC_IS_CAL_RETRY_CNT			(2)
+#define FIMC_IS_FW_RETRY_CNT			(2)
 #define FROM_VERSION_V004 '4'
 #define FROM_VERSION_V005 '5'
 
@@ -164,6 +179,12 @@ ssize_t read_data_from_file(char *name, char *buf, size_t count, loff_t *pos);
 
 int fimc_is_sec_get_sysfs_finfo(struct fimc_is_from_info **finfo);
 int fimc_is_sec_get_sysfs_pinfo(struct fimc_is_from_info **pinfo);
+#if defined(CONFIG_CAMERA_EEPROM_SUPPORT_FRONT)
+int fimc_is_sec_get_sysfs_finfo_front(struct fimc_is_from_info **finfo);
+int fimc_is_sec_get_sysfs_pinfo_front(struct fimc_is_from_info **pinfo);
+int fimc_is_sec_get_front_cal_buf(char **buf);
+#endif
+
 int fimc_is_sec_get_cal_buf(char **buf);
 int fimc_is_sec_get_loaded_fw(char **buf);
 int fimc_is_sec_get_loaded_c1_fw(char **buf);
@@ -172,21 +193,26 @@ int fimc_is_sec_get_camid_from_hal(char *fw_name, char *setf_name);
 int fimc_is_sec_get_camid(void);
 int fimc_is_sec_set_camid(int id);
 int fimc_is_sec_get_pixel_size(char *header_ver);
+int fimc_is_sec_fw_find(struct fimc_is_core *core, char *fw_name, char *setf_name);
 
 int fimc_is_sec_readfw(struct fimc_is_core *core);
-int fimc_is_sec_readcal(struct fimc_is_core *core, int isSysfsRead);
-
-int fimc_is_sec_fw_sel(struct fimc_is_core *core, struct device *dev, char *fw_name, char *setf_name, int isSysfsRead);
+#if defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR) || defined(CONFIG_CAMERA_EEPROM_SUPPORT_FRONT)
+int fimc_is_sec_fw_sel_eeprom(struct device *dev, char *fw_name, char *setf_name, int id, bool headerOnly);
+#endif
+#if !defined(CONFIG_CAMERA_EEPROM_SUPPORT_REAR)
+int fimc_is_sec_readcal(struct fimc_is_core *core);
+int fimc_is_sec_fw_sel(struct fimc_is_core *core, struct device *dev, char *fw_name, char *setf_name, bool headerOnly);
+#endif
 #ifdef CONFIG_COMPANION_USE
 int fimc_is_sec_concord_fw_sel(struct fimc_is_core *core, struct device *dev,
-	char *fw_name, char *master_setf_name, char *mode_setf_name, int isSysfsRead);
+	char *fw_name, char *master_setf_name, char *mode_setf_name);
 #endif
 int fimc_is_sec_fw_revision(char *fw_ver);
 int fimc_is_sec_fw_revision(char *fw_ver);
 bool fimc_is_sec_fw_module_compare(char *fw_ver1, char *fw_ver2);
 
 bool fimc_is_sec_check_fw_crc32(char *buf);
-bool fimc_is_sec_check_cal_crc32(char *buf);
+bool fimc_is_sec_check_cal_crc32(char *buf, int id);
 void fimc_is_sec_make_crc32_table(u32 *table, u32 id);
 
 int fimc_is_sec_gpio_enable(struct exynos_platform_fimc_is *pdata, char *name, bool on);

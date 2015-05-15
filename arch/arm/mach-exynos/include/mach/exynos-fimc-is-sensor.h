@@ -63,6 +63,7 @@ enum exynos_sensor_id {
 	SENSOR_NAME_S5K4H5		 = 13,
 	SENSOR_NAME_S5K2P2_12M		 = 15,
 	SENSOR_NAME_S5K6D1		 = 16,
+	SENSOR_NAME_S5K2P3		 = 19,
 	SENSOR_NAME_S5K4EC		 = 57,
 	SENSOR_NAME_SR352		 = 57,
 	SENSOR_NAME_SR030		 = 57,
@@ -71,6 +72,7 @@ enum exynos_sensor_id {
 	SENSOR_NAME_IMX134		 = 102,
 	SENSOR_NAME_IMX175		 = 103,
 	SENSOR_NAME_IMX240		 = 104,
+	SENSOR_NAME_IMX219		 = 107,
 
 	SENSOR_NAME_SR261		 = 201, /* 201 ~ 300 Other vendor sensors */
 
@@ -164,7 +166,9 @@ struct sensor_protocol {
 	u32 product_name;
 	enum sensor_peri_type peri_type;
 	union sensor_peri_format peri_setting;
-	u32 reserved[4];
+	u32 csi_ch;
+	u32 cal_address;
+	u32 reserved[2];
 };
 
 struct sensor_peri_info {
@@ -229,7 +233,7 @@ enum pin_act {
 };
 
 struct exynos_sensor_pin {
-	int pin;
+	unsigned long pin;
 	int delay;
 	u32 value;
 	char *name;
@@ -266,6 +270,7 @@ struct exynos_platform_fimc_is_sensor {
 	struct exynos_sensor_pin pin_ctrls[SENSOR_SCENARIO_MAX][GPIO_SCENARIO_MAX][GPIO_CTRL_MAX];
 	char sensor_name[FIMC_IS_MAX_NAME_LEN];
 	u32 scenario;
+	u32 id;
 	u32 mclk_ch;
 	u32 csi_ch;
 	u32 flite_ch;
@@ -277,6 +282,10 @@ struct exynos_platform_fimc_is_sensor {
 	u32 is_softlanding;
 	u32 sensor_id;
 	bool companion_use_pmic;
+#ifdef CONFIG_OIS_USE
+	int pin_ois_en;
+#endif
+	struct pinctrl *pinctrl;
 };
 
 extern int exynos_fimc_is_sensor_pins_cfg(struct platform_device *pdev,

@@ -115,12 +115,21 @@ enum is_subscenario_id {
 	ISS_SUB_SCENARIO_VIDEO_WDR = 10,
 	ISS_SUB_SCENARIO_STILL_CAPTURE_WDR = 11,
 	ISS_SUB_SCENARIO_UHD_30FPS_WDR = 12,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_ZOOM = 13,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_ZOOM_OUTDOOR = 14,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_ZOOM_INDOOR = 15,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_WDR_ZOOM = 16,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_WDR_ZOOM_OUTDOOR = 17,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_WDR_ZOOM_INDOOR = 18,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_LLS = 19,
+	ISS_SUB_SCENARIO_STILL_CAPTURE_WDR_LLS = 20,
 	ISS_SUB_END,
 
 	/* These values will be deprecated */
 	ISS_SUB_SCENARIO_FRONT_VT1 = 4,		/* 4: front camera VT1 for 3G (Temporary) */
 	ISS_SUB_SCENARIO_FRONT_VT2 = 5,		/* 5: front camera VT2 for LTE (Temporary) */
 	ISS_SUB_SCENARIO_FRONT_SMART_STAY = 6,	/* 6: front camera smart stay (Temporary) */
+	ISS_SUB_SCENARIO_FRONT_PANORAMA = 7,    /* 7: front camera front panorama (Temporary) */
 };
 
 enum is_system_control_id {
@@ -131,6 +140,10 @@ enum is_system_control_id {
 enum is_system_control_cmd {
 	SYS_CONTROL_DISABLE	= 0,
 	SYS_CONTROL_ENABLE	= 1,
+};
+
+enum is_msg_test_id {
+	IS_MSG_TEST_SYNC_LOG = 1,
 };
 
 struct is_setfile_header_element {

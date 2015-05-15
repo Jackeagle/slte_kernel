@@ -18,7 +18,7 @@ void bts_initialize(const char *pd_name, bool on);
 #define bts_initialize(a, b) do {} while (0)
 #endif
 
-#if defined(CONFIG_EXYNOS5430_BTS)
+#if defined(CONFIG_EXYNOS5430_BTS) || defined(CONFIG_EXYNOS5433_BTS)
 void exynos5_bts_show_mo_status(void);
 #else
 #define exynos5_bts_show_mo_status() do { } while (0)
@@ -36,6 +36,7 @@ enum bts_scen_type {
 	TYPE_MFC_UD_ENCODING,
 	TYPE_LAYERS,
 	TYPE_G3D_FREQ,
+	TYPE_G3D_SCENARIO,
 };
 
 void bts_scen_update(enum bts_scen_type type, unsigned int val);

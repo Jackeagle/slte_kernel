@@ -14,13 +14,8 @@
  */
 #include "../ssp.h"
 
-#ifdef CONFIG_SENSORS_SSP_TMG399X
-#define	VENDOR		"AMS"
-#define	CHIP_ID		"TMG399X"
-#else
 #define	VENDOR		"MAXIM"
 #define	CHIP_ID		"MAX88920"
-#endif
 
 #define CANCELATION_FILE_PATH	"/efs/prox_cal"
 #define LCD_LDI_FILE_PATH	"/sys/class/lcd/panel/window_type"

@@ -325,69 +325,6 @@ u32 get_plane_size(struct gsc_frame *frame, unsigned int plane)
 	return frame->payload[plane];
 }
 
-u32 get_plane_info(struct gsc_frame frm, u32 addr, u32 *index)
-{
-	if (frm.addr.y == addr) {
-		*index = 0;
-		return frm.addr.y;
-	} else if (frm.addr.cb == addr) {
-		*index = 1;
-		return frm.addr.cb;
-	} else if (frm.addr.cr == addr) {
-		*index = 2;
-		return frm.addr.cr;
-	} else {
-		gsc_err("Plane address is wrong");
-		return -EINVAL;
-	}
-}
-
-void gsc_set_prefbuf(struct gsc_dev *gsc, struct gsc_frame frm)
-{
-	u32 f_chk_addr, f_chk_len, s_chk_addr, s_chk_len;
-	f_chk_addr = f_chk_len = s_chk_addr = s_chk_len = 0;
-
-	f_chk_addr = frm.addr.y;
-	f_chk_len = frm.payload[0];
-	if (frm.fmt->num_planes == 2) {
-		s_chk_addr = frm.addr.cb;
-		s_chk_len = frm.payload[1];
-	} else if (frm.fmt->num_planes == 3) {
-		u32 low_addr, low_plane, mid_addr, mid_plane, high_addr, high_plane;
-		u32 t_min, t_max;
-
-		t_min = min3(frm.addr.y, frm.addr.cb, frm.addr.cr);
-		low_addr = get_plane_info(frm, t_min, &low_plane);
-		t_max = max3(frm.addr.y, frm.addr.cb, frm.addr.cr);
-		high_addr = get_plane_info(frm, t_max, &high_plane);
-
-		mid_plane = 3 - (low_plane + high_plane);
-		if (mid_plane == 0)
-			mid_addr = frm.addr.y;
-		else if (mid_plane == 1)
-			mid_addr = frm.addr.cb;
-		else if (mid_plane == 2)
-			mid_addr = frm.addr.cr;
-		else
-			return;
-
-		f_chk_addr = low_addr;
-		if (mid_addr + frm.payload[mid_plane] - low_addr >
-		    high_addr + frm.payload[high_plane] - mid_addr) {
-			f_chk_len = frm.payload[low_plane];
-			s_chk_addr = mid_addr;
-			s_chk_len = high_addr + frm.payload[high_plane] - mid_addr;
-		} else {
-			f_chk_len = mid_addr + frm.payload[mid_plane] - low_addr;
-			s_chk_addr = high_addr;
-			s_chk_len = frm.payload[high_plane];
-		}
-	}
-
-	gsc_dbg("f_addr = 0x%08x, f_len = %d, s_addr = 0x%08x, s_len = %d\n",
-		f_chk_addr, f_chk_len, s_chk_addr, s_chk_len);
-}
-
 int gsc_try_fmt_mplane(struct gsc_ctx *ctx, struct v4l2_format *f)
 {
 	struct gsc_dev *gsc = ctx->gsc_dev;
@@ -586,26 +523,24 @@ int gsc_try_crop(struct gsc_ctx *ctx, struct v4l2_crop *cr)
 		if (is_rotation) {
 			max_w = min(f->f_width, (u32)var->pix_max->target_w);
 			max_h = min(f->f_height, (u32)var->pix_max->target_h);
-			if (is_rgb(f->fmt->pixelformat)) {
+			if (is_rgb32(f->fmt->pixelformat)) {
 				min_w = min_h = var->pix_min->real_w / 2;
-				offset_w = offset_h = 2;
+				offset_w = offset_h = 1;
 			} else {
 				min_w = min_h = var->pix_min->real_w;
-				offset_w = offset_h = 4;
+				offset_w = offset_h = 2;
 			}
 		} else {
 			max_w = min(f->f_width, (u32)var->pix_max->real_w);
 			max_h = min(f->f_height, (u32)var->pix_max->real_h);
-			if (is_rgb(f->fmt->pixelformat)) {
+			if (is_rgb32(f->fmt->pixelformat)) {
 				min_w = var->pix_min->real_w / 2;
 				min_h = var->pix_min->real_h / 2;
-				offset_w = 2;
-				offset_h = 1;
+				offset_w = offset_h = 1;
 			} else {
 				min_w = var->pix_min->real_w;
 				min_h = var->pix_min->real_h;
-				offset_w = 4;
-				offset_h = 1;
+				offset_w = offset_h = 2;
 			}
 		}
 	} else {
@@ -661,7 +596,7 @@ int gsc_check_rotation_size(struct gsc_ctx *ctx)
 	struct gsc_dev *gsc = ctx->gsc_dev;
 	struct gsc_variant *var = gsc->variant;
 	struct exynos_platform_gscaler *pdata = gsc->pdata;
-	if (use_input_rotator) {
+	if (!gsc_cap_opened(gsc) && use_input_rotator) {
 		struct gsc_frame *s_frame = &ctx->s_frame;
 		if ((s_frame->crop.width > (u32)var->pix_max->rot_w) ||
 		(s_frame->crop.height > (u32)var->pix_max->rot_h)) {
@@ -1236,34 +1171,41 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 	struct gsc_dev *gsc = priv;
 	int gsc_irq;
 
+	if (test_bit(ST_OUTPUT_OPEN, &gsc->state)) {
+		gsc->out.isr_time[gsc->real_isr_cnt % 50] = sched_clock();
+		gsc->real_isr_cnt++;
+	}
+	spin_lock(&gsc->slock);
+
+	if (test_bit(ST_PWR_ON, &gsc->state)) {
+		gsc_irq = gsc_hw_get_irq_status(gsc);
+		gsc_hw_clear_irq(gsc, gsc_irq);
+	} else {
+		goto isr_unlock;
+	}
+
 	if (!test_bit(ST_M2M_RUN, &gsc->state) &&
 		!test_bit(ST_OUTPUT_STREAMON, &gsc->state) &&
 		!test_bit(ST_CAPT_RUN, &gsc->state))
-		return IRQ_HANDLED;
+		goto isr_unlock;
 #ifdef GSC_PERF
 	gsc->end_time = sched_clock();
 	gsc_dbg("OPERATION-TIME: %llu\n", gsc->end_time - gsc->start_time);
 #endif
-	gsc_irq = gsc_hw_get_irq_status(gsc);
-	gsc_hw_clear_irq(gsc, gsc_irq);
-
 	if (!(gsc_irq & GSC_IRQ_STATUS_FRM_DONE)) {
 		gsc_err("Error interrupt(0x%x) occured", gsc_irq);
 		gsc_dump_registers(gsc);
 		exynos_sysmmu_show_status(&gsc->pdev->dev);
 		gsc_hw_set_sw_reset(gsc);
-		return IRQ_HANDLED;
+		goto isr_unlock;
 	}
-
-	spin_lock(&gsc->slock);
 
 	if (test_and_clear_bit(ST_M2M_RUN, &gsc->state)) {
 		struct vb2_buffer *src_vb, *dst_vb;
 		struct gsc_ctx *ctx =
 			v4l2_m2m_get_curr_priv(gsc->m2m.m2m_dev);
 
-		if (timer_pending(&gsc->op_timer))
-			del_timer(&gsc->op_timer);
+		del_timer(&gsc->op_timer);
 
 		if (!ctx || !ctx->m2m_ctx) {
 			gsc_err("ctx : 0x%p", ctx);
@@ -1275,12 +1217,6 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 		if (src_vb && dst_vb) {
 			v4l2_m2m_buf_done(src_vb, VB2_BUF_STATE_DONE);
 			v4l2_m2m_buf_done(dst_vb, VB2_BUF_STATE_DONE);
-
-			if (test_and_clear_bit(ST_STOP_REQ, &gsc->state))
-				wake_up(&gsc->irq_queue);
-			else
-				v4l2_m2m_job_finish(gsc->m2m.m2m_dev, ctx->m2m_ctx);
-
 			/* wake_up job_abort, stop_streaming */
 			spin_lock(&ctx->slock);
 			if (ctx->state & GSC_CTX_STOP_REQ) {
@@ -1288,16 +1224,21 @@ static irqreturn_t gsc_irq_handler(int irq, void *priv)
 				wake_up(&gsc->irq_queue);
 			}
 			spin_unlock(&ctx->slock);
+
+			if (test_and_clear_bit(ST_STOP_REQ, &gsc->state))
+				wake_up(&gsc->irq_queue);
+			else
+				v4l2_m2m_job_finish(gsc->m2m.m2m_dev, ctx->m2m_ctx);
 		}
 		pm_runtime_put(&gsc->pdev->dev);
 	} else if (test_bit(ST_OUTPUT_STREAMON, &gsc->state) &&
 			gsc->out.vbq.streaming) {
-		if (!list_empty(&gsc->out.active_buf_q) &&
-		    !list_is_singular(&gsc->out.active_buf_q)) {
+		if (!list_empty(&gsc->out.active_buf_q)) {
 			struct gsc_input_buf *done_buf;
-			done_buf = active_queue_pop(&gsc->out, gsc);
+			done_buf = active_q_pop(&gsc->out);
 			vb2_buffer_done(&done_buf->vb, VB2_BUF_STATE_DONE);
-			list_del(&done_buf->list);
+		} else {
+			gsc_info("active buf empty");
 		}
 		gsc->isr_cnt++;
 	} else if (test_and_clear_bit(ST_CAPT_RUN, &gsc->state)) {
@@ -1528,6 +1469,9 @@ static void gsc_parse_dt(struct device_node *np, struct gsc_dev *gsc)
 	of_property_read_u32(np, "ip_ver", &pdata->ip_ver);
 	of_property_read_u32(np, "mif_min", &pdata->mif_min);
 	of_property_read_u32(np, "int_min", &pdata->int_min);
+
+	if (gsc->id == 0)
+		of_property_read_u32(np, "int_min_otf",	&pdata->int_min_otf);
 }
 #else
 static void gsc_parse_dt(struct device_node *np, struct gsc_dev *gsc)

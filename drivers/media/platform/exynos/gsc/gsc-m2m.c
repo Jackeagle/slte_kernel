@@ -51,13 +51,32 @@ static int gsc_ctx_stop_req(struct gsc_ctx *ctx)
 	return ret;
 }
 
+static int gsc_wait_buffer_done(struct vb2_queue *q)
+{
+	int ret;
+
+	ret = wait_event_timeout(q->done_wq,
+		!atomic_read(&q->queued_count), GSC_SHUTDOWN_TIMEOUT);
+	if (!ret)
+		return -EBUSY;
+
+	return 0;
+}
+
 static int gsc_m2m_stop_streaming(struct vb2_queue *q)
 {
 	struct gsc_ctx *ctx = q->drv_priv;
 	struct gsc_dev *gsc = ctx->gsc_dev;
 	int ret;
 
-	vb2_wait_for_all_buffers(q);
+	flush_work(&ctx->fence_work);
+
+	ret = gsc_wait_buffer_done(q);
+	if (ret < 0) {
+		gsc_err("queued count is still %d",
+				atomic_read(&q->queued_count));
+	}
+
 	ret = gsc_ctx_stop_req(ctx);
 	/* FIXME: need to add v4l2_m2m_job_finish(fail) if ret is timeout */
 	if (ret < 0)
@@ -72,8 +91,6 @@ static void gsc_m2m_job_abort(void *priv)
 	struct gsc_dev *gsc = ctx->gsc_dev;
 	int ret;
 
-	vb2_wait_for_all_buffers(v4l2_m2m_get_src_vq(ctx->m2m_ctx));
-	vb2_wait_for_all_buffers(v4l2_m2m_get_dst_vq(ctx->m2m_ctx));
 	ret = gsc_ctx_stop_req(ctx);
 	/* FIXME: need to add v4l2_m2m_job_finish(fail) if ret is timeout */
 	if (ret < 0)
@@ -115,6 +132,11 @@ void gsc_op_timer_handler(unsigned long arg)
 	struct gsc_dev *gsc = (struct gsc_dev *)arg;
 	struct gsc_ctx *ctx = v4l2_m2m_get_curr_priv(gsc->m2m.m2m_dev);
 	struct vb2_buffer *src_vb, *dst_vb;
+
+	if (!test_bit(ST_M2M_RUN, &gsc->state)) {
+		gsc_warn("gsc state is 0x%lx", gsc->state);
+		return;
+	}
 
 	gsc_dump_registers(gsc);
 
@@ -252,7 +274,7 @@ static void gsc_m2m_device_run(void *priv)
 			goto put_device;
 		}
 		gsc->op_timer.expires = (jiffies + 2 * HZ);
-		add_timer(&gsc->op_timer);
+		mod_timer(&gsc->op_timer, gsc->op_timer.expires);
 	}
 
 	spin_unlock_irqrestore(&ctx->slock, flags);

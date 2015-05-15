@@ -66,7 +66,7 @@ struct sii8240_platform_data {
 	enum connector_type conn;
 
 	u8 power_state;
-	u8	swing_level;
+	u32	swing_level;
 	int ddc_i2c_num;
 	void (*init)(void);
 	void (*mhl_sel)(bool enable);

@@ -136,8 +136,6 @@ static ssize_t show_ipcloopback(struct device *dev,
 	struct miscdevice *miscdev = dev_get_drvdata(dev);
 	struct modem_shared *msd =
 		container_of(miscdev, struct io_device, miscdev)->msd;
-/* TODO unused */
-/*	unsigned char *ip = (unsigned char *)&msd->loopback_ipaddr; */
 	char *p = buf;
 
 	p += sprintf(buf, "%d\n", msd->ipcloopback_enable);
@@ -568,7 +566,7 @@ static void skb_queue_move(struct sk_buff_head *dst, struct sk_buff_head *src)
 }
 
 static struct io_device *get_frag_iod(struct io_device *iod,
-				struct link_device *ld, struct sk_buff *skb)
+		struct link_device *ld)
 {
 	struct header_data *hdr = &fragdata(iod, ld)->h_data;
 	struct sipc5_link_hdr *sipc5h = (struct sipc5_link_hdr *)hdr->hdr;
@@ -617,7 +615,7 @@ static int sipc5_recv_multipacket_to_each_skb(struct io_device *iod,
 
 		memcpy(skb_put(skb, hdr_len), hdr->hdr, hdr_len);
 		skbpriv(skb)->ld = ld;
-		skbpriv(skb)->real_iod = NULL;
+		skbpriv(skb)->iod = get_frag_iod(iod, ld);
 
 		/* Send SIPC5 Header skb to next stage*/
 		ret = iod->ops.recv_demux(iod, ld, skb);
@@ -641,10 +639,11 @@ static int sipc5_recv_multipacket_to_each_skb(struct io_device *iod,
 		ret = -ENOMEM;
 		goto exit;
 	}
+
 	/*pr_skb("frag", skb);*/
 	mif_ipc_log(MIF_IPC_FLAG, iod->msd, skb->data, skb->len);
-	skbpriv(skb)->real_iod = hdr->frag_len ?
-				get_frag_iod(iod, ld, skb) : NULL;
+	skbpriv(skb)->iod = get_frag_iod(iod, ld);
+
 	if (skb->len < rest_len) {	/* continous fragment packet */
 		hdr->frag_len += skb->len;
 		skb_pull_inline(skb_in, skb->len);
@@ -652,7 +651,7 @@ static int sipc5_recv_multipacket_to_each_skb(struct io_device *iod,
 		skb_trim(skb, rest_len);
 		hdr->frag_len += skb->len;
 		skb_pull_inline(skb_in, rest_len);
-		hdr->frag_len = 0;		/* fragment done */
+		memset(hdr, 0x00, sizeof(struct header_data));
 		mif_debug("frag done\n");
 	}
 	goto send_next_stage;
@@ -695,8 +694,7 @@ next_frame:
 		skb->truesize = SKB_TRUESIZE(pkt_len); /* tcp_rmem */
 		skb_pull_inline(skb_in, pkt_len);
 	}
-	skbpriv(skb)->real_iod = hdr->frag_len ?
-				get_frag_iod(iod, ld, skb) : NULL;
+	skbpriv(skb)->iod = get_frag_iod(iod, ld);
 send_next_stage:
 	ret =  iod->ops.recv_demux(iod, ld, skb);
 	if (unlikely(ret < 0)) {
@@ -734,10 +732,13 @@ static int sipc5_recv_demux(struct io_device *iod,
 				struct link_device *ld, struct sk_buff *skb)
 {
 	struct sipc5_link_hdr *sipc5h = (struct sipc5_link_hdr *)skb->data;
-	struct io_device *real_iod = skbpriv(skb)->real_iod ?
-		skbpriv(skb)->real_iod :
-		((link_get_iod_with_channel(ld, sipc5h->ch)) ?: iod);
+	struct io_device *real_iod = skbpriv(skb)->iod ?:
+			link_get_iod_with_channel(ld, sipc5h->ch);
 
+	if (unlikely(!real_iod)) {
+		mif_err("Invalid real_iod, ch 0x%x\n", sipc5h->ch);
+		return -EINVAL;
+	}
 	return real_iod->ops.recv_skb_packet(real_iod, ld, skb);
 }
 
@@ -747,30 +748,28 @@ static int sipc5_recv_demux_ipcloopback(struct io_device *iod,
 	struct sipc5_link_hdr *sipc5h = (struct sipc5_link_hdr *)skb->data;
 	struct sipc_main_hdr *ipc = (struct sipc_main_hdr *)(skb->data +
 			sipc5_get_hdr_len((struct sipc5_link_hdr *)skb->data));
-	struct header_data *hdr = &fragdata(iod, ld)->h_data;
-	struct sipc5_link_hdr *frag_hdr = (struct sipc5_link_hdr *)hdr->hdr;
-	struct io_device *real_iod = skbpriv(skb)->real_iod;
+	struct io_device *real_iod = skbpriv(skb)->iod ?:
+			link_get_iod_with_channel(ld, sipc5h->ch);
 
 	/* if valid hdr & main cmd 0x91, 0x90 */
 	if (sipc5_start_valid(sipc5h) && sipc5h->ch == SIPC5_CH_ID_FMT_0
 			&& (ipc->main_cmd == 0x90 || ipc->main_cmd == 0x91)) {
-		if (real_iod)
-			frag_hdr->ch = SIPC5_CH_ID_FMT_9;
-		real_iod = link_get_iod_with_channel(ld, SIPC5_CH_ID_FMT_9);
+		struct header_data *hdr = &fragdata(iod, ld)->h_data;
+		struct sipc5_link_hdr *frag_hdr =
+			(struct sipc5_link_hdr *)hdr->hdr;
 
+		frag_hdr->ch = SIPC5_CH_ID_FMT_9;
+		real_iod = link_get_iod_with_channel(ld, SIPC5_CH_ID_FMT_9);
 		mif_info("%s(%d): IPC_LB first pkt\n",
-						real_iod->name, skb->len);
-	} else {
-		if (!real_iod) {
-			real_iod = link_get_iod_with_channel(ld, sipc5h->ch)
-									?: iod;
-			mif_info("%s(%d): non-frag pkt\n",
-						real_iod->name, skb->len);
-		} else {
-			mif_info("%s(%d): IPC or normal frag pkt\n",
-						real_iod->name, skb->len);
-		}
+				real_iod->name, skb->len);
 	}
+
+	if (unlikely(!real_iod)) {
+		mif_err("Invalid real_iod, ch 0x%x\n", sipc5h->ch);
+		return -EINVAL;
+	}
+
+	mif_info("%s (%d)\n", real_iod->name, skb->len);
 	return real_iod->ops.recv_skb_packet(real_iod, ld, skb);
 }
 
@@ -939,7 +938,7 @@ static int io_dev_recv_skb_from_link_dev(struct io_device *iod,
 	}
 
 	skbpriv(skb)->ld = ld;
-	skbpriv(skb)->iod = iod;
+	skbpriv(skb)->iod = NULL;
 
 	if (!iod->ops.recv_skb_packet) {
 		mif_err("ops->recv_skb_signle is mandatory!!\n");
@@ -1297,8 +1296,8 @@ static long misc_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		if (ret < 0)
 			return -EFAULT;
 
-		mif_dump_log(iod->mc->msd, iod);
-		return 0;
+		return mif_dump_log(iod->mc->msd, iod);
+
 	case IOCTL_MODEM_SET_TX_LINK:
 		mif_info("%s: IOCTL_MODEM_SET_TX_LINK\n", iod->name);
 		if (copy_from_user(&tx_link, (void __user *)arg, sizeof(int)))
@@ -1540,23 +1539,27 @@ static const struct file_operations misc_io_fops = {
 static int vnet_open(struct net_device *ndev)
 {
 	struct vnet *vnet = netdev_priv(ndev);
+	struct io_device *iod = vnet->iod;
 
-	mif_err("%s\n", vnet->iod->name);
+	mif_err("%s\n", iod->name);
 
 	netif_start_queue(ndev);
-	atomic_inc(&vnet->iod->opened);
+	atomic_inc(&iod->opened);
+	list_add(&iod->node_ndev, &iod->msd->activated_ndev_list);
 	return 0;
 }
 
 static int vnet_stop(struct net_device *ndev)
 {
 	struct vnet *vnet = netdev_priv(ndev);
+	struct io_device *iod = vnet->iod;
 
-	mif_err("%s\n", vnet->iod->name);
+	mif_err("%s\n", iod->name);
 
-	atomic_dec(&vnet->iod->opened);
+	atomic_dec(&iod->opened);
 	netif_stop_queue(ndev);
-	skb_queue_purge(&vnet->iod->sk_rx_q);
+	skb_queue_purge(&iod->sk_rx_q);
+	list_del(&iod->node_ndev);
 	return 0;
 }
 
@@ -1593,7 +1596,7 @@ static int vnet_xmit(struct sk_buff *skb, struct net_device *ndev)
 	if (ret < 0) {
 		netif_stop_queue(ndev);
 		mif_info("%s: ERR! ld->send fail (err %d)\n", iod->name, ret);
-		switch(ret) {
+		switch (ret) {
 		case -EINVAL:
 			mif_info("%s: not available\n", iod->name);
 			return -ENODEV;
@@ -1701,6 +1704,7 @@ int sipc5_init_io_device(struct io_device *iod)
 
 	case IODEV_NET:
 		skb_queue_head_init(&iod->sk_rx_q);
+		INIT_LIST_HEAD(&iod->node_ndev);
 #ifdef CONFIG_LINK_ETHERNET
 		iod->ndev = alloc_etherdev(0);
 		if (!iod->ndev) {

@@ -889,6 +889,13 @@ int s5p_mfc_set_dec_stream_buffer(struct s5p_mfc_ctx *ctx, dma_addr_t buf_addr,
 	mfc_debug(2, "strm_size: 0x%08x cpb_buf_size 0x%x, offset: %d\n",
 			strm_size, cpb_buf_size, start_num_byte);
 
+	if (cpb_buf_size < strm_size + 4)
+		mfc_info_ctx("cpb_buf_size(%zu) < strm_size(0x%08x) + 4 bytes\n",
+				cpb_buf_size, strm_size);
+	if (ctx->state == MFCINST_GOT_INST && strm_size == 0)
+		mfc_info_ctx("stream size is 0\n");
+
+
 	WRITEL(strm_size, S5P_FIMV_D_STREAM_DATA_SIZE);
 	WRITEL(buf_addr, S5P_FIMV_D_CPB_BUFFER_ADDR);
 	WRITEL(cpb_buf_size, S5P_FIMV_D_CPB_BUFFER_SIZE);
@@ -1442,7 +1449,10 @@ static int s5p_mfc_set_enc_params(struct s5p_mfc_ctx *ctx)
 
 	if (p->rc_frame) {
 		if (FW_HAS_ADV_RC_MODE(dev)) {
-			if (p->rc_reaction_coeff <= TIGHT_CBR_MAX)
+			if (FW_HAS_I_LIMIT_RC_MODE(dev) &&
+				p->rc_reaction_coeff <= I_LIMIT_CBR_MAX)
+				reg = S5P_FIMV_ENC_ADV_I_LIMIT_CBR;
+			else if (p->rc_reaction_coeff <= TIGHT_CBR_MAX)
 				reg = S5P_FIMV_ENC_ADV_TIGHT_CBR;
 			else
 				reg = S5P_FIMV_ENC_ADV_CAM_CBR;
@@ -1526,8 +1536,14 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 
 	/* UHD encoding case */
 	if(is_UHD(ctx)) {
-		p_264->level = 51;
-		p_264->profile = 0x2;
+		if (p_264->level < 51) {
+			mfc_info_ctx("Set Level 5.1 for UHD\n");
+			p_264->level = 51;
+		}
+		if (p_264->profile != 0x2) {
+			mfc_info_ctx("Set High profile for UHD\n");
+			p_264->profile = 0x2;
+		}
 #if defined(CONFIG_SOC_EXYNOS5422)
 		sysmmu_set_qos(dev->device, 0xF);
 #endif
@@ -1769,14 +1785,21 @@ static int s5p_mfc_set_enc_params_h264(struct s5p_mfc_ctx *ctx)
 	reg |= ((p_264->hier_qp & 0x1) << 8);
 	WRITEL(reg, S5P_FIMV_E_H264_OPTIONS);
 	reg = 0;
-	if (p_264->hier_qp && p_264->hier_qp_layer) {
+	if (p_264->hier_qp_layer) {
+		reg |= 0x7 << 0x4;
 		reg |= (p_264->hier_qp_type & 0x1) << 0x3;
 		reg |= p_264->hier_qp_layer & 0x7;
 		WRITEL(reg, S5P_FIMV_E_H264_NUM_T_LAYER);
 		/* QP value for each layer */
-		for (i = 0; i < (p_264->hier_qp_layer & 0x7); i++)
+		if (p_264->hier_qp) {
+			for (i = 0; i < (p_264->hier_qp_layer & 0x7); i++)
 			WRITEL(p_264->hier_qp_layer_qp[i],
-				S5P_FIMV_E_H264_HIERARCHICAL_QP_LAYER0 + i * 4);
+					S5P_FIMV_E_H264_HIERARCHICAL_QP_LAYER0 + i * 4);
+		} else {
+			for (i = 0; i < (p_264->hier_qp_layer & 0x7); i++)
+			WRITEL(p_264->hier_qp_layer_bit[i],
+					S5P_FIMV_E_H264_HIERARCHICAL_BIT_RATE_LAYER0 + i * 4);
+		}
 	}
 	/* number of coding layer should be zero when hierarchical is disable */
 	WRITEL(reg, S5P_FIMV_E_H264_NUM_T_LAYER);
@@ -2000,6 +2023,7 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
 	struct s5p_mfc_enc_params *p = &enc->params;
 	struct s5p_mfc_vp8_enc_params *p_vp8 = &p->codec.vp8;
 	unsigned int reg = 0;
+	int i;
 
 	mfc_debug_enter();
 
@@ -2013,7 +2037,6 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
 	reg = 0;
 	/* Disable IVF header */
 	reg |= (0x1 << 12);
-	reg |= (p_vp8->hierarchy_qp_enable & 0x1) << 11;
 	reg |= (p_vp8->intra_4x4mode_disable & 0x1) << 10;
 	reg |= (p_vp8->vp8_numberofpartitions & 0xF) << 3;
 	reg |= (p_vp8->num_refs_for_p - 1) & 0x1;
@@ -2024,7 +2047,27 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
 	reg |= (p_vp8->vp8_gfrefreshperiod & 0xffff) << 1;
 	WRITEL(reg, S5P_FIMV_E_VP8_GOLDEN_FRAME_OPTION);
 
+	/* hier qp enable */
+	reg = READL(S5P_FIMV_E_VP8_OPTION);
+	reg &= ~(0x1 << 11);
+	reg |= ((p_vp8->hierarchy_qp_enable & 0x1) << 11);
+	WRITEL(reg, S5P_FIMV_E_VP8_OPTION);
 	reg = 0;
+	if (p_vp8->num_temporal_layer) {
+		reg |= p_vp8->num_temporal_layer & 0x3;
+		WRITEL(reg, S5P_FIMV_E_VP8_NUM_T_LAYER);
+		/* QP value for each layer */
+		if (p_vp8->hierarchy_qp_enable) {
+			for (i = 0; i < (p_vp8->num_temporal_layer & 0x3); i++)
+			WRITEL(p_vp8->hier_qp_layer_qp[i],
+					S5P_FIMV_E_VP8_HIERARCHICAL_QP_LAYER0 + i * 4);
+		} else {
+			for (i = 0; i < (p_vp8->num_temporal_layer & 0x3); i++)
+			WRITEL(p_vp8->hier_qp_layer_bit[i],
+					S5P_FIMV_E_H264_HIERARCHICAL_BIT_RATE_LAYER0 + i * 4);
+		}
+	}
+	/* number of coding layer should be zero when hierarchical is disable */
 	reg |= p_vp8->num_temporal_layer;
 	WRITEL(reg, S5P_FIMV_E_VP8_NUM_T_LAYER);
 
@@ -2076,17 +2119,9 @@ static int s5p_mfc_set_enc_params_vp8(struct s5p_mfc_ctx *ctx)
 	reg |= p_vp8->rc_min_qp;
 	WRITEL(reg, S5P_FIMV_E_RC_QP_BOUND);
 
-	reg = 0;
-	reg |= p_vp8->hierarchy_qp_layer0;
-	WRITEL(reg, S5P_FIMV_E_VP8_HIERARCHICAL_QP_LAYER0);
-
-	reg = 0;
-	reg |= p_vp8->hierarchy_qp_layer1;
-	WRITEL(reg, S5P_FIMV_E_VP8_HIERARCHICAL_QP_LAYER1);
-
-	reg = 0;
-	reg |= p_vp8->hierarchy_qp_layer1;
-	WRITEL(reg, S5P_FIMV_E_VP8_HIERARCHICAL_QP_LAYER2);
+	/* Disable all macroblock adaptive scaling features */
+	reg = 0xF;
+	WRITEL(reg, S5P_FIMV_E_MB_RC_CONFIG);
 
 	mfc_debug_leave();
 
@@ -2718,7 +2753,15 @@ static inline int s5p_mfc_run_enc_frame(struct s5p_mfc_ctx *ctx)
 		mfc_debug(2, "Setting ctx->state to FINISHING\n");
 		ctx->state = MFCINST_FINISHING;
 
-		mfc_debug(2, "Set address zero for all planes\n");
+		if (src_mb->vb.v4l2_buf.reserved2 == FLAG_LAST_FRAME) {
+			for (i = 0; i < raw->num_planes; i++) {
+				src_addr[i] = s5p_mfc_mem_plane_addr(ctx, &src_mb->vb, i);
+				mfc_debug(2, "enc src[%d] addr: 0x%08lx",
+						i, (unsigned long)src_addr[i]);
+			}
+		} else {
+			mfc_debug(2, "Set address zero for all planes\n");
+		}
 	} else {
 		for (i = 0; i < raw->num_planes; i++) {
 			src_addr[i] = s5p_mfc_mem_plane_addr(ctx, &src_mb->vb, i);
@@ -2944,16 +2987,6 @@ static inline int s5p_mfc_dec_dpb_flush(struct s5p_mfc_ctx *ctx)
 
 	WRITEL(ctx->inst_no, S5P_FIMV_INSTANCE_ID);
 	s5p_mfc_cmd_host2risc(dev, S5P_FIMV_H2R_CMD_FLUSH, NULL);
-
-	return 0;
-}
-
-static inline int s5p_mfc_ctx_ready(struct s5p_mfc_ctx *ctx)
-{
-	if (ctx->type == MFCINST_DECODER)
-		return s5p_mfc_dec_ctx_ready(ctx);
-	else if (ctx->type == MFCINST_ENCODER)
-		return s5p_mfc_enc_ctx_ready(ctx);
 
 	return 0;
 }

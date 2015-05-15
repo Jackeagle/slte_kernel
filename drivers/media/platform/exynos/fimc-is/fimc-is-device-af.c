@@ -28,6 +28,7 @@
 #include <linux/platform_device.h>
 #include <linux/regulator/consumer.h>
 #include <linux/delay.h>
+#include <mach/pinctrl-samsung.h>
 
 #include "fimc-is-core.h"
 #include "fimc-is-interface.h"
@@ -37,11 +38,47 @@
 #include "fimc-is-device-af.h"
 
 #define FIMC_IS_AF_DEV_NAME "exynos-fimc-is-af"
+static int af_noise_count;
 
 static struct remove_af_noise af_sensor_interface = {
 	.af_pdata = NULL,
 	.af_func = NULL,
 };
+
+static void fimc_is_af_i2c_config(struct i2c_client *client, bool onoff)
+{
+	struct device *i2c_dev = client->dev.parent->parent;
+	struct pinctrl *pinctrl_i2c = NULL;
+
+	info("(%s):onoff(%d)\n", __func__, onoff);
+	if (onoff) {
+		/* ON */
+		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
+			PINCFG_PACK(PINCFG_TYPE_FUNC, 0));
+		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
+			PINCFG_PACK(PINCFG_TYPE_FUNC, 0));
+
+		pinctrl_i2c = devm_pinctrl_get_select(i2c_dev, "on_i2c");
+		if (IS_ERR_OR_NULL(pinctrl_i2c)) {
+			printk(KERN_ERR "%s: Failed to configure i2c pin\n", __func__);
+		} else {
+			devm_pinctrl_put(pinctrl_i2c);
+		}
+	} else {
+		/* OFF */
+		pinctrl_i2c = devm_pinctrl_get_select(i2c_dev, "off_i2c");
+		if (IS_ERR_OR_NULL(pinctrl_i2c)) {
+			printk(KERN_ERR "%s: Failed to configure i2c pin\n", __func__);
+		} else {
+			devm_pinctrl_put(pinctrl_i2c);
+		}
+
+		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-2",
+			PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
+		pin_config_set(FIMC_IS_SPI_PINNAME, "gpc2-3",
+			PINCFG_PACK(PINCFG_TYPE_FUNC, 2));
+    }
+}
 
 int fimc_is_af_i2c_read(struct i2c_client *client, u16 addr, u16 *data)
 {
@@ -118,10 +155,17 @@ int fimc_is_af_i2c_write(struct i2c_client *client ,u16 addr, u16 data)
 
 int fimc_is_af_ldo_enable(char *name, bool on)
 {
+	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 	struct regulator *regulator = NULL;
+	struct platform_device *pdev = NULL;
 	int ret = 0;
 
-	regulator = regulator_get(NULL, name);
+	BUG_ON(!core);
+	BUG_ON(!core->pdev);
+
+	pdev = core->pdev;
+
+	regulator = regulator_get(&pdev->dev, name);
 	if (IS_ERR_OR_NULL(regulator)) {
 		err("%s : regulator_get(%s) fail\n", __func__, name);
 		return -EINVAL;
@@ -130,49 +174,100 @@ int fimc_is_af_ldo_enable(char *name, bool on)
 	if (on) {
 		if (regulator_is_enabled(regulator)) {
 			pr_info("%s: regulator is already enabled\n", name);
-			goto exit;
-		}
-
-		ret = regulator_enable(regulator);
-		if (ret) {
-			err("%s : regulator_enable(%s) fail\n", __func__, name);
-			goto exit;
+			ret = 0;
+		} else {
+			ret = regulator_enable(regulator);
+			if (ret) {
+				err("%s : regulator_enable(%s) fail\n", __func__, name);
+				ret = -EINVAL;
+			}
 		}
 	} else {
 		if (!regulator_is_enabled(regulator)) {
 			pr_info("%s: regulator is already disabled\n", name);
-			goto exit;
-		}
-
-		ret = regulator_disable(regulator);
-		if (ret) {
-			err("%s : regulator_disable(%s) fail\n", __func__, name);
-			goto exit;
+			ret = 0;
+		} else {
+			ret = regulator_disable(regulator);
+			if (ret) {
+				err("%s : regulator_disable(%s) fail\n", __func__, name);
+				ret = -EINVAL;
+			}
 		}
 	}
-exit:
-	if (regulator)
-		regulator_put(regulator);
+
+	regulator_put(regulator);
 
 	return ret;
 }
 
-int fimc_is_af_power(bool onoff)
+int fimc_is_af_power(struct fimc_is_device_af *af_device, bool onoff)
 {
 	int ret = 0;
+#ifdef CONFIG_OIS_USE
+	int pin_ois_en = af_device->core->pin_ois_en;
+#endif
 
+	/*CAM_AF_2.8V_AP*/
 	ret = fimc_is_af_ldo_enable("CAM_AF_2.8V_AP", onoff);
 	if (ret) {
 		err("failed to power control CAM_AF_2.8V_AP, onoff = %d", onoff);
 		return -EINVAL;
 	}
 
+#ifdef CONFIG_OIS_USE
+	/* OIS_VDD_2.8V */
+	if (gpio_is_valid(pin_ois_en)) {
+		if (onoff) {
+			gpio_request_one(pin_ois_en, GPIOF_OUT_INIT_HIGH, "CAM_GPIO_OUTPUT_HIGH");
+		} else {
+			gpio_request_one(pin_ois_en, GPIOF_OUT_INIT_LOW, "CAM_GPIO_OUTPUT_LOW");
+		}
+		gpio_free(pin_ois_en);
+	}
+
+	/* OIS_VM_2.8V */
+	ret = fimc_is_af_ldo_enable("OIS_VM_2.8V", onoff);
+	if (ret) {
+		err("failed to power control OIS_VM_2.8V, onoff = %d", onoff);
+		return -EINVAL;
+	}
+#endif
+
+	/*CAM_IO_1.8V_AP*/
 	ret = fimc_is_af_ldo_enable("CAM_IO_1.8V_AP", onoff);
 	if (ret) {
 		err("failed to power control CAM_IO_1.8V_AP, onoff = %d", onoff);
 		return -EINVAL;
 	}
 
+	usleep_range(5000,5000);
+	return ret;
+}
+
+bool fimc_is_check_regulator_status(char *name)
+{
+	struct fimc_is_core *core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
+	struct regulator *regulator = NULL;
+	struct platform_device *pdev = NULL;
+	int ret = 0;
+
+	BUG_ON(!core);
+	BUG_ON(!core->pdev);
+
+	pdev = core->pdev;
+
+	regulator = regulator_get(&pdev->dev, name);
+	if (IS_ERR_OR_NULL(regulator)) {
+		err("%s : regulator_get(%s) fail\n", __func__, name);
+		return false;
+	}
+	if (regulator_is_enabled(regulator)) {
+		ret = true;
+	} else {
+		ret = false;
+	}
+
+	regulator_put(regulator);
 	return ret;
 }
 
@@ -181,6 +276,7 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 	int ret = 0;
 	struct fimc_is_device_af *af_device = (struct fimc_is_device_af *)device;
 	struct fimc_is_core *core;
+	bool af_regulator = false, io_regulator = false;
 
 	core = (struct fimc_is_core *)dev_get_drvdata(fimc_is_dev);
 	if (!core) {
@@ -188,10 +284,14 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 		return -ENODEV;
 	}
 
-	pr_info("af_noise is_camera_run = %d, onoff = %d\n", core->is_camera_run, onoff);
-	if (!core->is_camera_run) {
+	pr_info("af_noise : running_rear_camera = %d, onoff = %d\n", core->running_rear_camera, onoff);
+	if (!core->running_rear_camera) {
+		if (core->use_ois_hsi2c) {
+			fimc_is_af_i2c_config(af_device->client, true);
+		}
+
 		if (onoff) {
-			fimc_is_af_power(true);
+			fimc_is_af_power(af_device, true);
 			ret = fimc_is_af_i2c_write(af_device->client, 0x02, 0x00);
 			if (ret) {
 				err("i2c write fail\n");
@@ -209,19 +309,71 @@ int16_t fimc_is_af_enable(void *device, bool onoff)
 				err("i2c write fail\n");
 				goto power_off;
 			}
+			af_noise_count++;
+			pr_info("af_noise : count = %d\n", af_noise_count);
 		} else {
-			ret = fimc_is_af_i2c_write(af_device->client, 0x02, 0x40);
-			if (ret) {
-				err("i2c write fail\n");
+			/* Check the Power Pins */
+			af_regulator = fimc_is_check_regulator_status("CAM_AF_2.8V_AP");
+			io_regulator = fimc_is_check_regulator_status("CAM_IO_1.8V_AP");
+
+			if (af_regulator && io_regulator) {
+				ret = fimc_is_af_i2c_write(af_device->client, 0x02, 0x40);
+				if (ret) {
+					err("i2c write fail\n");
+				}
+				fimc_is_af_power(af_device, false);
+			} else {
+				pr_info("already power off.(%d)\n", __LINE__);
 			}
-			fimc_is_af_power(false);
+		}
+
+		if (core->use_ois_hsi2c) {
+			fimc_is_af_i2c_config(af_device->client, false);
 		}
 	}
 
 	return ret;
 
 power_off:
-	fimc_is_af_power(false);
+	if (!core->running_rear_camera) {
+		if (core->use_ois_hsi2c) {
+			fimc_is_af_i2c_config(af_device->client, false);
+		}
+
+		af_regulator = fimc_is_check_regulator_status("CAM_AF_2.8V_AP");
+		io_regulator = fimc_is_check_regulator_status("CAM_IO_1.8V_AP");
+		if (af_regulator && io_regulator) {
+			fimc_is_af_power(af_device, false);
+		} else {
+			pr_info("already power off.(%d)\n", __LINE__);
+		}
+	}
+	return ret;
+}
+
+int16_t fimc_is_af_move_lens(struct fimc_is_core *core)
+{
+	int ret = 0;
+	struct i2c_client *client = core->client2;
+
+	pr_info("fimc_is_af_move_lens : running_rear_camera = %d\n", core->running_rear_camera);
+	if (!core->running_rear_camera) {
+		ret = fimc_is_af_i2c_write(client, 0x00, 0x80);
+		if (ret) {
+			err("i2c write fail\n");
+		}
+
+		ret = fimc_is_af_i2c_write(client, 0x01, 0x00);
+		if (ret) {
+			err("i2c write fail\n");
+		}
+
+		ret = fimc_is_af_i2c_write(client, 0x02, 0x00);
+		if (ret) {
+			err("i2c write fail\n");
+		}
+	}
+
 	return ret;
 }
 
@@ -261,6 +413,8 @@ static int fimc_is_af_probe(struct i2c_client *client,
 
 	core->client2 = client;
 	device->client = client;
+	device->core = core;
+	af_noise_count = 0;
 
 	af_sensor_interface.af_pdata = device;
 	af_sensor_interface.af_func = &fimc_is_af_enable;

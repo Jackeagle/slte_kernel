@@ -1,7 +1,7 @@
 /*
  * Linux cfgp2p driver
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wl_cfgp2p.c 490694 2014-07-11 14:37:00Z $
+ * $Id: wl_cfgp2p.c 525774 2015-01-12 12:51:24Z $
  *
  */
 #include <typedefs.h>
@@ -183,7 +183,7 @@ bool wl_cfgp2p_is_gas_action(void *frame, u32 frame_len)
 	else
 		return false;
 }
-#ifdef CUSTOMER_HW4
+
 bool wl_cfgp2p_is_p2p_gas_action(void *frame, u32 frame_len)
 {
 
@@ -205,7 +205,7 @@ bool wl_cfgp2p_is_p2p_gas_action(void *frame, u32 frame_len)
 	else
 		return false;
 }
-#endif /* CUSTOMER_HW4 */
+
 void wl_cfgp2p_print_actframe(bool tx, void *frame, u32 frame_len, u32 channel)
 {
 	wifi_p2p_pub_act_frame_t *pact_frm;
@@ -287,27 +287,25 @@ void wl_cfgp2p_print_actframe(bool tx, void *frame, u32 frame_len, u32 channel)
 		sd_act_frm = (wifi_p2psd_gas_pub_act_frame_t *)frame;
 		switch (sd_act_frm->action) {
 			case P2PSD_ACTION_ID_GAS_IREQ:
-				CFGP2P_ACTION(("%s P2P GAS Initial Request,"
+				CFGP2P_ACTION(("%s GAS Initial Request,"
 					" channel=%d\n", (tx)? "TX" : "RX", channel));
 				break;
 			case P2PSD_ACTION_ID_GAS_IRESP:
-				CFGP2P_ACTION(("%s P2P GAS Initial Response,"
+				CFGP2P_ACTION(("%s GAS Initial Response,"
 					" channel=%d\n", (tx)? "TX" : "RX", channel));
 				break;
 			case P2PSD_ACTION_ID_GAS_CREQ:
-				CFGP2P_ACTION(("%s P2P GAS Comback Request,"
+				CFGP2P_ACTION(("%s GAS Comeback Request,"
 					" channel=%d\n", (tx)? "TX" : "RX", channel));
 				break;
 			case P2PSD_ACTION_ID_GAS_CRESP:
-				CFGP2P_ACTION(("%s P2P GAS Comback Response,"
+				CFGP2P_ACTION(("%s GAS Comeback Response,"
 					" channel=%d\n", (tx)? "TX" : "RX", channel));
 				break;
 			default:
-				CFGP2P_ACTION(("%s Unknown P2P GAS Frame,"
+				CFGP2P_ACTION(("%s Unknown GAS Frame,"
 					" channel=%d\n", (tx)? "TX" : "RX", channel));
 		}
-
-
 	}
 }
 
@@ -361,7 +359,7 @@ wl_cfgp2p_init_priv(struct bcm_cfg80211 *cfg)
 void
 wl_cfgp2p_deinit_priv(struct bcm_cfg80211 *cfg)
 {
-	CFGP2P_DBG(("In\n"));
+	CFGP2P_ERR(("In\n"));
 	if (cfg->p2p) {
 		kfree(cfg->p2p);
 		cfg->p2p = NULL;
@@ -682,7 +680,7 @@ wl_cfgp2p_deinit_discovery(struct bcm_cfg80211 *cfg)
 	s32 ret = BCME_OK;
 	CFGP2P_DBG(("enter\n"));
 
-	if (wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE) == 0) {
+	if (wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE) <= 0) {
 		CFGP2P_ERR(("do nothing, not initialized\n"));
 		return -1;
 	}
@@ -1158,6 +1156,11 @@ wl_cfgp2p_set_management_ie(struct bcm_cfg80211 *cfg, struct net_device *ndev, s
 				return BCME_ERROR;
 		}
 	} else if (wl_get_mode_by_netdev(cfg, ndev) == WL_MODE_AP) {
+		if (cfg->ap_info == NULL) {
+			CFGP2P_ERR(("hostapd ap_info null ptr refrence while setting  IE\n"));
+			return BCME_ERROR;
+
+		}
 		switch (pktflag) {
 			case VNDR_IE_PRBRSP_FLAG :
 				mgmt_ie_buf = cfg->ap_info->probe_res_ie;
@@ -1646,8 +1649,8 @@ wl_cfgp2p_listen_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 #endif /* WL_CFG80211_VSDB_PRIORITIZE_SCAN_REQUEST */
 			if (ndev && (ndev->ieee80211_ptr != NULL)) {
 #if defined(WL_CFG80211_P2P_DEV_IF)
-				cfg80211_remain_on_channel_expired(cfgdev, cfg->last_roc_id,
-					&cfg->remain_on_chan, GFP_KERNEL);
+				cfg80211_remain_on_channel_expired(bcmcfg_to_p2p_wdev(cfg),
+					cfg->last_roc_id, &cfg->remain_on_chan, GFP_KERNEL);
 #else
 				cfg80211_remain_on_channel_expired(cfgdev, cfg->last_roc_id,
 					&cfg->remain_on_chan, cfg->remain_on_chan_type, GFP_KERNEL);
@@ -1706,8 +1709,8 @@ wl_cfgp2p_cancel_listen(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 		if (notify) {
 #if defined(WL_CFG80211_P2P_DEV_IF)
 			if (wdev)
-				cfg80211_remain_on_channel_expired(wdev, cfg->last_roc_id,
-					&cfg->remain_on_chan, GFP_KERNEL);
+				cfg80211_remain_on_channel_expired(bcmcfg_to_p2p_wdev(cfg),
+					cfg->last_roc_id, &cfg->remain_on_chan, GFP_KERNEL);
 #else
 			if (ndev && ndev->ieee80211_ptr)
 				cfg80211_remain_on_channel_expired(ndev, cfg->last_roc_id,
@@ -1834,6 +1837,10 @@ wl_cfgp2p_action_tx_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev
 			if (status == WLC_E_STATUS_SUCCESS) {
 				wl_set_p2p_status(cfg, ACTION_TX_COMPLETED);
 				CFGP2P_DBG(("WLC_E_ACTION_FRAME_COMPLETE : ACK\n"));
+				if (!cfg->need_wait_afrx && cfg->af_sent_channel) {
+					CFGP2P_DBG(("no need to wait next AF.\n"));
+					wl_stop_wait_next_action_frame(cfg, ndev);
+				}
 			}
 			else if (!wl_get_p2p_status(cfg, ACTION_TX_COMPLETED)) {
 				wl_set_p2p_status(cfg, ACTION_TX_NOACK);
@@ -2601,7 +2608,7 @@ wl_cfgp2p_add_p2p_disc_if(struct bcm_cfg80211 *cfg)
 	struct wireless_dev *wdev = NULL;
 	struct ether_addr primary_mac;
 
-	if (!cfg)
+	if (!cfg || !cfg->p2p_supported)
 		return ERR_PTR(-EINVAL);
 
 	WL_TRACE(("Enter\n"));
@@ -2736,3 +2743,41 @@ wl_cfgp2p_del_p2p_disc_if(struct wireless_dev *wdev, struct bcm_cfg80211 *cfg)
 	return 0;
 }
 #endif /* WL_CFG80211_P2P_DEV_IF */
+
+void
+wl_cfgp2p_need_wait_actfrmae(struct bcm_cfg80211 *cfg, void *frame, u32 frame_len, bool tx)
+{
+	wifi_p2p_pub_act_frame_t *pact_frm;
+	int status = 0;
+
+	if (!frame || (frame_len < (sizeof(*pact_frm) + WL_P2P_AF_STATUS_OFFSET - 1))) {
+		return;
+	}
+
+	if (wl_cfgp2p_is_pub_action(frame, frame_len)) {
+		pact_frm = (wifi_p2p_pub_act_frame_t *)frame;
+		if (pact_frm->subtype == P2P_PAF_GON_RSP && tx) {
+			CFGP2P_ACTION(("Check TX P2P Group Owner Negotiation Rsp Frame status\n"));
+			status = pact_frm->elts[WL_P2P_AF_STATUS_OFFSET];
+			if (status) {
+				cfg->need_wait_afrx = false;
+				return;
+			}
+		}
+	}
+
+	cfg->need_wait_afrx = true;
+	return;
+}
+
+int
+wl_cfgp2p_is_p2p_specific_scan(struct cfg80211_scan_request *request)
+{
+	if (request && (request->n_ssids == 1) &&
+		(request->n_channels == 1) &&
+		IS_P2P_SSID(request->ssids[0].ssid, WL_P2P_WILDCARD_SSID_LEN) &&
+		(request->ssids[0].ssid_len > WL_P2P_WILDCARD_SSID_LEN)) {
+		return true;
+	}
+	return false;
+}

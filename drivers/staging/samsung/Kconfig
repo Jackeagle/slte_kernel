@@ -49,6 +49,14 @@ menuconfig SEC_DEBUG
 	help
 	  Samsung TN Ramdump Feature. Use INFORM3 and magic number at 0xc0000000.
 
+comment "BSP Feature"
+menuconfig SEC_BSP
+	bool "Samsung TN BSP Feature"
+	default n
+	depends on SEC_EXT
+	help
+		Samsung TN BSP Feature.
+
 if SEC_DEBUG
 config SEC_DEBUG_FUPLOAD_DUMP_MORE
 	bool "Dump more information at forced upload"
@@ -123,6 +131,13 @@ config SEC_DEBUG_AUXILIARY_LOG
 	  It can support non-cached auxiliary log in RAM dump and We don't
 	  need to concern cache flush status for analyzing sudden
 	  system hang issue.
+
+config SEC_DEBUG_RT_THROTTLE_ACTIVE
+	bool "Samsung rt throttling log to aux"
+	depends on SEC_DEBUG_AUXILIARY_LOG
+	default y
+	help
+	  This option add additional log for rt throttling detection.
 
 config SEC_DEBUG_FUPLOAD_DUMP_MORE
 	bool "Dump more information at forced upload"
@@ -256,7 +271,7 @@ config SEC_DEBUG_TSP_LOG
 config SEC_DEBUG_TIMA_LOG
 	default y
 	bool "Enable tima log support" if EMBEDDED
-	depends on SEC_DEBUG && TIMA
+	depends on SEC_DEBUG
 	help
 	  This option enables additional log buffer for tima log.
 

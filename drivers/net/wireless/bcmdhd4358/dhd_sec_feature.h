@@ -1,7 +1,7 @@
 /*
  * Customer HW 4 dependant file
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -68,15 +68,22 @@
 #define READ_MACADDR
 #endif  /* CONFIG_WIFI_BROADCOM_COB */
 
-/* For UNIVERSAL5433 */
-#ifdef CONFIG_MACH_UNIVERSAL5433
+#if defined(CONFIG_MACH_UNIVERSAL5433) && defined(CONFIG_BCMDHD_PCIE)
 #define SUPPORT_MULTIPLE_CHIPS
-#endif /* CONFIG_MACH_UNIVERSAL5433 */
+#endif /* (CONFIG_MACH_UNIVERSAL5433) && (CONFIG_BCMDHD_PCIE) */
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 4, 0)) && (defined(CONFIG_BCM4334) || \
 	defined(CONFIG_BCM4334_MODULE))
 #define RXFRAME_THREAD
 #endif /* (LINUX_VERSION  >= VERSION(3, 4, 0)) && ( CONFIG_BCM4334 || CONFIG_BCM4334_MODULE) */
+
+#if defined(CONFIG_SEC_TRLTE_PROJECT)
+#define SUPPORT_MULTIPLE_BOARD_REV
+#endif /* CONFIG_SEC_TRLTE_PROJECT */
+
+#if defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_ARCH_MSM8994)
+#define SUPPORT_MULTIPLE_MODULE_CIS
+#endif /* defined(CONFIG_MACH_UNIVERSAL7420) || defined(CONFIG_ARCH_MSM8994) */
 
 /* PROJECTS START */
 
@@ -85,18 +92,32 @@
 #define HW_OOB
 #endif /* CONFIG_MACH_SAMSUNG_ESPRESSO && CONFIG_MACH_SAMSUNG_ESPRESSO_10 */
 
-#if defined(CONFIG_MACH_HL3G) || defined(CONFIG_MACH_HLLTE) || \
+#if defined(CONFIG_MACH_UNIVERSAL5433) || defined(CONFIG_MACH_UNIVERSAL7420)
+#undef CUSTOM_SET_CPUCORE
+#define PRIMARY_CPUCORE 0
+#define DPC_CPUCORE 4
+#define RXF_CPUCORE 5
+#define TASKLET_CPUCORE 5
+#define ARGOS_CPU_SCHEDULER
+#define ARGOS_RPS_CPU_CTL
+#elif defined(CONFIG_MACH_HL3G) || defined(CONFIG_MACH_HLLTE) || \
 	defined(CONFIG_MACH_UNIVERSAL5422) || defined(CONFIG_MACH_UNIVERSAL5430)
 #define CUSTOM_SET_CPUCORE
 #define PRIMARY_CPUCORE 0
 #define MAX_RETRY_SET_CPUCORE 5
 #define DPC_CPUCORE 4
 #define RXF_CPUCORE 5
-#endif /* CONFIG_MACH_HL3G || CONFIG_MACH_HLLTE */
+#endif /* CONFIG_MACH_UNIVERSAL5433 || CONFIG_MACH_UNIVERSAL7420 */
 
-#if defined(CONFIG_MACH_UNIVERSAL5433)
-#define SUPPORT_MULTIPLE_CHIPS
-#endif
+#if defined(CONFIG_ARCH_MSM)
+#if defined(CONFIG_BCMDHD_PCIE)
+#define BCMPCIE_DISABLE_ASYNC_SUSPEND
+#endif /* CONFIG_BCMDHD_PCIE */
+#define PRIMARY_CPUCORE 0
+#define MAX_RETRY_SET_CPUCORE 5
+#define DPC_CPUCORE 0
+#define RXF_CPUCORE 2
+#endif /* CONFIG_ARCH_MSM */
 
 /* Q1 also uses this feature */
 #if defined(CONFIG_MACH_U1) || defined(CONFIG_MACH_TRATS)
@@ -218,11 +239,10 @@
 
 /* REGION CODE END */
 
-#if !defined(READ_MACADDR) && !defined(WRITE_MACADDR) && !defined(RDWR_KORICS_MACADDR) \
-	&& !defined(RDWR_MACADDR)
+#if !defined(READ_MACADDR) && !defined(WRITE_MACADDR)
 #define GET_MAC_FROM_OTP
 #define SHOW_NVRAM_TYPE
-#endif /* !READ_MACADDR && !WRITE_MACADDR && !RDWR_KORICS_MACADDR && !RDWR_MACADDR */
+#endif /* !READ_MACADDR && !WRITE_MACADDR */
 
 #define WRITE_WLANINFO
 

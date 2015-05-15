@@ -194,9 +194,11 @@ bool cal_use_dynimic_ema(u32 id);
 
 u32 cal_get_ids_group(void);
 u32 cal_get_table_ver(void);
+u32 cal_get_fs_abb(void);
 u32 cal_get_dram_size(void);
 bool cal_is_fused_speed_grp(void);
 u32 cal_get_ids(void);
 u32 cal_get_asv_grp(u32 id, s32 level);
+u32 is_max_limit_sample(void);
 
 #endif

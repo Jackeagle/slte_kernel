@@ -1520,6 +1520,20 @@ config SLUB_DEBUG
 	  SLUB sysfs support. /sys/slab will not exist and there will be
 	  no support for cache validation etc.
 
+config PTRACK_DEBUG
+	default n
+	bool "Enable Ptrack debugging support"
+	help
+	 PTRACK tracks page allocation.
+	 This option affects on booting time & running time.
+
+config BUFFERED_PTRACK
+	default n
+	bool "Enable Buffered Prack debugging"
+	depends on PTRACK_DEBUG
+	help
+	 BUFFERED_PTRACK has several latest ptrack of a page.
+
 config COMPAT_BRK
 	bool "Disable heap randomization"
 	default y

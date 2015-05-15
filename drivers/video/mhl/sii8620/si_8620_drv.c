@@ -852,7 +852,7 @@ static int coc_isr(struct drv_hw_context *hw_context, uint8_t coc_int_status)
 		if (BIT_COC_CALIBRATION_DONE & coc_int_status) {
 			int calibration_stat, retry = 0;
 			uint8_t calibrated_value;
-			MHL_TX_DBG_INFO("Calibration done\n");
+			MHL_TX_DBG_ERR("Calibration done\n");
 
 			calibration_stat = mhl_tx_read_reg(hw_context,
 							REG_COC_STAT_0);
@@ -970,16 +970,13 @@ static int int_link_trn_isr(struct drv_hw_context *hw_context,
 {
 	if (IN_MHL3_MODE(hw_context)) {
 		if (BIT_EMSCINTR1_EMSC_TRAINING_COMMA_ERR & intr_status) {
-			MHL_TX_DBG_ERR("%sTraining comma "
-				"error COC_STAT_0:0x%02x%s\n",
-				ANSI_ESC_RED_TEXT,
-				ANSI_ESC_RESET_TEXT);
+			MHL_TX_DBG_ERR("Training comma "
+				"error COC_STAT_0:0x%02x\n",
+				mhl_tx_read_reg(hw_context, REG_COC_STAT_0));
 
 		} else {
-			MHL_TX_DBG_ERR("%sCOC_STAT_0:0x%02x%s\n",
-				ANSI_ESC_GREEN_TEXT,
-				mhl_tx_read_reg(hw_context, REG_COC_STAT_0),
-				ANSI_ESC_RESET_TEXT);
+			MHL_TX_DBG_ERR("COC_STAT_0:0x%02x\n",
+				mhl_tx_read_reg(hw_context, REG_COC_STAT_0));
 		}
 		return 0;
 	} else {
@@ -1089,8 +1086,10 @@ int si_mhl_tx_drv_switch_cbus_mode(struct drv_hw_context *hw_context,
 		break;
 
 	case CM_eCBUS_S:
+#ifdef CoC_FSM_MONITORING
 		mhl_tx_modify_reg(hw_context, REG_GPIO_CTRL1,
 				BIT_CTRL1_GPIO_I_6, BIT_CTRL1_GPIO_I_6);
+#endif
 		si_mhl_tx_initialize_block_transport(dev_context);
 		si_mhl_tx_drv_enable_emsc_block(hw_context);
 
@@ -1132,10 +1131,16 @@ int si_mhl_tx_drv_switch_cbus_mode(struct drv_hw_context *hw_context,
 		mhl_tx_write_reg(hw_context, REG_COC_CTL0, 0x5C);
 		mhl_tx_write_reg(hw_context, REG_COC_CTL14, 0x03);
 		mhl_tx_write_reg(hw_context, REG_COC_CTL15, 0x80);
+
+		/* Pre-emphasis tuning */
+		mhl_tx_write_reg(hw_context, TX_PAGE_3 | 0x50, 0x0E);
+		mhl_tx_write_reg(hw_context, TX_PAGE_3 | 0x52, 0x03);
 #define STATE_3_TRAP_LIMIT  6
 #define TRAP_WAIT_SLEEP 1
+#ifdef CoC_FSM_MONITORING
 		mhl_tx_modify_reg(hw_context, REG_GPIO_CTRL1,
 			BIT_CTRL1_GPIO_I_7, BIT_CTRL1_GPIO_I_7);
+#endif
 		for (i = 0; i < STATE_3_TRAP_LIMIT; ++i) {
 			int temp;
 			temp = mhl_tx_read_reg(hw_context, REG_EMSCINTR1);
@@ -1143,11 +1148,13 @@ int si_mhl_tx_drv_switch_cbus_mode(struct drv_hw_context *hw_context,
 				REG_COC_STAT_0);
 			if (0x03 == (BITS_ES0_0_COC_STAT_0_FSM_STATE_MASK &
 				coc_stat_0)) {
+#ifdef CoC_FSM_MONITORING
 				mhl_tx_modify_reg(hw_context, REG_GPIO_CTRL1,
 					BIT_CTRL1_GPIO_I_7, 0);
 				msleep(20);
 				mhl_tx_modify_reg(hw_context, REG_GPIO_CTRL1,
 					BIT_CTRL1_GPIO_I_7, BIT_CTRL1_GPIO_I_7);
+#endif
 				break;
 			}
 			if (!(BITS_ES1_0_COC_STAT_0_PLL_LOCKED & coc_stat_0)) {
@@ -1179,8 +1186,10 @@ int si_mhl_tx_drv_switch_cbus_mode(struct drv_hw_context *hw_context,
 			switch_to_d3(hw_context, false);
 			mode_sel = CM_NO_CONNECTION;
 		}
+#ifdef CoC_FSM_MONITORING
 		mhl_tx_modify_reg(hw_context, REG_GPIO_CTRL1,
 			BIT_CTRL1_GPIO_I_7 | BIT_CTRL1_GPIO_I_6, 0);
+#endif
 
 		break;
 
@@ -2225,13 +2234,10 @@ static void print_vic_modes_impl(struct drv_hw_context *hw_context,
 			break;
 	}
 	if (vic) {
-		MHL_TX_PROXY_DBG_PRINT(0, function, iLine,
-			"VIC = %s%d%s (%s)\n", ANSI_ESC_GREEN_TEXT, vic,
-			ANSI_ESC_RESET_TEXT, vic_name_table[i].name);
+		pr_info("sii8620 : %s:%d: VIC = %d, Set-resolution = %s\n",  __func__,
+				__LINE__, vic, vic_name_table[i].name);
 	} else {
-		MHL_TX_PROXY_DBG_PRINT(0, function, iLine,
-			"VIC:%s%d%s\n", ANSI_ESC_YELLOW_TEXT, vic,
-			ANSI_ESC_RESET_TEXT);
+		pr_info("sii8620 : %s:%d: VIC = %d\n", __func__, __LINE__, vic);
 	}
 }
 #define print_vic_modes(ctx, vic) \
@@ -2719,7 +2725,7 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 		input_clr_spc,
 		hw_context->current_avi_info_frame.payLoad.hwPayLoad.
 		namedIfData.ifData_u.infoFrameData[0]);
-
+#ifndef CONFIG_MHL3_SEC_FEATURE
 	{
 		int i;
 		for (i = 0; i < 13; i++) {
@@ -2727,12 +2733,13 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 				namedIfData.ifData_u.infoFrameData[i]);
 		}
 	}
-
+#endif
 	/*
 	 * decide about packed pixel mode
 	 */
 	pixel_clock_frequency *= threeDPixelClockRatio;
-	MHL_TX_DBG_INFO("pixel clock:%u\n", pixel_clock_frequency);
+	pr_info("sii8620 : %s:%d: pixel clock:%u\n",
+			__func__, __LINE__, pixel_clock_frequency);
 
 	if (qualify_pixel_clock_for_mhl(dev_context->edid_parser_context,
 		pixel_clock_frequency, 24)) {
@@ -2744,9 +2751,11 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 			!IN_MHL3_MODE(hw_context)) {
 
 			if (IN_MHL3_MODE(hw_context)) {
-				MHL_TX_DBG_INFO("Sink supports YCbCr422\n");
+				pr_info("sii8620 : %s:%d: Sink supports YCbCr422\n",
+						__func__, __LINE__);
 			} else {
-				MHL_TX_DBG_INFO("MHL connected 2.x dongle\n");
+				pr_info("sii8620 : %s:%d: MHL connected 2.x dongle\n",
+						__func__, __LINE__);
 			}
 			if (qualify_pixel_clock_for_mhl(
 				dev_context->edid_parser_context,
@@ -2796,7 +2805,7 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 				/* do nothing */
 			} else if (acsRGB == input_clr_spc) {
 				input_quant_range = aqr_limited_range;
-        pr_info("sii8620: input_quant_range2 = [%02x]\n", input_quant_range );
+        pr_info("sii8620 : input_quant_range2 = [%02x]\n", input_quant_range );
 #if 0
 				output_quant_range = aqr_full_range;
 				hw_context->outgoingAviPayLoad.namedIfData.
@@ -2816,13 +2825,15 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 /* end BZ 32674 ) */
 
 			if (IN_MHL3_MODE(hw_context)) {
-				MHL_TX_DBG_INFO("setting 16BPP mode\n");
+				pr_info("sii8620 : %s:%d: setting 16BPP mode\n",
+						__func__, __LINE__);
 				mhl_tx_modify_reg(hw_context,
 					REG_M3_P0CTRL,
 					BIT_M3_P0CTRL_MHL3_P0_PIXEL_MODE,
 					MHL3_PACKED_PIXEL_MODE);
 			} else {
-				MHL_TX_DBG_INFO("setting packed pixel mode\n");
+				pr_info("sii8620 : %s:%d: setting packed pixel mode\n",
+						__func__, __LINE__);
 				mhl_tx_write_reg(hw_context,
 					REG_VID_MODE,
 					VAL_VID_MODE_M1080P_ENABLE);
@@ -2846,13 +2857,14 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 			MHL_STATUS_PATH_ENABLED | MHL_STATUS_CLK_MODE_NORMAL;
 
 		if (IN_MHL3_MODE(hw_context)) {
-			MHL_TX_DBG_INFO("setting 24BPP Mode\n");
+			pr_info("sii8620 : %s:%d: setting 24BPP Mode\n",
+					__func__, __LINE__);
 			mhl_tx_modify_reg(hw_context, REG_M3_P0CTRL,
 				BIT_M3_P0CTRL_MHL3_P0_PIXEL_MODE,
 				VAL_M3_P0CTRL_MHL3_P0_PIXEL_MODE_NORMAL);
 		} else {
-			MHL_TX_DBG_INFO(
-				"normal Mode, Packed Pixel mode disabled\n");
+			pr_info("sii8620 : %s:%d: normal Mode, Packed Pixel mode disabled\n",
+					__func__, __LINE__);
 			mhl_tx_write_reg(hw_context, REG_VID_MODE,
 				VAL_VID_MODE_M1080P_DISABLE);
 			mhl_tx_write_reg(hw_context, REG_MHL_TOP_CTL,
@@ -2886,7 +2898,7 @@ static int set_hdmi_params(struct mhl_dev_context *dev_context)
 
 	mhl_tx_write_reg(hw_context, REG_TPI_OUTPUT, tpi_output);
 
-	pr_info("sii8620: REG_TPI_OUTPUT = [%02x]\n", tpi_input );
+	pr_info("sii8620 : REG_TPI_OUTPUT = [%02x]\n", tpi_input );
 
 	if (IN_MHL3_MODE(hw_context)) {
 		struct MHL_bits_per_pixel_fmt_data_t bpp_fmt;
@@ -3202,7 +3214,11 @@ int si_mhl_tx_drv_set_display_mode(struct mhl_dev_context *dev_context,
 #define BIT_1_DISABLED	0x04
 #define BIT_1_HIGH	0x08
 
+#ifdef CoC_FSM_MONITORING
 #define BITS_GPIO_01_HPD_HIGH	(BIT_0_HIGH | BIT_1_HIGH)
+#else
+#define BITS_GPIO_01_HPD_HIGH	(BIT_1_DISABLED | BIT_0_DISABLED)
+#endif
 #define BITS_GPIO_01_HPD_LOW	0
 
 #define BITS_HPD_CTRL_OPEN_DRAIN_HIGH (BITS_GPIO_01_HPD_HIGH | 0x70)
@@ -3229,7 +3245,7 @@ static int drive_hpd_high(struct drv_hw_context *hw_context, uint8_t *edid,
 
 	/* sample REG_TMDS_CSTAT_P3 before driving upstream HDP high */
 	cstat_p3 = mhl_tx_read_reg(hw_context, REG_TMDS_CSTAT_P3);
-	pr_info("sii8620:%s:%d: sets upstream HPD high\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: sets upstream HPD high\n", __func__, __LINE__);
 
 	/* disable auto-clear */
 	cstat_p3 |= BIT_TMDS_CSTAT_P3_DISABLE_AUTO_AVIF_CLEAR;
@@ -3337,19 +3353,44 @@ void edid_hw_sm_clean_up(struct drv_hw_context *hw_context)
 
 }
 #endif
+#ifdef CONFIG_MHL3_DVI_WR
+static void mhl_mode_change(struct drv_hw_context *hw_context)
+{
+	MHL_TX_DBG_ERR("change mode from 3.x to 1.x\n");
+	mhl_tx_write_reg(hw_context, REG_DISC_CTRL4, 0x10);
+
+	/* Setup termination etc. */
+	hw_context->intr_info->flags |= DRV_INTR_DISCONNECT;
+	disconnect_mhl(hw_context, true);
+	switch_to_d3(hw_context, false);
+
+	if (hw_context->current_cbus_req.command) {
+		hw_context->current_cbus_req.command = 0x00;
+		hw_context->intr_info->flags |= DRV_INTR_MSC_DONE;
+		hw_context->intr_info->msc_done_data = 0;
+	}
+	return;
+}
+#endif /*CONFIG_MHL3_DVI_WR*/
 
 int si_mhl_tx_drv_set_upstream_edid(struct drv_hw_context *hw_context,
 				    uint8_t *edid, uint16_t length)
 {
 	uint8_t reg_val;
+#ifdef CONFIG_MHL3_DVI_WR
+	struct mhl_dev_context *dev_context;
+	dev_context = container_of((void *)hw_context,
+			struct mhl_dev_context, drv_context);
+#endif
 
 	if (MHL_SEND_3D_REQ_OR_FEAT_REQ ==
 		hw_context->current_cbus_req.command) {
+#ifndef CONFIG_MHL3_DVI_WR
 		struct mhl_dev_context *dev_context;
 
 		dev_context = container_of((void *)hw_context,
 					  struct mhl_dev_context, drv_context);
-
+#endif
 		MHL_TX_DBG_WARN("3D_REQ or FEAT_REQ completed\n");
 		hw_context->current_cbus_req.command = 0x00;
 		si_mhl_tx_msc_command_done(dev_context, 0x00);
@@ -3392,6 +3433,17 @@ int si_mhl_tx_drv_set_upstream_edid(struct drv_hw_context *hw_context,
 
 	/* Disable EDID interrupt */
 	enable_intr(hw_context, INTR_EDID, 0);
+#ifdef CONFIG_MHL3_DVI_WR
+	if (dev_context->mhl3_to_mhl1_2 == true)
+	{
+		dev_context->old_dev_cap_cache = dev_context->dev_cap_cache;
+		dev_context->old_xdev_cap_cache = dev_context->xdev_cap_cache;
+		force_ocbus_for_ects = 2;
+		dev_context->mhl3_to_mhl1_2	= false;
+		mhl_mode_change(hw_context);
+		return 0;
+	}
+#endif /*CONFIG_MHL3_DVI_WR*/
 
 #ifndef EARLY_HSIC
 	if (IN_MHL3_MODE(hw_context)) {
@@ -3774,10 +3826,10 @@ void si_mhl_tx_drv_content_on(struct drv_hw_context *hw_context)
 static void unmute_video(struct drv_hw_context *hw_context)
 {
 #ifndef CONFIG_SII8620_HDCP_SUPPORT
-	pr_info("sii8620:%s():%d, No HDCP\n", __func__, __LINE__);
+	pr_info("sii8620 : %s():%d, No HDCP\n", __func__, __LINE__);
 #else
 	if (0x01 && mhl_tx_read_reg(hw_context, REG_TPI_SC))
-		pr_info("sii8620:%s():%d, HDCP1.3 Authentication Done\n", __func__, __LINE__);
+		pr_info("sii8620 : %s():%d, HDCP1.3 Authentication Done\n", __func__, __LINE__);
 #endif
 
 	MHL_TX_DBG_INFO("AV unmuted\n");
@@ -3957,7 +4009,7 @@ static void start_hdcp(struct drv_hw_context *hw_context)
 	dev_context->pdata->link_monitor(0x01);
 #endif
 	/* MHL_TX_DBG_INFO("Start HDCP Authentication\n"); */
-	pr_info("sii8620:%s():%d, Start HDCP Authentication\n", __func__, __LINE__);
+	pr_info("sii8620 : %s():%d, Start HDCP Authentication\n", __func__, __LINE__);
 
 	if (IN_MHL3_MODE(hw_context)) {
 		MHL_TX_DBG_ERR("Start HDCP 2.2\n");
@@ -4012,9 +4064,20 @@ static void start_hdcp(struct drv_hw_context *hw_context)
 			 * Chip requires only bit 4 to change for BKSV read
 			 * No other bit should change.
 			 */
+#ifdef CONFIG_MHL3_DVI_WR
+			if (force_ocbus_for_ects == 2) {
+				mhl_tx_write_reg(hw_context, REG_TPI_SC,
+						VAL_TPI_SC_TPI_AV_MUTE_MUTED);
+			} else {
+				mhl_tx_modify_reg(hw_context, REG_TPI_SC,
+						BIT_TPI_SC_REG_TMDS_OE,
+						VAL_TPI_SC_REG_TMDS_OE_ACTIVE);
+			}
+#else
 			mhl_tx_modify_reg(hw_context, REG_TPI_SC,
 					  BIT_TPI_SC_REG_TMDS_OE,
 					  VAL_TPI_SC_REG_TMDS_OE_ACTIVE);
+#endif
 		}
 	}
 #endif /*CONFIG_SII8620_HDCP_SUPPORT*/
@@ -4054,6 +4117,79 @@ static void start_hdcp_content_type(struct drv_hw_context *hw_context)
 	}
 }
 #endif /*CONFIG_SII8620_HDCP_SUPPORT*/
+
+#ifdef CONFIG_MHL3_DVI_WR
+#define REG_VID_ACEN                               (TX_PAGE_0 | 0x49)
+static void set_dvi_pp_mode(struct mhl_dev_context *dev_context, bool flag)
+{
+	uint8_t tpi_output = 0;
+	uint8_t tpi_input = 0;
+	struct drv_hw_context *hw_context =
+		(struct drv_hw_context *)&dev_context->drv_context;
+
+	if (flag) {
+		dev_context->link_mode =
+			MHL_STATUS_PATH_ENABLED |MHL_STATUS_CLK_MODE_PACKED_PIXEL;
+		si_mhl_tx_set_status(dev_context, false,
+				MHL_STATUS_REG_LINK_MODE, dev_context->link_mode);
+		msleep(100);
+
+		tpi_input = VAL_INPUT_FORMAT_RGB;
+		tpi_input |= aqr_limited_range << 2;
+
+		/* Set input color space */
+		mhl_tx_write_reg(hw_context, REG_TPI_INPUT, tpi_input);
+
+		/* Set output color space */
+		//tpi_output |= VAL_INPUT_FORMAT_RGB;
+		tpi_output |= VAL_INPUT_FORMAT_YCBCR422;
+		tpi_output |= aqr_limited_range << 2;
+
+		MHL_TX_DBG_INFO("VAL_INPUT_FORMAT_YCBCR422\n");
+
+		mhl_tx_write_reg(hw_context, REG_TPI_OUTPUT, tpi_output);
+
+		mhl_tx_write_reg(hw_context, REG_VID_ACEN, 0x04);
+		mhl_tx_write_reg(hw_context, REG_VID_OVRRD, 0x00);
+
+		MHL_TX_DBG_INFO("setting packed pixel mode\n");
+		mhl_tx_write_reg(hw_context,
+				REG_VID_MODE,
+				VAL_VID_MODE_M1080P_ENABLE);
+		mhl_tx_write_reg(hw_context,
+				REG_MHL_TOP_CTL, 0x41);
+
+		mhl_tx_write_reg(hw_context,
+				REG_MHLTX_CTL6, 0x60);
+
+	} else {
+		dev_context->link_mode =
+			MHL_STATUS_PATH_ENABLED | MHL_STATUS_CLK_MODE_NORMAL;
+		si_mhl_tx_set_status(dev_context, false,
+				MHL_STATUS_REG_LINK_MODE, dev_context->link_mode);
+		msleep(100);
+
+		tpi_input = VAL_INPUT_FORMAT_RGB;
+		tpi_input |= aqr_limited_range << 2;
+
+		/* Set input color space */
+		mhl_tx_write_reg(hw_context, REG_TPI_INPUT, tpi_input);
+
+		/* Set output color space */
+		tpi_output |= VAL_INPUT_FORMAT_RGB;
+		tpi_output |= aqr_limited_range << 2;
+		mhl_tx_write_reg(hw_context, REG_TPI_OUTPUT, tpi_output);
+		mhl_tx_write_reg(hw_context, REG_VID_ACEN, 0x00);
+		mhl_tx_write_reg(hw_context, REG_VID_OVRRD, 0xC0);
+		MHL_TX_DBG_INFO(
+				"normal Mode, Packed Pixel mode disabled\n");
+		mhl_tx_write_reg(hw_context, REG_VID_MODE,
+				VAL_VID_MODE_M1080P_DISABLE);
+		mhl_tx_write_reg(hw_context, REG_MHL_TOP_CTL, 0x01);
+		mhl_tx_write_reg(hw_context, REG_MHLTX_CTL6, 0xA0);
+	}
+}
+#endif
 
 /*
  * start_video
@@ -4216,6 +4352,18 @@ static int start_video(struct drv_hw_context *hw_context)
 				 REG_RX_HDMI_CTRL2_DEFVAL_DVI |
 				 VAL_RX_HDMI_CTRL2_VSI_MON_SEL_AVI);
 
+#ifdef CONFIG_MHL3_DVI_WR
+		if(force_ocbus_for_ects == 2){
+			MHL_TX_DBG_ERR("set_dvi_pp_mode : false\n");
+			set_dvi_pp_mode(dev_context, false);
+			set_auto_zone_for_mhl_1_2(hw_context);
+
+			mhl_tx_write_reg(hw_context, REG_TPI_SC,
+					VAL_TPI_SC_REG_TMDS_OE_ACTIVE|BIT_TPI_SC_TPI_AV_MUTE);
+			msleep(500);
+		}
+#endif /*CONFIG_MHL3_DVI_WR*/
+
 		MHL_TX_DBG_ERR("DVI - Start HDCP\n");
 		start_hdcp(hw_context);
 	}
@@ -4316,7 +4464,7 @@ static int hdcp_isr(struct drv_hw_context *hw_context, uint8_t intr_status)
 #endif
 	} else if (BIT_TPI_INTR_ST0_READ_BKSV_ERR_STAT & intr_status) {
 		/* MHL_TX_DBG_WARN("BKSV ERROR - Start HDCP\n"); */
-		pr_info("sii8620:%s():%d, BKSV ERROR-Restart HDCP !!!\n", __func__, __LINE__);
+		pr_info("sii8620 : %s():%d, BKSV ERROR-Restart HDCP !!!\n", __func__, __LINE__);
 		start_hdcp(hw_context);
 	} else if (BIT_TPI_INTR_ST0_TPI_COPP_CHNGE_STAT & intr_status) {
 		int link_status;
@@ -4335,11 +4483,11 @@ static int hdcp_isr(struct drv_hw_context *hw_context, uint8_t intr_status)
 
 		case VAL_TPI_COPP_LINK_STATUS_LINK_LOST:
 			/* MHL_TX_DBG_ERR("LINK LOST - Start HDCP\n"); */
-			pr_info("sii8620:%s():%d, LINK LOST - Restart HDCP!!!\n", __func__, __LINE__);
+			pr_info("sii8620 : %s():%d, LINK LOST - Restart HDCP!!!\n", __func__, __LINE__);
 			start_hdcp(hw_context);
 			break;
 		case VAL_TPI_COPP_LINK_STATUS_RENEGOTIATION_REQ:
-			pr_info("sii8620:%s():%d, LINK_STATUS_RENEGOTIATION\n", __func__, __LINE__);
+			pr_info("sii8620 : %s():%d, LINK_STATUS_RENEGOTIATION\n", __func__, __LINE__);
 			MHL_TX_DBG_INFO("tpi BSTATUS2: 0x%x\n",
 					mhl_tx_read_reg(hw_context,
 							REG_TPI_BSTATUS2)
@@ -4363,7 +4511,7 @@ static int hdcp_isr(struct drv_hw_context *hw_context, uint8_t intr_status)
 			break;
 		case VAL_TPI_COPP_LINK_STATUS_LINK_SUSPENDED:
 			/* MHL_TX_DBG_ERR("LINK suspended - Start HDCP\n"); */
-			pr_info("sii8620:%s():%d, LINK suspended - Restart HDCP!!!\n", __func__, __LINE__);
+			pr_info("sii8620 : %s():%d, LINK suspended - Restart HDCP!!!\n", __func__, __LINE__);
 			start_hdcp(hw_context);
 			break;
 		}
@@ -4377,7 +4525,7 @@ static int hdcp_isr(struct drv_hw_context *hw_context, uint8_t intr_status)
 		switch (new_link_prot_level) {
 		case (VAL_TPI_COPP_GPROT_NONE | VAL_TPI_COPP_LPROT_NONE):
 			/* MHL_TX_DBG_ERR("?PROT_NONE - Start HDCP\n"); */
-			pr_info("sii8620:%s():%d, GPROT_NONE - Retart HDCP!!!\n", __func__, __LINE__);
+			pr_info("sii8620 : %s():%d, GPROT_NONE - Retart HDCP!!!\n", __func__, __LINE__);
 			start_hdcp(hw_context);
 			break;
 
@@ -4970,13 +5118,25 @@ static int mhl_cbus_isr(struct drv_hw_context *hw_context, uint8_t cbus_int)
 
 			/* if DS sent CLR_HPD ensure video is not there */
 			stop_video(hw_context);
-			if (dev_context->mhl_event_switch.state == 1) {
-				pr_info("sii8620 : MHL switch event sent : 0\n");
-				switch_set_state(&dev_context->mhl_event_switch, 0);
+#ifdef CONFIG_MHL3_SEC_FEATURE
+			if (dev_context->mhl_event_switch.state != MHL_EVENT_CLR) {
+				pr_info("sii8620 : MHL switch event sent : %d\n", MHL_EVENT_CLR);
+				switch_set_state(&dev_context->mhl_event_switch, MHL_EVENT_CLR);
 			}
+#endif
+#ifdef CONFIG_MHL3_DVI_WR
+			if (force_ocbus_for_ects == 2) {
+				force_ocbus_for_ects = 0;
+				dev_context->mhl3_to_mhl1_2 = false;
+				dev_context->dev_cap_cache = dev_context->old_dev_cap_cache;
+				dev_context->xdev_cap_cache = dev_context->old_xdev_cap_cache;
+				dev_context->peer_mhl3_version = dev_context->dev_cap_cache.mdc.mhl_version;
+				mhl_mode_change(hw_context);
+				dev_context->pdata->charger_mhl_cb(false, -1);
+			}
+#endif
 		} else {
-			MHL_TX_DBG_ERR("%sGot SET_HPD%s\n", ANSI_ESC_GREEN_TEXT,
-				ANSI_ESC_RESET_TEXT);
+			MHL_TX_DBG_ERR("Got SET_HPD\n");
 		}
 
 		hw_context->cbus_status = cbus_status;
@@ -5043,10 +5203,8 @@ static int mhl_cbus_isr(struct drv_hw_context *hw_context, uint8_t cbus_int)
 					    hw_context->intr_info->dev_status.
 					    write_stat[0]) {
 						MHL_TX_DBG_ERR
-						    ("%sdownstream device "
-						     "supports MHL3.0+%s\n",
-						     ANSI_ESC_GREEN_TEXT,
-						     ANSI_ESC_RESET_TEXT);
+						    ("downstream device "
+						     "supports MHL3.0+\n");
 						/*
 						 * Peer device is MHL3.0 or
 						 * newer. Enable DEVCAP_X and
@@ -5494,6 +5652,7 @@ static void cbus_reset(struct drv_hw_context *hw_context)
 	/* switch back to connector wires using 6051 */
 	set_pin(X02_USB_SW_CTRL, 1);
 #endif
+#ifdef CoC_FSM_MONITORING
 	/* Begin enable CoC FSM monitoring */
 	{
 #define	REG_COC_MISC_CTL0 (TX_PAGE_7 | 0x28)
@@ -5505,6 +5664,7 @@ static void cbus_reset(struct drv_hw_context *hw_context)
 
 	}
 	/* End enable CoC FSM monitoring */
+#endif
 }
 
 /*
@@ -5514,6 +5674,11 @@ static void cbus_reset(struct drv_hw_context *hw_context)
 static void disconnect_mhl(struct drv_hw_context *hw_context,
 			   bool do_interrupt_clear)
 {
+#ifdef CONFIG_MHL3_SEC_FEATURE
+		struct mhl_dev_context *dev_context;
+		dev_context = container_of((void *)hw_context,
+				struct mhl_dev_context,	drv_context);
+#endif
 	disable_gen2_write_burst_rcv(hw_context);
 	disable_gen2_write_burst_xmit(hw_context);
 
@@ -5548,7 +5713,7 @@ static void disconnect_mhl(struct drv_hw_context *hw_context,
 	mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL5, 0x3F);
 	mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL2, 0x2F);
 	mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL6, 0x2A);
-	mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL7, 0x08);
+	mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL7, dev_context->pdata->ref_current);
 
 	hw_context->cbus_mode = CM_NO_CONNECTION;
 	hw_context->mhl_peer_version_stat = 0;
@@ -5595,6 +5760,12 @@ static void disconnect_mhl(struct drv_hw_context *hw_context,
 	hw_context->current_cbus_req.command = 0x00;
 	hw_context->hawb_write_pending = false;
 	hw_context->cbus1_state = CBUS1_IDLE_RCV_DISABLED;
+#ifdef CONFIG_MHL3_SEC_FEATURE
+	if (dev_context->mhl_event_switch.state != MHL_EVENT_CLR) {
+		pr_info("sii8620 : MHL switch event sent : %d\n", MHL_EVENT_CLR);
+		switch_set_state(&dev_context->mhl_event_switch, MHL_EVENT_CLR);
+	}
+#endif
 }
 
 /*
@@ -5610,15 +5781,16 @@ static void disconnect_mhl(struct drv_hw_context *hw_context,
 static int int_4_isr(struct drv_hw_context *hw_context, uint8_t int_4_status)
 {
 	int ret_val = 0;
+#ifdef CONFIG_MHL3_SEC_FEATURE
+	struct mhl_dev_context *dev_context;
+	dev_context = container_of((void *)hw_context,
+			struct mhl_dev_context,	drv_context);
+#endif
 
 	if ((BIT_CBUS_MHL12_DISCON_INT & int_4_status) ||
 		(BIT_CBUS_MHL3_DISCON_INT & int_4_status) ||
 		(BIT_NOT_MHL_EST_INT & int_4_status)) {
-#ifdef CONFIG_MHL3_SEC_FEATURE
-		struct mhl_dev_context *dev_context;
-		dev_context = container_of((void *)hw_context,
-				struct mhl_dev_context,	drv_context);
-#endif
+
 		MHL_TX_DBG_ERR("Got CBUS_DIS. MHL disconnection\n");
 		/* For proper MHL discovery and tolerance of impedance
 		 * measurement, set 5E3[7:4]=0x01 - this turns off the
@@ -5664,18 +5836,16 @@ static int int_4_isr(struct drv_hw_context *hw_context, uint8_t int_4_status)
 			       rgnd_value_string[disc_stat2]);
 
 		if (VAL_RGND_1K == disc_stat2) {
-#ifdef CONFIG_MHL3_SEC_FEATURE
-			struct mhl_dev_context *dev_context;
-			dev_context = container_of((void *)hw_context,
-					struct mhl_dev_context, drv_context);
-			dev_context->pdata->charger_mhl_cb(true, 0x03);
-#endif
 
-			MHL_TX_DBG_WARN("Cable impedance = 1k (MHL Device)\n");
+			MHL_TX_DBG_ERR("Cable impedance = 1k (MHL Device)\n");
 
 			mhl_tx_write_reg(hw_context, REG_DISC_CTRL9,
 				 BIT_DISC_CTRL9_WAKE_DRVFLT |
 				 BIT_DISC_CTRL9_DISC_PULSE_PROCEED);
+#ifdef CONFIG_MHL3_DVI_WR
+			if (force_ocbus_for_ects == 2)
+				dev_context->pdata->charger_mhl_cb(false, -1);
+#endif
 
 #ifdef ENABLE_VBUS_SENSE /* BZ31845 */
 			/* disconnect_mhl sets VBUS_OFF, so we know,
@@ -5684,6 +5854,9 @@ static int int_4_isr(struct drv_hw_context *hw_context, uint8_t int_4_status)
 			 * VBUS power from the sink/dongle
 			 */
 			msleep(MHL_T_src_vbus_cbus_stable_min);
+#ifdef CONFIG_MHL3_SEC_FEATURE
+			dev_context->pdata->charger_mhl_cb(true, 0x03);
+#endif
 #ifndef CONFIG_MHL3_SEC_FEATURE
 			if (get_config(hw_context, XO3_SINK_VBUS_SENSE)) {
 				MHL_TX_DBG_WARN("%ssink drives VBUS%s\n",
@@ -5747,7 +5920,7 @@ static int int_4_isr(struct drv_hw_context *hw_context, uint8_t int_4_status)
 			mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL3, 0x35);
 			mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL5, 0x02);
 			mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL6, 0x02);
-			mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL7, 0x08);
+			mhl_tx_write_reg(hw_context, REG_MHL_DP_CTL7, dev_context->pdata->ref_current);
 			mhl_tx_write_reg(hw_context, REG_COC_CTLC, 0xFF);
 			mhl_tx_write_reg(hw_context, REG_DPD,
 				BIT_DPD_PWRON_PLL |
@@ -6200,18 +6373,25 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 	int ret_val;
 	int status = -1;
 
-	pr_info("sii8620:%s:%d: ELEC_EYE_TESTONLY\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: ELEC_EYE_TESTONLY\n", __func__, __LINE__);
 
 	platform_mhl_tx_hw_reset(TX_HW_RESET_PERIOD, TX_HW_RESET_DELAY);
 	MHL_TX_DBG_ERR("hw_context is at:\t%x\n",hw_context);
 
 	/* Power up the device */
-	mhl_tx_write_reg(hw_context, REG_DPD,
-		BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
+	ret_val = mhl_tx_write_reg(hw_context, REG_DPD,
+			BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
+	/*This is a WA for MHL chip using I2C*/
+	if (ret_val < 0) {
+		MHL_TX_DBG_ERR("1st i2c fail : 0x%x : retry\n", ret_val);
+		platform_mhl_tx_hw_reset(TX_HW_RESET_PERIOD, 20);
+		ret_val = mhl_tx_write_reg(hw_context, REG_DPD,
+			BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
+	}
 
 	ret_val = get_device_rev(hw_context);
 	hw_context->chip_rev_id = (uint8_t)ret_val;
-	pr_info("sii8620:%s:%d: ret_val=%02x\n", __func__, __LINE__,ret_val);
+	pr_info("sii8620 : %s:%d: ret_val=%02x\n", __func__, __LINE__,ret_val);
 	if (0 == hw_context->chip_rev_id){
 		MHL_TX_DBG_ERR("ES%s0.0%s is not supported\n"
 				,ANSI_ESC_RED_TEXT
@@ -6220,7 +6400,7 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 	}
 
 	ret_val = get_device_id(hw_context);
-	pr_info("sii8620:%s:%d: ret_val=%02x\n", __func__, __LINE__,ret_val);
+	pr_info("sii8620 : %s:%d: ret_val=%02x\n", __func__, __LINE__,ret_val);
 	if (ret_val > 0)
 	{
 		struct mhl_dev_context *dev_context =
@@ -6275,7 +6455,7 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 					  input_field_rate_measurement_timer);
 		}
 	  }
-	  pr_info("sii8620:%s:%d: chip_init success! - ELEC_EYE_TESTONLY\n", __func__, __LINE__);
+	  pr_info("sii8620 : %s:%d: chip_init success! - ELEC_EYE_TESTONLY\n", __func__, __LINE__);
 	  return status;
 
 }
@@ -6287,16 +6467,22 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 	int status = -1;
 	hw_context->pp_16bpp_override = pp_16bpp_automatic;
 #ifdef CONFIG_MHL3_SEC_FEATURE
-	pr_info("sii8620:%s:%d: chip_init\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: chip_init\n", __func__, __LINE__);
 #else
 	set_pin(TX_FW_WAKE, 0);	/* inverter on board */
 #endif
 	platform_mhl_tx_hw_reset(TX_HW_RESET_PERIOD, TX_HW_RESET_DELAY);
 
 	/* Power up the device. Keep HSIC and Rx cores powered down. */
-	mhl_tx_write_reg(hw_context, REG_DPD,
-		BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
-
+	ret_val = mhl_tx_write_reg(hw_context, REG_DPD,
+			BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
+	/*This is a WA for MHL chip using I2C*/
+	if (ret_val < 0) {
+		MHL_TX_DBG_ERR("1st i2c fail : 0x%x : retry\n", ret_val);
+		platform_mhl_tx_hw_reset(TX_HW_RESET_PERIOD, 20);
+		ret_val = mhl_tx_write_reg(hw_context, REG_DPD,
+			BIT_DPD_PWRON_PLL | BIT_DPD_PDNTX12 | BIT_DPD_OSC_EN);
+	}
 	ret_val = get_device_rev(hw_context);
 	hw_context->chip_rev_id = (uint8_t) ret_val;
 	if (0 == hw_context->chip_rev_id) {
@@ -6312,7 +6498,7 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 #endif
 
 	ret_val = get_device_id(hw_context);
-	pr_info("sii8620:%s:%d: Device check =%04x\n", __func__, __LINE__,ret_val);
+	pr_info("sii8620 : %s:%d: Device check =%04x\n", __func__, __LINE__,ret_val);
 	if (ret_val > 0) {
 		struct mhl_dev_context *dev_context =
 			container_of((void *)hw_context,
@@ -6320,13 +6506,11 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 
 		hw_context->chip_device_id = (uint16_t) ret_val;
 
-		MHL_TX_DBG_ERR("%x%s: Found SiI%04X rev: %01X.%01X%s\n",
+		MHL_TX_DBG_ERR("%x: Found SiI%04X rev: %01X.%01X\n",
 			hw_context,
-			ANSI_ESC_GREEN_TEXT,
 			hw_context->chip_device_id,
 			hw_context->chip_rev_id >> 4,
-			(hw_context->chip_rev_id & 0x0F),
-			ANSI_ESC_RESET_TEXT);
+			(hw_context->chip_rev_id & 0x0F));
 #ifndef SWWA_BZ30759
 		/* Based on module parameter "crystal_khz=xxxxx". */
 		program_ext_clock_regs(hw_context, crystal_khz);
@@ -6368,7 +6552,7 @@ int si_mhl_tx_chip_initialize(struct drv_hw_context *hw_context)
 		}
 	}
 
-	pr_info("sii8620:%s:%d: chip_init success!\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: chip_init success!\n", __func__, __LINE__);
 
 	return status;
 }
@@ -6454,9 +6638,9 @@ static void si_mhl_tx_drv_set_lowest_tmds_link_speed(struct mhl_dev_context
 			    link_clock_frequency);
 			if (dev_context->xdev_cap_cache.mxdc.tmds_speeds
 				& MHL_XDC_TMDS_600) {
-				MHL_TX_DBG_INFO(
+				pr_info("sii8620 : %s:%d: "
 				    "XDEVCAP TMDS Link Speed = 6.0Gbps is "
-				    "supported\n");
+				    "supported\n", __func__, __LINE__);
 				found_fit = true;
 				fits_6_0 = true;
 				/* 6000000 * 98; */
@@ -6470,9 +6654,9 @@ static void si_mhl_tx_drv_set_lowest_tmds_link_speed(struct mhl_dev_context
 			    link_clock_frequency);
 			if (dev_context->xdev_cap_cache.mxdc.tmds_speeds
 				& MHL_XDC_TMDS_300) {
-				MHL_TX_DBG_INFO(
+				pr_info("sii8620 : %s:%d: "
 				    "XDEVCAP TMDS Link Speed = 3.0Gbps is "
-				    "supported\n");
+				    "supported\n", __func__, __LINE__);
 				found_fit = true;
 				fits_3_0 = true;
 				/* 3000000 * 98; */
@@ -6486,9 +6670,9 @@ static void si_mhl_tx_drv_set_lowest_tmds_link_speed(struct mhl_dev_context
 			    link_clock_frequency);
 			if (dev_context->xdev_cap_cache.mxdc.tmds_speeds
 				& MHL_XDC_TMDS_150) {
-				MHL_TX_DBG_INFO(
+				pr_info("sii8620 : %s:%d: "
 				    "XDEVCAP TMDS Link Speed = 1.5Gbps is "
-				    "supported\n");
+				    "supported\n", __func__, __LINE__);
 				found_fit = true;
 				fits_1_5 = true;
 				/* 1500000 * 98; */

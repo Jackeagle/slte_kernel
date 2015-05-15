@@ -33,7 +33,7 @@
 #define INFOFRAME_CNT          2
 
 /* default preset configured on probe */
-#define HDMI_DEFAULT_TIMINGS_IDX (10)
+#define HDMI_DEFAULT_TIMINGS_IDX (3)
 
 #define HDMI_VSI_VERSION	0x01
 #define HDMI_AVI_VERSION	0x02
@@ -458,6 +458,7 @@ int hdcp_start(struct hdmi_device *hdev);
 int hdcp_prepare(struct hdmi_device *hdev);
 int hdcp_i2c_read(struct hdmi_device *hdev, u8 offset, int bytes, u8 *buf);
 int hdcp_i2c_write(struct hdmi_device *hdev, u8 offset, int bytes, u8 *buf);
+void hdcp_otp_set_offset(struct hdmi_device *hdev, const char *buf);
 void hdcp_otp_key_enable(struct hdmi_device *hdev);
 
 /** EDID functions */

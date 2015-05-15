@@ -43,6 +43,17 @@ config SENSORS_SSP_MPU6500
 	  To compile this driver as a module, choose M here: the
 	  module will be called ssp.
 
+config SENSORS_SSP_ICM20610
+	tristate "Sensors ssp icm20610"
+	default n
+	depends on SPI
+	help
+	  icm20610 file for factory test in ssp driver.
+          If you say yes here you get icm20610 support for
+	  factory test.
+	  To compile this driver as a module, choose M here: the
+	  module will be called ssp.
+
 config SENSORS_SSP_BMI058
 	tristate "Sensors ssp bmi058"
 	default n
@@ -227,3 +238,9 @@ config SENSORS_ADPD142
 	default n
 	help
 	  This option enables hrm sensors using adpd142 driver.
+	  
+config SENSORHUB_S333
+	bool "BROADCOM_SENSORHUB_S333"
+	default n
+
+source "drivers/sensorhub/brcm/max_notchfilter/Kconfig"

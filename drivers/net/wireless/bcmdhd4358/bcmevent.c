@@ -1,7 +1,7 @@
 /*
  * bcmevent read-only data shared by kernel or app layers
  *
- * Copyright (C) 1999-2014, Broadcom Corporation
+ * Copyright (C) 1999-2015, Broadcom Corporation
  * 
  *      Unless you and Broadcom execute a separate written software license
  * agreement governing use of this software, this software is licensed to you
@@ -20,7 +20,7 @@
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
- * $Id: bcmevent.c 487838 2014-06-27 05:51:44Z $
+ * $Id: bcmevent.c 517450 2014-11-25 10:23:13Z $
  */
 
 #include <typedefs.h>
@@ -120,9 +120,6 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 	BCMEVENT_NAME(WLC_E_WAKE_EVENT),
 	BCMEVENT_NAME(WLC_E_DCS_REQUEST),
 	BCMEVENT_NAME(WLC_E_RM_COMPLETE),
-#ifdef WLMEDIA_HTSF
-	BCMEVENT_NAME(WLC_E_HTSFSYNC),
-#endif
 	BCMEVENT_NAME(WLC_E_OVERLAY_REQ),
 	BCMEVENT_NAME(WLC_E_CSA_COMPLETE_IND),
 	BCMEVENT_NAME(WLC_E_EXCESS_PM_WAKE_EVENT),
@@ -161,6 +158,10 @@ static const bcmevent_name_str_t bcmevent_names[] = {
 #ifdef WLAIBSS
 	BCMEVENT_NAME(WLC_E_AIBSS_TXFAIL),
 #endif /* WLAIBSS */
+#ifdef GSCAN_SUPPORT
+	BCMEVENT_NAME(WLC_E_PFN_GSCAN_FULL_RESULT),
+	BCMEVENT_NAME(WLC_E_PFN_SWC),
+#endif /* GSCAN_SUPPORT */
 #ifdef WLBSSLOAD_REPORT
 	BCMEVENT_NAME(WLC_E_BSS_LOAD),
 #endif

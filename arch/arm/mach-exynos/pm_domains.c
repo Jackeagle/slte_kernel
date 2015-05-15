@@ -107,6 +107,14 @@ static int exynos_pd_power(struct exynos_pm_domain *pd, int power_flags)
 				pr_info("$$$$$$$$$ %s : %08X\n","EXYNOS5_CLK_SRC_TOP12", readl(EXYNOS5_CLK_SRC_TOP12));
 				pr_info("$$$$$$$$$ %s : %08X\n","EXYNOS5_CLK_SRC_TOP5", readl(EXYNOS5_CLK_SRC_TOP5));
 #endif
+				if (power_flags)
+					pd->on_err_count++;
+				else
+					pd->off_err_count++;
+
+				if ((pd->on_err_count > 5) || (pd->off_err_count > 5))
+					panic("%s:: PM DOMAIN %s occurs 5 five consecutive fail!!\n", pd->name,  power_flags ? "ON":"OFF");
+
 				return -ETIMEDOUT;
 			}
 			--timeout;
@@ -123,6 +131,12 @@ static int exynos_pd_power(struct exynos_pm_domain *pd, int power_flags)
 				__raw_readl(pd->base+8));
 		}
 	}
+
+	if (power_flags)
+		pd->on_err_count = 0;
+	else
+		pd->off_err_count = 0;
+
 	pd->status = power_flags;
 	mutex_unlock(&pd->access_lock);
 
@@ -302,9 +316,7 @@ static void show_power_domain(void)
 			pr_info("   %-9s - %-3s\n", pd->genpd.name,
 					pd->check_status(pd) ? "on" : "off");
 		} else
-			pr_info("   %-9s - %s\n",
-						kstrdup(np->name, GFP_KERNEL),
-						"on,  always");
+			pr_info("   %-9s - %s\n", np->name, "on,  always");
 	}
 
 	return;

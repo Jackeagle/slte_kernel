@@ -73,7 +73,6 @@ enum status {
 	LINK_PM_L0 = 0,
 	LINK_PM_L2 = 2,
 	LINK_PM_L3 = 3,
-	LINK_PM_RESUMING = 1 << 3,
 	MAIN_CONNECT = 1 << 4,
 	LOADER_CONNECT = 1 << 5,
 	CP_CRASH = 1 << 6,
@@ -126,12 +125,6 @@ static int (*generic_usb_resume)(struct usb_device *, pm_message_t);
 #define get_pm_status(p)		(atomic_read(&p->status) & 0x03)
 #define set_pm_status(p, val)		(atomic_set(&p->status,	\
 					(atomic_read(&p->status) & 0xF8) | val))
-
-#define set_pm_resuming(p)		(atomic_set(&p->status, \
-					atomic_read(&p->status) | LINK_PM_RESUMING))
-#define is_pm_resuming(p)		(atomic_read(&p->status) & LINK_PM_RESUMING)
-#define clear_pm_resuming(p)		(atomic_set(&p->status, \
-					atomic_read(&p->status) & ~LINK_PM_RESUMING))
 
 #define get_direction(p)		(atomic_read(&p->dir))
 #define set_direction(p, val)		(atomic_set(&p->dir, val))
@@ -355,7 +348,7 @@ static const struct of_device_id link_pm_match[] = {
 MODULE_DEVICE_TABLE(of, link_pm_match);
 #endif
 
-#if 0
+#ifndef CONFIG_ARGOS
 static int link_pm_qos_notify(struct notifier_block *nfb,
 				unsigned long event, void *arg)
 {
@@ -385,7 +378,7 @@ static int wait_hostwake_value(struct link_pm_data *pmdata, int val)
 	mif_info("\n");
 
 	while (cnt--) {
-		ret = wait_event_interruptible_timeout(pmdata->hostwake_waitq,
+		ret = wait_event_timeout(pmdata->hostwake_waitq,
 			get_hostwake_status(pmdata) == val,
 			HOSTWAKE_WAITQ_TIMEOUT);
 		if (!check_status(pmdata, MAIN_CONNECT) ||
@@ -417,11 +410,8 @@ static int wait_cp2ap_status_value(struct link_pm_data *pmdata,
 
 	struct modemlink_pm_data *pdata = pmdata->pdata;
 
-	mif_info("\n");
-
 	while (cnt--) {
-		ret = wait_event_interruptible_timeout(
-				pmdata->cp_suspend_ready_waitq,
+		ret = wait_event_timeout(pmdata->cp_suspend_ready_waitq,
 				get_cp2ap_status(pmdata) == val,
 				CP_SUSPEND_WAITQ_TIMEOUT);
 		if (!check_status(pmdata, MAIN_CONNECT) ||
@@ -488,15 +478,6 @@ static int check_cp_suspend_ready(struct link_pm_data *pmdata)
 	return 0;
 }
 #endif
-
-static void link_pm_usb_set_autosuspended(struct usb_device *udev)
-{
-	pm_runtime_disable(&udev->dev);
-	pm_runtime_set_suspended(&udev->dev);
-	pm_runtime_enable(&udev->dev);
-
-	mif_info("%s\n", dev_name(&udev->dev));
-}
 
 static int link_pm_usb_hdev_check_resume(struct link_pm_data *pmdata)
 {
@@ -571,7 +552,7 @@ static int link_pm_usb_resume(struct usb_device *udev, pm_message_t msg)
 	status = get_pm_status(pmdata);
 	dir = get_direction(pmdata);
 
-	if (!PMSG_IS_AUTO(msg) && dir != CP2AP) {
+	if (!PMSG_IS_AUTO(msg)) {
 		mif_info("%s will be resumed later\n", dev_name(&udev->dev));
 		udev->can_submit = 0;
 
@@ -580,8 +561,9 @@ static int link_pm_usb_resume(struct usb_device *udev, pm_message_t msg)
 
 	wake_lock(&pmdata->wake);
 
-	if (pmdata->dpm_suspending) {
-		mif_info("dpm_suspending, will be resume later\n");
+	if (atomic_read(&pmdata->dpm_suspending)) {
+		mif_info("due to dpm_suspending, %s will be resumed later(pm event: %x)\n",
+			dev_name(&udev->dev), msg.event);
 		udev->can_submit = 0;
 
 		return -EBUSY;
@@ -592,7 +574,6 @@ static int link_pm_usb_resume(struct usb_device *udev, pm_message_t msg)
 		pmdata->udev->state, pmdata->hdev->state);
 
 	usb_mark_last_busy(udev);
-	set_pm_resuming(pmdata);
 
 	switch (status) {
 	case LINK_PM_L2:
@@ -618,6 +599,10 @@ static int link_pm_usb_resume(struct usb_device *udev, pm_message_t msg)
 		if (udev == pmdata->hdev) {
 			dir = get_direction(pmdata);
 			if (dir == AP2CP) {
+				/* delay for CP to wake up from hibernation */
+				mif_info("10ms delay for waiting CP\n");
+				mdelay(10);
+
 				ret = link_pm_usb_ap_init_resume_gpio_ctrl(
 						pmdata);
 				if (ret < 0)
@@ -646,7 +631,6 @@ generic_resume:
 			if (gpio_get_value(pdata->gpio_link_slavewake))
 				gpio_direction_output(pdata->gpio_link_slavewake, 0);
 
-			clear_pm_resuming(pmdata);
 			set_pm_status(pmdata, LINK_PM_L0);
 		}
 
@@ -672,6 +656,15 @@ err_exit:
 	}
 
 	return ret;
+}
+
+static void link_pm_usb_set_autosuspended(struct usb_device *udev)
+{
+	pm_runtime_disable(&udev->dev);
+	pm_runtime_set_suspended(&udev->dev);
+	pm_runtime_enable(&udev->dev);
+
+	mif_info("%s\n", dev_name(&udev->dev));
 }
 
 static int link_pm_usb_suspend(struct usb_device *udev, pm_message_t msg)
@@ -751,6 +744,57 @@ static void link_pm_enable(struct link_pm_data *pmdata)
 #endif
 }
 
+static void link_pm_wait_runtime_status_finish(struct usb_device *udev)
+{
+	struct device *dev = &udev->dev;
+
+ repeat:
+	if (dev->power.runtime_status == RPM_RESUMING
+	    || dev->power.runtime_status == RPM_SUSPENDING) {
+		DEFINE_WAIT(wait);
+
+		if (dev->power.irq_safe) {
+			spin_unlock(&dev->power.lock);
+
+			cpu_relax();
+
+			spin_lock(&dev->power.lock);
+			goto repeat;
+		}
+
+		mif_debug("++\n");
+
+		/* Wait for the operation carried out in parallel with us. */
+		for (;;) {
+			prepare_to_wait(&dev->power.wait_queue, &wait,
+					TASK_UNINTERRUPTIBLE);
+			if (dev->power.runtime_status != RPM_RESUMING
+			    && dev->power.runtime_status != RPM_SUSPENDING)
+				break;
+
+			spin_unlock_irq(&dev->power.lock);
+
+			schedule();
+
+			spin_lock_irq(&dev->power.lock);
+		}
+		finish_wait(&dev->power.wait_queue, &wait);
+
+		mif_debug("--\n");
+	}
+}
+
+static void link_pm_clear_udev_runtime_error(struct usb_device *udev)
+{
+	unsigned long flags;
+	struct device *dev = &udev->dev;
+
+	spin_lock_irqsave(&dev->power.lock, flags);
+	link_pm_wait_runtime_status_finish(udev);
+	dev->power.runtime_error = 0;
+	spin_unlock_irqrestore(&dev->power.lock, flags);
+}
+
 static int link_pm_notify(struct notifier_block *nfb,
 					unsigned long event, void *arg)
 {
@@ -765,28 +809,21 @@ static int link_pm_notify(struct notifier_block *nfb,
 	switch (event) {
 	case PM_SUSPEND_PREPARE:
 		if (!wake_lock_active(&pmdata->wake))
-			pmdata->dpm_suspending = true;
+			atomic_set(&pmdata->dpm_suspending, 1);
 		break;
 	case PM_POST_SUSPEND:
-		pmdata->dpm_suspending = false;
+		atomic_set(&pmdata->dpm_suspending, 0);
 		if (wake_lock_active(&pmdata->wake)) {
-			if (is_pm_resuming(pmdata))
-				return NOTIFY_DONE;
+			link_pm_clear_udev_runtime_error(pmdata->hdev);
+			link_pm_clear_udev_runtime_error(pmdata->udev);
 
-			if (get_pm_status(pmdata) != LINK_PM_L0) {
-				link_pm_usb_set_autosuspended(pmdata->hdev);
-				link_pm_usb_set_autosuspended(pmdata->udev);
-
-				mif_debug("pm_request_resume\n");
-				pm_request_resume(&pmdata->udev->dev);
-			}
+			pm_request_resume(&pmdata->udev->dev);
 		}
 		break;
 	}
 
 	return NOTIFY_DONE;
 }
-
 
 static int link_pm_usb_notify(struct notifier_block *nfb,
 			unsigned long event, void *arg)
@@ -828,22 +865,19 @@ static int link_pm_usb_notify(struct notifier_block *nfb,
 
 			pmdata->phy_nfb.notifier_call = link_pm_phy_notify;
 			phy_register_notifier(&pmdata->phy_nfb);
-
-#if 0
+			pmdata->pm_nfb.notifier_call = link_pm_notify;
+			register_pm_notifier(&pmdata->pm_nfb);
+#ifndef CONFIG_ARGOS
 			pmdata->qos_nfb.notifier_call = link_pm_qos_notify;
 			pm_qos_add_notifier(PM_QOS_NETWORK_THROUGHPUT,
 					&pmdata->qos_nfb);
 #endif
-
-			pmdata->pm_nfb.notifier_call = link_pm_notify;
-			register_pm_notifier(&pmdata->pm_nfb);
-
 			set_connect_status(pmdata, MAIN_CONNECT);
 			set_pm_status(pmdata, LINK_PM_L0);
 			set_hostwake_status(pmdata, 0);
 			set_direction(pmdata, AP2CP);
 
-			pmdata->dpm_suspending = false;
+			atomic_set(&pmdata->dpm_suspending, 0);
 
 			irq_set_irq_type(pmdata->irq, IRQF_TRIGGER_HIGH);
 #ifdef CONFIG_WAIT_CP_SUSPEND_READY
@@ -901,9 +935,11 @@ static int link_pm_usb_notify(struct notifier_block *nfb,
 			spin_unlock_irqrestore(&pmdata->lock, flags);
 
 			phy_unregister_notifier(&pmdata->phy_nfb);
+			unregister_pm_notifier(&pmdata->pm_nfb);
+#ifndef CONFIG_ARGOS
 			pm_qos_remove_notifier(PM_QOS_NETWORK_THROUGHPUT,
 					&pmdata->qos_nfb);
-			unregister_pm_notifier(&pmdata->pm_nfb);
+#endif
 
 			if (wake_lock_active(&pmdata->wake))
 				wake_unlock(&pmdata->wake);
@@ -961,7 +997,7 @@ static irqreturn_t link_pm_hostwake_handler(int irq, void *data)
 	hostwake = gpio_get_value(pdata->gpio_link_hostwake);
 	hostactive = gpio_get_value(pdata->gpio_link_active);
 
-	mif_info("hostwake: %d\n", hostwake);
+	mif_debug("hostwake: %d\n", hostwake);
 
 	irq_set_irq_type(irq, hostwake ? IRQF_TRIGGER_LOW : IRQF_TRIGGER_HIGH);
 
@@ -985,12 +1021,12 @@ static irqreturn_t link_pm_hostwake_handler(int irq, void *data)
 			set_direction(pmdata, dir);
 			wake_lock(&pmdata->wake);
 
-			if (pmdata->dpm_suspending)
-				mif_info("dpm_suspending\n");
-			else
+			if (atomic_read(&pmdata->dpm_suspending))
+				log = "start later(dpm_suspending)";
+			else {
 				pm_request_resume(&pmdata->udev->dev);
-
-			log = "start";
+				log = "start";
+			}
 		}
 		spin_unlock(&pmdata->lock);
 
@@ -1066,7 +1102,7 @@ static irqreturn_t link_pm_cp_suspend_ready_handler(int irq, void *data)
 	pdata = pmdata->pdata;
 	gpio_cp2ap_status = gpio_get_value(pdata->gpio_link_cp2ap_status);
 
-	mif_info("cp2ap_status: %d\n", gpio_cp2ap_status);
+	mif_debug("cp2ap_status: %d\n", gpio_cp2ap_status);
 
 	irq_set_irq_type(irq, gpio_cp2ap_status ? IRQF_TRIGGER_LOW :
 			IRQF_TRIGGER_HIGH);
@@ -1107,7 +1143,8 @@ static long link_pm_ioctl(struct file *file, unsigned int cmd,
 		if (!get_connect_status(pmdata))
 			return -ENODEV;
 
-		if (pmdata->udev) {
+		if (pmdata->udev &&
+			pmdata->udev->state != USB_STATE_NOTATTACHED) {
 			usb_lock_device(pmdata->udev);
 			ret = usb_reset_device(pmdata->udev);
 			if (ret)

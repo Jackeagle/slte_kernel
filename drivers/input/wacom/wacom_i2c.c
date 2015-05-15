@@ -48,7 +48,10 @@ unsigned char screen_rotate;
 unsigned char user_hand = 1;
 extern unsigned int system_rev;
 
+struct i2c_client *g_client_boot;
+
 extern int wacom_i2c_flash(struct wacom_i2c *wac_i2c);
+extern int wacom_i2c_usermode(struct wacom_i2c *wac_i2c);
 
 #ifdef CONFIG_OF
 char *gpios_name[] = {
@@ -78,6 +81,10 @@ struct wacom_i2c *wacom_get_drv_data(void * data)
 
 static int wacom_pinctrl_init(struct wacom_i2c *wac_i2c)
 {
+#ifdef WACOM_USE_I2C_GPIO
+	int ret;
+#endif
+
 	wac_i2c->pinctrl_irq = devm_pinctrl_get(&wac_i2c->client->dev);
 	if (IS_ERR(wac_i2c->pinctrl_irq)) {
 		printk(KERN_DEBUG"%s: Failed to get pinctrl\n", __func__);
@@ -89,6 +96,34 @@ static int wacom_pinctrl_init(struct wacom_i2c *wac_i2c)
 		printk(KERN_DEBUG"%s: Failed to get pinctrl state\n", __func__);
 		goto err_pinctrl_get_state;
 	}
+
+#ifdef WACOM_USE_I2C_GPIO
+	wac_i2c->pinctrl_i2c = devm_pinctrl_get_select_default(wac_i2c->client->dev.parent->parent);
+	if (IS_ERR(wac_i2c->pinctrl_i2c)) {
+		printk(KERN_DEBUG"%s: Failed to get pinctrl\n", __func__);
+		goto err_pinctrl_get;
+	}
+
+	wac_i2c->pin_state_i2c = pinctrl_lookup_state(wac_i2c->pinctrl_i2c, "default");
+	if (IS_ERR(wac_i2c->pin_state_i2c)) {
+		printk(KERN_DEBUG"%s: Failed to get pinctrl state\n", __func__);
+		goto err_pinctrl_get_state;
+	}
+
+	wac_i2c->pin_state_gpio = pinctrl_lookup_state(wac_i2c->pinctrl_i2c, "epen_gpio");
+	if (IS_ERR(wac_i2c->pin_state_gpio)) {
+		printk(KERN_DEBUG"%s: Failed to get pinctrl state\n", __func__);
+		goto err_pinctrl_get_state;
+	}
+
+	ret = pinctrl_select_state(wac_i2c->pinctrl_i2c, wac_i2c->pin_state_gpio);
+	if (ret < 0)
+		printk(KERN_DEBUG"%s: Failed to configure gpio mode\n", __func__);
+
+	ret = pinctrl_select_state(wac_i2c->pinctrl_i2c, wac_i2c->pin_state_i2c);
+	if (ret < 0)
+		printk(KERN_DEBUG"%s: Failed to configure i2c mode\n", __func__);
+#endif
 
 	return 0;
 
@@ -104,7 +139,9 @@ int wacom_power(bool on)
 	struct wacom_g5_platform_data *pdata = wac_i2c->pdata;
 	static bool wacom_power_enabled = false;
 	int ret = 0;
-	struct regulator *regulator_vdd;
+	struct regulator *regulator_vdd = NULL;
+	static struct timeval off_time = {0, 0};
+	struct timeval cur_time = {0, 0};
 
 	if (!pdata) {
 		printk(KERN_ERR"epen:%s, pdata is null\n", __func__);
@@ -116,17 +153,35 @@ int wacom_power(bool on)
 		return 0;
 	}
 
+	if (on) {
+		long sec, usec;
+
+		do_gettimeofday(&cur_time);
+		sec = cur_time.tv_sec - off_time.tv_sec;
+		usec = cur_time.tv_usec - off_time.tv_usec;
+		if (!sec) {
+			usec = EPEN_OFF_TIME_LIMIT - usec;
+			if (usec > 500) {
+				usleep_range(usec, usec);
+				printk(KERN_DEBUG"epen:%s, pwr on usleep %d\n", __func__, (int)usec);
+			}
+		}
+	}
+
 	regulator_vdd = regulator_get(NULL, "wacom_3.3v");
-	if (IS_ERR(regulator_vdd)) {
+	if (IS_ERR_OR_NULL(regulator_vdd)) {
 		printk(KERN_ERR"epen: %s reg get err\n", __func__);
-		return PTR_ERR(regulator_vdd);
+		regulator_vdd = NULL;
+		return -EINVAL;
 	}
 
 	if (on) {
 		ret = regulator_enable(regulator_vdd);
 	} else {
-		if (regulator_is_enabled(regulator_vdd))
+		if (regulator_is_enabled(regulator_vdd)) {
 			regulator_disable(regulator_vdd);
+			do_gettimeofday(&off_time);
+		}
 	}
 	regulator_put(regulator_vdd);
 
@@ -166,7 +221,7 @@ static int wacom_resume_hw(void)
 static int wacom_reset_hw(void)
 {
 	wacom_suspend_hw();
-	msleep(100);
+	msleep(20);
 	wacom_resume_hw();
 
 	return 0;
@@ -176,8 +231,52 @@ static void wacom_compulsory_flash_mode(bool en)
 {
 	struct wacom_g5_platform_data *pdata =
 		WACOM_GET_PDATA(wacom_get_drv_data(NULL));
+#ifdef WACOM_USE_I2C_GPIO
+	struct wacom_i2c *wac_i2c = wacom_get_drv_data(NULL);
+	int ret;
+#endif
+	if (likely(pdata->boot_on_ldo)) {
+		static bool is_enabled = false;
+		struct regulator *reg_fwe = NULL;
+		int ret = 0;
 
-	gpio_direction_output(pdata->gpios[I_FWE], en);
+		if (is_enabled == en) {
+			printk(KERN_DEBUG"epen:fwe already %s\n", en ? "enabled" : "disabled");
+			return ;
+		}
+
+		reg_fwe = regulator_get(NULL, "wacom_fwe_1.8v");
+		if (IS_ERR_OR_NULL(reg_fwe)) {
+			printk(KERN_ERR"epen: %s reg get err\n", __func__);
+			reg_fwe = NULL;
+			return ;
+		}
+
+		if (en) {
+			ret = regulator_enable(reg_fwe);
+			if (ret)
+				printk(KERN_DEBUG"epen:failed to enable fwe reg(%d)\n", ret);
+		} else {
+			if (regulator_is_enabled(reg_fwe))
+				regulator_disable(reg_fwe);
+		}
+		regulator_put(reg_fwe);
+
+		is_enabled = en;
+	} else
+		gpio_direction_output(pdata->gpios[I_FWE], en);
+
+#ifdef WACOM_USE_I2C_GPIO
+	if (!en) {
+		ret = pinctrl_select_state(wac_i2c->pinctrl_i2c, wac_i2c->pin_state_gpio);
+		if (ret < 0)
+			printk(KERN_DEBUG"%s: Failed to configure gpio mode\n", __func__);
+
+		ret = pinctrl_select_state(wac_i2c->pinctrl_i2c, wac_i2c->pin_state_i2c);
+		if (ret < 0)
+			printk(KERN_DEBUG"%s: Failed to configure i2c mode\n", __func__);
+	}
+#endif
 }
 
 static int wacom_get_irq_state(void)
@@ -253,6 +352,9 @@ static void wacom_power_on(struct wacom_i2c *wac_i2c)
 	/* power on */
 	wac_i2c->pdata->resume_platform_hw();
 	wac_i2c->power_enable = true;
+
+	wac_i2c->pdata->compulsory_flash_mode(false); /* compensation to protect from flash mode  */
+
 	cancel_delayed_work_sync(&wac_i2c->resume_work);
 	schedule_delayed_work(&wac_i2c->resume_work, msecs_to_jiffies(EPEN_RESUME_DELAY));
 
@@ -300,6 +402,8 @@ static void wacom_power_off(struct wacom_i2c *wac_i2c)
 	/* power off */
 	wac_i2c->power_enable = false;
 	wac_i2c->pdata->suspend_platform_hw();
+
+	wac_i2c->pdata->compulsory_flash_mode(false); /* compensation to protect from flash mode  */
 
 	printk(KERN_DEBUG"epen:%s\n", __func__);
  out_power_off:
@@ -528,6 +632,10 @@ static void wacom_i2c_resume_work(struct work_struct *work)
 				__LINE__);
 		}
 	}
+
+	ret = wacom_i2c_modecheck(wac_i2c);
+	if(ret) wacom_i2c_usermode(wac_i2c);
+
 #if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 	printk(KERN_DEBUG "epen:%s\n", __func__);
 #else
@@ -537,13 +645,7 @@ static void wacom_i2c_resume_work(struct work_struct *work)
 }
 
 #ifdef LCD_FREQ_SYNC
-#ifdef CONFIG_HA
 #define SYSFS_WRITE_LCD	"/sys/class/lcd/panel/ldi_fps"
-#elif defined(CONFIG_V1A) || defined(CONFIG_CHAGALL)
-#define SYSFS_WRITE_LCD	"/sys/class/tcon/tcon/psr_hsync"
-#else
-#define SYSFS_WRITE_LCD	""
-#endif
 static void wacom_i2c_sync_lcd_freq(struct wacom_i2c *wac_i2c)
 {
 	int ret = 0;
@@ -674,9 +776,11 @@ int load_fw_sdcard(struct wacom_i2c *wac_i2c)
 	long fsize, nread;
 	int ret = 0;
 	unsigned int nSize;
+	unsigned int nSize2;
 	u8 *ums_data;
 
 	nSize = WACOM_FW_SIZE;
+	nSize2 = nSize + sizeof(struct fw_image);
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -691,11 +795,11 @@ int load_fw_sdcard(struct wacom_i2c *wac_i2c)
 	}
 
 	fsize = fp->f_path.dentry->d_inode->i_size;
-	printk(KERN_NOTICE
+	printk(KERN_DEBUG
 		"epen:start, file path %s, size %ld Bytes\n",
 		WACOM_FW_PATH_SDCARD, fsize);
 
-	if (fsize != nSize) {
+	if ((fsize != nSize) && (fsize != nSize2)) {
 		printk(KERN_ERR "epen:UMS firmware size is different\n");
 		ret = -EFBIG;
 		goto size_error;
@@ -739,6 +843,7 @@ size_error:
 int wacom_i2c_load_fw(struct wacom_i2c *wac_i2c, u8 fw_path)
 {
 	int ret = 0;
+	struct fw_image *fw_img;
 
 	switch (fw_path) {
 	case FW_BUILT_IN:
@@ -748,9 +853,31 @@ int wacom_i2c_load_fw(struct wacom_i2c *wac_i2c, u8 fw_path)
 		ret = load_fw_sdcard(wac_i2c);
 		break;
 	default:
-		break;
+		printk(KERN_DEBUG"epen:unknown path(%d)\n", fw_path);
+		goto err_load_fw;
 	}
 
+	if (ret < 0)
+		goto err_load_fw;
+
+	fw_img = wac_i2c->fw_img;
+
+	/* header check */
+	if (fw_img->hdr_ver == 1 && fw_img->hdr_len == sizeof(struct fw_image)) {
+		fw_data = (u8 *)fw_img->data;
+		if (fw_path == FW_BUILT_IN) {
+			fw_ver_file = fw_img->fw_ver1;
+			memcpy(fw_chksum, fw_img->checksum, 5);
+		}
+	} else {
+		printk(KERN_DEBUG"epen:no hdr\n");
+		fw_data = (u8 *)fw_img;
+	}
+
+	return ret;
+
+err_load_fw:
+	fw_data = NULL;
 	return ret;
 }
 
@@ -770,6 +897,7 @@ void wacom_i2c_unload_fw(struct wacom_i2c *wac_i2c)
 	wac_i2c->fw_img = NULL;
 	wac_i2c->fw_path = FW_NONE;
 	wac_i2c->firm_data = NULL;
+	fw_data = NULL;
 }
 
 int wacom_fw_update(struct wacom_i2c *wac_i2c, u8 fw_path, bool bforced)
@@ -790,21 +918,24 @@ int wacom_fw_update(struct wacom_i2c *wac_i2c, u8 fw_path, bool bforced)
 	ret = wacom_i2c_load_fw(wac_i2c, fw_path);
 	if (ret < 0) {
 		printk(KERN_DEBUG"touchkey:failed to load fw data\n");
+		wac_i2c->wac_feature->update_status = FW_UPDATE_FAIL;
 		goto err_update_load_fw;
 	}
 	wac_i2c->fw_path = fw_path;
 
+	/* firmware info */
+	printk(KERN_NOTICE "epen:wacom fw ver : 0x%x, new fw ver : 0x%x\n",
+		wac_i2c->wac_feature->fw_version, fw_ver_file);
+
 	if (!bforced) {
-#if defined(CONFIG_SAMSUNG_PRODUCT_SHIP)
 		if (fw_ver_ic == fw_ver_file) {
-#else
-		if (fw_ver_ic >= fw_ver_file) {
-#endif
-			printk(KERN_DEBUG"epen:pass fw update, ic ver %#x, img ver %#x\n",
-				fw_ver_ic, fw_ver_file);
+			printk(KERN_DEBUG"epen:pass fw update\n");
 			wac_i2c->do_crc_check = true;
 			/*goto err_update_fw;*/
-		}
+		} else if (fw_ver_ic > fw_ver_file)
+			goto out_update_fw;
+
+		/* ic < file then update */
 	}
 
 	queue_work(wac_i2c->fw_wq, &wac_i2c->update_work);
@@ -812,10 +943,9 @@ int wacom_fw_update(struct wacom_i2c *wac_i2c, u8 fw_path, bool bforced)
 
 	return 0;
 
- /*err_update_fw:*/
-	/*wacom_i2c_unload_fw(wac_i2c);*/
+ out_update_fw:
+	wacom_i2c_unload_fw(wac_i2c);
  err_update_load_fw:
-	wac_i2c->wac_feature->update_status = FW_UPDATE_FAIL;
 	wacom_enable_irq(wac_i2c, true);
 	mutex_unlock(&wac_i2c->update_lock);
 
@@ -828,7 +958,11 @@ static void wacom_i2c_update_work(struct work_struct *work)
 		container_of(work, struct wacom_i2c, update_work);
 	struct wacom_features *feature = wac_i2c->wac_feature;
 	int ret = 0;
+#ifdef WACOM_USE_I2C_GPIO
+	int retry = 10;
+#else
 	int retry = 3;
+#endif
 
 	if (wac_i2c->fw_path == FW_NONE)
 		goto end_fw_update;
@@ -850,12 +984,16 @@ static void wacom_i2c_update_work(struct work_struct *work)
 		ret = wacom_i2c_flash(wac_i2c);
 		if (ret) {
 			printk(KERN_DEBUG"epen:failed to flash fw(%d)\n", ret);
+#ifdef WACOM_USE_I2C_GPIO
+			msleep(500);
+#endif
 			continue;
 		}
 		break;
 	}
 	if (ret) {
 		feature->update_status = FW_UPDATE_FAIL;
+		feature->fw_version = 0;
 		goto err_update_fw;
 	}
 
@@ -1140,7 +1278,7 @@ static ssize_t epen_checksum_result_show(struct device *dev,
 	}
 }
 
-static void wacom_open_test(struct wacom_i2c *wac_i2c)
+static int wacom_open_test(struct wacom_i2c *wac_i2c)
 {
 	u8 cmd = 0;
 	u8 buf[2] = {0,};
@@ -1150,7 +1288,7 @@ static void wacom_open_test(struct wacom_i2c *wac_i2c)
 	ret = wacom_i2c_send(wac_i2c, &cmd, 1, false);
 	if (ret <= 0) {
 		printk(KERN_ERR "epen:failed to send stop command\n");
-		return ;
+		return -1;
 	}
 
 	usleep_range(500, 500);
@@ -1159,7 +1297,7 @@ static void wacom_open_test(struct wacom_i2c *wac_i2c)
 	ret = wacom_i2c_send(wac_i2c, &cmd, 1, false);
 	if (ret <= 0) {
 		printk(KERN_ERR "epen:failed to send stop command\n");
-		goto grid_check_error;
+		return -1;
 	}
 
 	msleep(150);
@@ -1195,17 +1333,32 @@ static void wacom_open_test(struct wacom_i2c *wac_i2c)
 		msleep(50);
 	} while (retry--);
 
-	wac_i2c->connection_check = (1 == buf[0]);
+	if (ret > 0)
+		wac_i2c->connection_check = (1 == buf[0]);
+	else {
+		wac_i2c->connection_check = false;
+		return -1;
+	}
+
 	printk(KERN_DEBUG
 	       "epen:epen_connection : %s buf[1]:%d\n",
-	       (1 == buf[0]) ? "Pass" : "Fail", buf[1]);
+	       wac_i2c->connection_check ? "Pass" : "Fail", buf[1]);
 
-grid_check_error:
 	cmd = WACOM_I2C_STOP;
-	wacom_i2c_send(wac_i2c, &cmd, 1, false);
+	ret = wacom_i2c_send(wac_i2c, &cmd, 1, false);
+	if (ret <= 0) {
+		printk(KERN_ERR "epen:failed to send stop cmd for end\n");
+		return -2;
+	}
 
 	cmd = WACOM_I2C_START;
-	wacom_i2c_send(wac_i2c, &cmd, 1, false);
+	ret = wacom_i2c_send(wac_i2c, &cmd, 1, false);
+	if (ret <= 0) {
+		printk(KERN_ERR "epen:failed to send start cmd for end\n");
+		return -2;
+	}
+
+	return 0;
 }
 
 static ssize_t epen_connection_show(struct device *dev,
@@ -1213,15 +1366,46 @@ struct device_attribute *attr,
 	char *buf)
 {
 	struct wacom_i2c *wac_i2c = dev_get_drvdata(dev);
+	int retry = 3;
+	int ret;
+
+	mutex_lock(&wac_i2c->lock);
 
 	printk(KERN_DEBUG"epen:%s\n", __func__);
 	wacom_enable_irq(wac_i2c, false);
-	wacom_open_test(wac_i2c);
+
+	if (false == wac_i2c->power_enable) {
+		wac_i2c->pdata->resume_platform_hw();
+		printk(KERN_DEBUG"epen:pwr on\n");
+		msleep(200);
+	}
+
+	while (retry--) {
+		ret = wacom_open_test(wac_i2c);
+		if (!ret)
+			break;
+
+		printk(KERN_DEBUG"epen:failed. retry %d\n", retry);
+		wac_i2c->pdata->reset_platform_hw();
+		if (ret == -1) {
+			msleep(200);
+			continue;
+		} else if (ret == -2) {
+			break;
+		}
+	}
 	wacom_enable_irq(wac_i2c, true);
+
+	if (false == wac_i2c->power_enable) {
+		wac_i2c->pdata->suspend_platform_hw();
+		printk(KERN_DEBUG"epen:pwr off\n");
+	}
+	mutex_unlock(&wac_i2c->lock);
 
 	printk(KERN_DEBUG
 		"epen:connection_check : %d\n",
 		wac_i2c->connection_check);
+
 	return sprintf(buf, "%s\n",
 		wac_i2c->connection_check ?
 		"OK" : "NG");
@@ -1432,7 +1616,10 @@ static int  wacom_request_gpio(struct i2c_client *client, struct wacom_g5_platfo
 	for (i = 0 ; i < WACOM_GPIO_CNT; ++i) {
 		if (!pdata->gpios[i])
 			continue;
-
+		if (pdata->boot_on_ldo) {
+			if (i == I_FWE)
+				continue;
+		}
 		sprintf(name, "wacom_%s", gpios_name[i]);
 		ret = gpio_request(pdata->gpios[i], name);
 		if (ret) {
@@ -1532,15 +1719,12 @@ static int wacom_parse_dt(struct i2c_client *client, struct wacom_g5_platform_da
 		pdata->fw_path = WACOM_FW_PATH;
 	}
 
-	if (of_find_property(np, "wacom,fw_ver", NULL)) {
-		ret = of_property_read_u32(np, "wacom,fw_ver", &tmp[0]);
-		if (ret)
-			printk(KERN_ERR"epen:failed to read fw ver %d\n", ret);
-		else {
-			fw_ver_file = tmp[0];
-			printk(KERN_DEBUG"epen:reset fw ver as %#x\n", fw_ver_file);
-		}
-	}
+	ret = of_property_read_string_index(np, "wacom,project_name", 0, (const char **)&pdata->project_name);
+	if (ret)
+		printk(KERN_ERR"epen:failed to read project name %d\n", ret);
+	ret = of_property_read_string_index(np, "wacom,project_name", 1, (const char **)&pdata->model_name);
+	if (ret)
+		printk(KERN_ERR"epen:failed to read model name %d\n", ret);
 
 	if (of_find_property(np, "wacom,boot_on_ldo", NULL)) {
 		ret = of_property_read_u32(np, "wacom,boot_on_ldo", &pdata->boot_on_ldo);
@@ -1549,7 +1733,12 @@ static int wacom_parse_dt(struct i2c_client *client, struct wacom_g5_platform_da
 			pdata->boot_on_ldo = 0;
 		}
 	}
-	printk(KERN_DEBUG"epen:i type %d\n", pdata->irq_type);
+
+	if (of_find_property(np, "wacom,use_query_cmd", NULL)) {
+		pdata->use_query_cmd = true;
+		printk(KERN_DEBUG"epen:use query cmd\n");
+	}
+	printk(KERN_DEBUG"epen:int type %d\n", pdata->irq_type);
 
 	return 0;
 }
@@ -1602,12 +1791,17 @@ static int wacom_i2c_probe(struct i2c_client *client,
 		goto err_alloc_mem;
 	}
 
-	wac_i2c->client_boot = i2c_new_dummy(client->adapter,
-		WACOM_I2C_BOOT);
-	if (!wac_i2c->client_boot) {
-		dev_err(&client->dev, "Fail to register sub client[0x%x]\n",
-			 WACOM_I2C_BOOT);
+	if (!g_client_boot) {
+		wac_i2c->client_boot = i2c_new_dummy(client->adapter,
+			WACOM_I2C_BOOT);
+		if (!wac_i2c->client_boot) {
+			dev_err(&client->dev, "Fail to register sub client[0x%x]\n",
+				WACOM_I2C_BOOT);
+		}
 	}
+	else
+		wac_i2c->client_boot = g_client_boot;
+
 
 	input = input_allocate_device();
 	if (NULL == input) {
@@ -1677,8 +1871,7 @@ static int wacom_i2c_probe(struct i2c_client *client,
 	mutex_init(&wac_i2c->freq_write_lock);
 	INIT_WORK(&wac_i2c->lcd_freq_work, wacom_i2c_lcd_freq_work);
 	INIT_DELAYED_WORK(&wac_i2c->lcd_freq_done_work, wacom_i2c_finish_lcd_freq_work);
-	if (likely(system_rev >= LCD_FREQ_SUPPORT_HWID))
-		wac_i2c->use_lcd_freq_sync = true;
+	wac_i2c->use_lcd_freq_sync = true;
 #endif
 #ifdef WACOM_USE_SOFTKEY_BLOCK
 	INIT_DELAYED_WORK(&wac_i2c->softkey_block_work, wacom_i2c_block_softkey_work);
@@ -1730,10 +1923,6 @@ static int wacom_i2c_probe(struct i2c_client *client,
 		goto err_create_fw_wq;
 	}
 
-	/* firmware info */
-	printk(KERN_NOTICE "epen:wacom fw ver : 0x%x, new fw ver : 0x%x\n",
-	       wac_i2c->wac_feature->fw_version, fw_ver_file);
-
 	/*Request IRQ */
 	ret =
 		request_threaded_irq(wac_i2c->irq, NULL, wacom_interrupt,
@@ -1757,7 +1946,7 @@ static int wacom_i2c_probe(struct i2c_client *client,
 		printk(KERN_ERR
 			"epen:failed to request irq(%d) - %d\n",
 			wac_i2c->irq_pdct, ret);
-		goto err_request_irq;
+		goto err_request_pdct_irq;
 	}
 	printk(KERN_DEBUG"epen:init pdct %d\n", wac_i2c->irq_pdct);
 
@@ -1768,6 +1957,8 @@ static int wacom_i2c_probe(struct i2c_client *client,
 
 	return 0;
 
+ err_request_pdct_irq:
+	free_irq(wac_i2c->irq, wac_i2c);
  err_request_irq:
 	destroy_workqueue(wac_i2c->fw_wq);
  err_create_fw_wq:
@@ -1861,6 +2052,73 @@ static void __exit wacom_i2c_exit(void)
 
 module_init(wacom_i2c_init);
 module_exit(wacom_i2c_exit);
+
+/* flash driver for i2c-gpio flash */
+static int wacom_flash_probe(struct i2c_client *client,
+	const struct i2c_device_id *id)
+{
+	g_client_boot = client;
+	printk(KERN_DEBUG"epen:%s\n", __func__);
+	return 0;
+}
+void wacom_flash_shutdown(struct i2c_client *client)
+{
+	printk(KERN_DEBUG"epen:%s\n", __func__);
+}
+
+static int wacom_flash_remove(struct i2c_client *client)
+{
+	return 0;
+}
+
+static const struct i2c_device_id wacom_flash_id[] = {
+	{"wacom_g5sp_flash", 0},
+	{},
+};
+
+MODULE_DEVICE_TABLE(i2c, wacom_flash_id);
+
+#ifdef CONFIG_OF
+static struct of_device_id wacom_flash_dt_ids[] = {
+	{ .compatible = "wacom,flash" },
+	{ }
+};
+#endif
+
+static struct i2c_driver wacom_flash_driver = {
+	.driver = {
+		.owner = THIS_MODULE,
+		.name = "wacom_g5sp_flash",
+#ifdef CONFIG_PM
+		//.pm = &wacom_pm_ops,
+#endif
+#ifdef CONFIG_OF
+		.of_match_table = of_match_ptr(wacom_flash_dt_ids),
+#endif
+	},
+	.probe = wacom_flash_probe,
+	.remove = wacom_flash_remove,
+	.shutdown = &wacom_flash_shutdown,
+	.id_table = wacom_flash_id,
+};
+
+static int __init wacom_flash_init(void)
+{
+	int ret = 0;
+
+	ret = i2c_add_driver(&wacom_flash_driver);
+	if (ret)
+		printk(KERN_ERR "epen:fail to i2c_add_driver\n");
+	return ret;
+}
+
+static void __exit wacom_flash_exit(void)
+{
+	i2c_del_driver(&wacom_flash_driver);
+}
+
+fs_initcall(wacom_flash_init);
+module_exit(wacom_flash_exit);
 
 MODULE_AUTHOR("Samsung");
 MODULE_DESCRIPTION("Driver for Wacom G5SP Digitizer Controller");

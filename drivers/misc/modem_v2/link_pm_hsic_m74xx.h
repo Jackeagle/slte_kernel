@@ -25,7 +25,9 @@ struct link_pm_data {
 
 	struct notifier_block usb_nfb;
 	struct notifier_block phy_nfb;
+#ifndef CONFIG_ARGOS
 	struct notifier_block qos_nfb;
+#endif
 	struct notifier_block pm_nfb;
 
 	struct usb_device *hdev;
@@ -41,7 +43,7 @@ struct link_pm_data {
 	atomic_t dir;
 	atomic_t hostwake_status;
 
-	bool dpm_suspending;
+	atomic_t dpm_suspending;
 
 	unsigned int irq;
 

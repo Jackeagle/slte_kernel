@@ -29,6 +29,20 @@
 #include <linux/platform_device.h>
 #include <linux/sec_sysfs.h>
 
+#ifdef CONFIG_LEDS_USE_ED28
+#ifdef CONFIG_SEC_FACTORY
+extern unsigned int lcdtype;
+bool jig_status = false;
+
+static int __init jig_check(char *str)
+{
+	jig_status = true;
+	return 0;
+}
+early_param("jig", jig_check);
+#endif
+#endif
+
 /* AN30259A register map */
 #define AN30259A_REG_SRESET		0x00
 #define AN30259A_REG_LEDON		0x01
@@ -629,15 +643,24 @@ static ssize_t store_led_r(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_R, false, false, 0);
 	else {
 		/* In user case, LED current is restricted to less than 2mA */
+#ifdef CONFIG_SEC_FACTORY
+		brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
 		brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_R, true, false, brightness);
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -662,15 +685,24 @@ static ssize_t store_led_g(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_G, false, false, 0);
 	else {
 		/* In user case, LED current is restricted to less than 2mA */
-		brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#ifdef CONFIG_SEC_FACTORY
+				brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
+				brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_G, true, false, brightness);
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -695,15 +727,24 @@ static ssize_t store_led_b(struct device *dev,
 		dev_err(&data->client->dev, "fail to get brightness.\n");
 		goto out;
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "before value of brightness:0x%X\n", brightness);
+#endif
 	if (brightness == 0)
 		leds_on(LED_B, false, false, 0);
 	else {
 		/* In user case, LED current is restricted to less than 2mA */
-		brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#ifdef CONFIG_SEC_FACTORY
+				brightness = (brightness * 0x28) / LED_MAX_CURRENT;
+#else
+				brightness = (brightness * LED_DYNAMIC_CURRENT) / LED_MAX_CURRENT;
+#endif
 		leds_on(LED_B, true, false, brightness);
 	}
-
+#ifdef CONFIG_SEC_FACTORY
+	printk(KERN_DEBUG "after value of brightness:0x%X dynamic current:%i\n",
+				brightness, LED_DYNAMIC_CURRENT);
+#endif
 	leds_i2c_write_all(data->client);
 	an30259a_debug(data->client);
 out:
@@ -1010,6 +1051,15 @@ static int __devinit an30259a_probe(struct i2c_client *client,
 		INIT_WORK(&(data->leds[i].brightness_work),
 				 an30259a_led_brightness_work);
 	}
+#ifdef CONFIG_LEDS_USE_ED28
+#ifdef CONFIG_SEC_FACTORY
+		if( lcdtype == 0 && jig_status == false) {
+			leds_on(LED_R, true, false, LED_DYNAMIC_CURRENT);
+			leds_i2c_write_all(data->client);
+			an30259a_debug(data->client);
+		}
+#endif
+#endif
 #ifdef SEC_LED_SPECIFIC
 	led_dev = sec_device_create(data, "led");
 	if (IS_ERR(led_dev)) {

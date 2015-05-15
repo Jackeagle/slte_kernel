@@ -24,7 +24,7 @@
 #include <linux/slab.h>
 #include <linux/list.h>
 #include <linux/cpumask.h>
-#include "sec_argos.h"
+#include <linux/sec_argos.h>
 
 #define ARGOS_NAME "argos"
 #define TYPE_SHIFT 4
@@ -43,6 +43,7 @@ enum {
 	INTFREQ,
 	TASK_AFFINITY_EN,
 	IRQ_AFFINITY_EN,
+	HMP_BOOST_EN,
 	ITEM_MAX,
 };
 
@@ -84,7 +85,11 @@ struct argos {
 	bool task_hotplug_disable;
 	struct list_head irq_affinity_list;
 	bool irq_hotplug_disable;
+	bool hmpboost_enable;
 	bool argos_block;
+	struct blocking_notifier_head argos_notifier;
+	/* protect prev_level, qos, task/irq_hotplug_disable, hmpboost_enable */
+	struct mutex level_mutex;
 };
 
 struct argos_platform_data {
@@ -125,6 +130,58 @@ static int argos_find_index(const char *label)
 			dev_num = i;
 	return dev_num;
 }
+
+int sec_argos_register_notifier(struct notifier_block *n, char *label)
+{
+	struct blocking_notifier_head *cnotifier;
+	int dev_num;
+
+	dev_num = argos_find_index(label);
+
+	if (dev_num < 0) {
+		pr_err("%s: No match found for label: %d", __func__, dev_num);
+		return -ENODEV;
+	}
+
+	cnotifier = &argos_pdata->devices[dev_num].argos_notifier;
+
+	if (!cnotifier) {
+		pr_err("%s argos notifier not found(dev_num:%d)\n",
+			__func__, dev_num);
+		return -ENXIO;
+	}
+
+	pr_info("%s: %pf(dev_num:%d)\n", __func__, n->notifier_call, dev_num);
+
+	return blocking_notifier_chain_register(cnotifier, n);
+}
+EXPORT_SYMBOL(sec_argos_register_notifier);
+
+int sec_argos_unregister_notifier(struct notifier_block *n, char *label)
+{
+	struct blocking_notifier_head *cnotifier;
+	int dev_num;
+
+	dev_num = argos_find_index(label);
+
+	if (dev_num < 0) {
+		pr_err("%s: No match found for label: %d", __func__, dev_num);
+		return -ENODEV;
+	}
+
+	cnotifier = &argos_pdata->devices[dev_num].argos_notifier;
+
+	if (!cnotifier) {
+		pr_err("%s argos notifier not found(dev_num:%d)\n",
+			__func__, dev_num);
+		return -ENXIO;
+	}
+
+	pr_info("%s: %pf(dev_num:%d)\n", __func__, n->notifier_call, dev_num);
+
+	return blocking_notifier_chain_unregister(cnotifier, n);
+}
+EXPORT_SYMBOL(sec_argos_unregister_notifier);
 
 static int argos_task_affinity_setup(struct task_struct *p, int dev_num,
 		struct cpumask *affinity_cpu_mask,
@@ -296,9 +353,37 @@ int argos_irq_affinity_apply(int dev_num, bool enable)
 	return result;
 }
 
+int argos_hmpboost_apply(int dev_num, bool enable)
+{
+	bool *hmpboost_enable;
+
+	hmpboost_enable = &argos_pdata->devices[dev_num].hmpboost_enable;
+
+	if (enable) {
+		/* disable -> enable */
+		if (*hmpboost_enable == false) {
+			set_hmp_boost(true);
+			*hmpboost_enable = true;
+			pr_info("%s: hmp boost enable [%d]\n", __func__, dev_num);
+		}
+	} else {
+		/* enable -> disable */
+		if (*hmpboost_enable == true) {
+			set_hmp_boost(false);
+			*hmpboost_enable = false;
+			pr_info("%s: hmp boost disable [%d]\n", __func__, dev_num);
+		}
+	}
+
+	return 0;
+}
+
 static void argos_freq_unlock(int type)
 {
 	struct argos_pm_qos *qos = argos_pdata->devices[type].qos;
+	const char *cname;
+
+	cname = argos_pdata->devices[type].desc;
 
 	REMOVE_PM_QOS(&qos->cpu_min_qos_req);
 	REMOVE_PM_QOS(&qos->cpu_max_qos_req);
@@ -307,7 +392,7 @@ static void argos_freq_unlock(int type)
 	REMOVE_PM_QOS(&qos->mif_qos_req);
 	REMOVE_PM_QOS(&qos->int_qos_req);
 
-	pr_info("%s type:%d\n", __func__, type);
+	pr_info("%s name:%s\n", __func__, cname);
 }
 
 static void argos_freq_lock(int type, int level)
@@ -315,6 +400,9 @@ static void argos_freq_lock(int type, int level)
 	unsigned cpu_min_freq, cpu_max_freq, kfc_min_freq, kfc_max_freq, mif_freq, int_freq;
 	struct boost_table *t = &argos_pdata->devices[type].tables[level];
 	struct argos_pm_qos *qos = argos_pdata->devices[type].qos;
+	const char *cname;
+
+	cname = argos_pdata->devices[type].desc;
 
 	cpu_min_freq = t->items[CPU_MIN_FREQ];
 	cpu_max_freq = t->items[CPU_MAX_FREQ];
@@ -364,8 +452,8 @@ static void argos_freq_lock(int type, int level)
 	} else {
 		REMOVE_PM_QOS(&qos->int_qos_req);
 	}
-	pr_info("%s type:%d, CPU_MIN=%d, CPU_MAX=%d, KFC_MIN=%d, KFC_MAX=%d, MIF=%d, INT=%d\n",
-		__func__, type, cpu_min_freq, cpu_max_freq, kfc_min_freq, kfc_max_freq,	mif_freq, int_freq);
+	pr_info("%s name:%s, CPU_MIN=%d, CPU_MAX=%d, KFC_MIN=%d, KFC_MAX=%d, MIF=%d, INT=%d\n",
+		__func__, cname, cpu_min_freq, cpu_max_freq, kfc_min_freq, kfc_max_freq, mif_freq, int_freq);
 }
 
 void argos_block_enable(char *req_name, bool set)
@@ -384,10 +472,13 @@ void argos_block_enable(char *req_name, bool set)
 
 	if (set) {
 		cnode->argos_block = true;
+		mutex_lock(&cnode->level_mutex);
 		argos_freq_unlock(dev_num);
 		argos_task_affinity_apply(dev_num, 0);
 		argos_irq_affinity_apply(dev_num, 0);
+		argos_hmpboost_apply(dev_num, 0);
 		cnode->prev_level = -1;
+		mutex_unlock(&cnode->level_mutex);
 	} else {
 		cnode->argos_block = false;
 	}
@@ -426,10 +517,9 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 	speed = speedtype >> TYPE_SHIFT;
 	cnode = &argos_pdata->devices[type];
 
-
 	prev_level = cnode->prev_level;
 
-	pr_debug("%s type:%d, speed:%ldMbps\n", __func__, type, speed);
+	pr_debug("%s name:%s, speed:%ldMbps\n", __func__, cnode->desc, speed);
 
 	if (type < 0 || type > argos_pdata->ndevice) {
 		pr_err("There is no type for devices type[%d], ndevice[%d]\n",
@@ -451,35 +541,60 @@ static int argos_pm_qos_notify(struct notifier_block *nfb,
 		}
 	}
 
-	/* decrese 1 level to match proper table */
+	/* decrease 1 level to match proper table */
 	level--;
 	if (!argos_blocked) {
 		if (level != prev_level) {
-			pr_info("%s: type:%d, speed:%ldMbps, prev level:%d, request level:%d\n",
-					__func__, type, speed, prev_level, level);
+			if (mutex_trylock(&cnode->level_mutex) == 0) {
+				/*
+				 * If the mutex is already locked, it means this argos
+				 * is being blocked or is handling another change.
+				 * We don't need to wait.
+				 */
+				pr_warn("%s: skip name:%s, speed:%ldMbps, prev level:%d, request level:%d\n",
+						__func__, cnode->desc, speed, prev_level, level);
+				goto out;
+			}
+			pr_info("%s: name:%s, speed:%ldMbps, prev level:%d, request level:%d\n",
+					__func__, cnode->desc, speed, prev_level, level);
 
 			if (level == -1) {
+				if (cnode->argos_notifier.head) {
+					pr_debug("%s: Call argos notifier(%s lev:%d)\n", __func__, cnode->desc, level);
+					blocking_notifier_call_chain(&cnode->argos_notifier, speed, NULL);
+				}
 				argos_freq_unlock(type);
 				argos_task_affinity_apply(type, 0);
 				argos_irq_affinity_apply(type, 0);
+				argos_hmpboost_apply(type, 0);
 			} else {
-				unsigned affinity_enable;
+				unsigned enable_flag;
 
 				argos_freq_lock(type, level);
 
-				affinity_enable = argos_pdata->devices[type].tables[level].items[TASK_AFFINITY_EN];
-				argos_task_affinity_apply(type, affinity_enable);
+				enable_flag = argos_pdata->devices[type].tables[level].items[TASK_AFFINITY_EN];
+				argos_task_affinity_apply(type, enable_flag);
 
-				affinity_enable = argos_pdata->devices[type].tables[level].items[IRQ_AFFINITY_EN];
-				argos_irq_affinity_apply(type, affinity_enable);
+				enable_flag = argos_pdata->devices[type].tables[level].items[IRQ_AFFINITY_EN];
+				argos_irq_affinity_apply(type, enable_flag);
+
+				enable_flag = argos_pdata->devices[type].tables[level].items[HMP_BOOST_EN];
+				argos_hmpboost_apply(type, enable_flag);
+
+				if (cnode->argos_notifier.head) {
+					pr_debug("%s: Call argos notifier(%s lev:%d)\n", __func__, cnode->desc, level);
+					blocking_notifier_call_chain(&cnode->argos_notifier, speed, NULL);
+				}
 			}
+
 			cnode->prev_level = level;
+			mutex_unlock(&cnode->level_mutex);
 		} else {
 			pr_debug("%s:same level (%d) is requested",
 				__func__, level);
 		}
 	}
-
+out:
 	return NOTIFY_OK;
 }
 
@@ -544,14 +659,17 @@ static int argos_parse_dt(struct device *dev)
 		INIT_LIST_HEAD(&cnode->irq_affinity_list);
 		cnode->task_hotplug_disable = false;
 		cnode->irq_hotplug_disable = false;
+		cnode->hmpboost_enable = false;
 		cnode->argos_block = false;
 		cnode->prev_level = -1;
+		mutex_init(&cnode->level_mutex);
 		cnode->qos = devm_kzalloc(dev, sizeof(struct argos_pm_qos), GFP_KERNEL);
 		if (!cnode->qos) {
 			dev_err(dev, "Failed to allocate memory of qos\n");
 			retval = -ENOMEM;
 			goto err_out;
 		}
+		BLOCKING_INIT_NOTIFIER_HEAD(&cnode->argos_notifier);
 
 		device_count++;
 	}

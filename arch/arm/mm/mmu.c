@@ -1392,9 +1392,6 @@ static void __init kmap_init(void)
 	pkmap_page_table = early_pte_alloc_and_install(pmd_off_k(PKMAP_BASE),
 		PKMAP_BASE, _PAGE_KERNEL_TABLE);
 #endif
-#ifdef CONFIG_TIMA_RKP
-	tima_send_cmd((unsigned)pkmap_page_table, 0x31); 
-#endif
 }
 #ifndef CONFIG_STRICT_MEMORY_RWX
 static inline void __init create_mapping_memory(phys_addr_t start, phys_addr_t end, bool force_pages)

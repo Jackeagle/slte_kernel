@@ -304,6 +304,15 @@ config SND_SOC_SAMSUNG_PACIFIC_FLORIDA
 	help
 		Say Y if you want to add support for SoC audio on the Pacific.
 
+config SND_SOC_SAMSUNG_PACIFIC_WM1814
+	tristate "SoC I2S Audio support for wm1814 on Pacific"
+	depends on SND_SOC_SAMSUNG
+	select SND_SOC_WM8998
+	select MFD_WM8998
+	select SND_SOC_SAMSUNG_ARIZONA
+	help
+		Say Y if you want to add support for SoC audio on the Pacific.
+
 config SND_SOC_SAMSUNG_ARIZONA
 	tristate "Audio support for arizona platform on the Exynos54XX"
 	depends on SND_SOC_SAMSUNG
@@ -313,11 +322,12 @@ config SND_SOC_SAMSUNG_ARIZONA
 	select SND_SOC_DUMMY_CODEC
 	select MFD_ARIZONA
 	select MFD_ARIZONA_SPI
+	select MFD_ARIZONA_I2C
 	select REGULATOR_ARIZONA
 	select GPIO_ARIZONA
 	select SWITCH
 	select SWITCH_ARIZONA
-	select SND_SOC_SAMSUNG_PACIFIC_EAX if SOC_EXYNOS5433
+	select SND_DYNAMIC_MINORS
 	help
 		Say Y if you want to add support for Arizona Platform on the Exynos54XX.
 
@@ -377,12 +387,13 @@ config SND_USE_3MICS
 	bool "use 3-mics"
 	default n
 
-config SND_SOC_SAMSUNG_PACIFIC_EAX
-	tristate "Support Extra Audio Mixer on the Pacific"
-	depends on SND_SOC_SAMSUNG
+config SND_USE_SUBMIC_BIAS
+	bool "use sub mic bias"
 	default n
-	help
-	  Say Y if you want to use Extra Audio Mixer on the Pacific.
+
+config SND_SAMSUNG_COMPENSATE_EXT_RES
+	bool "use compensate table for external resistance"
+	default n
 
 # For support SEIREN audio
 source "sound/soc/samsung/seiren/Kconfig"

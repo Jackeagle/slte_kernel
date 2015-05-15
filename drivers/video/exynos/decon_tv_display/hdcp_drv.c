@@ -72,6 +72,13 @@ static const struct of_device_id hdcp_device_table[] = {
 MODULE_DEVICE_TABLE(of, hdcp_device_table);
 #endif
 
+/* HDCP OTP key read timing */
+static const u8 hdcp_otp_timings[22] = {
+	0x01, 0x4b, 0x00, 0xd8, 0x01, 0x48, 0x00, 0x02,
+	0x01, 0x4a, 0x00, 0x1e, 0x00, 0x02, 0x00, 0x05,
+	0x00, 0x19, 0x00, 0x1a, 0x34, 0x00,
+};
+
 struct i2c_client *hdcp_client;
 
 int hdcp_i2c_read(struct hdmi_device *hdev, u8 offset, int bytes, u8 *buf)
@@ -471,10 +478,8 @@ static int hdcp_loadkey(struct hdmi_device *hdev)
 	u8 val;
 	int cnt = 0;
 
-	if (hdev->ip_ver == IP_VER_TV_5HP) {
-		hdmi_write(hdev, HDMI_OTP_BASE_ADDRESS_H, HDMI_OTP_OFFSET_H);
-		hdmi_write(hdev, HDMI_OTP_BASE_ADDRESS_L, HDMI_OTP_OFFSET_L);
-	}
+	if (hdev->ip_ver == IP_VER_TV_5HP)
+		hdcp_otp_set_offset(hdev, hdcp_otp_timings);
 
 	hdmi_write_mask(hdev, HDMI_EFUSE_CTRL, ~0,
 			HDMI_EFUSE_CTRL_HDCP_KEY_READ);

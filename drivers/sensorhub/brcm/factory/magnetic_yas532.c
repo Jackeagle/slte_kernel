@@ -13,6 +13,7 @@
  *
  */
 #include "../ssp.h"
+#include "magnetic_yas532.h"
 
 /*************************************************************************/
 /* factory Sysfs                                                         */
@@ -145,6 +146,7 @@ int set_static_matrix(struct ssp_data *data)
 {
 	int iRet = 0;
 	struct ssp_msg *msg;
+	s16 static_matrix[9] = YAS_STATIC_ELLIPSOID_MATRIX;
 
 	if (!(data->uSensorState & 0x04)) {
 		pr_info("[SSP]: %s - Skip this function!!!"\
@@ -164,7 +166,10 @@ int set_static_matrix(struct ssp_data *data)
 	msg->buffer = (char*) kzalloc(18, GFP_KERNEL);
 
 	msg->free_buffer = 1;
-	memcpy(msg->buffer, data->static_matrix, 18);
+	if (data->static_matrix == NULL)
+		memcpy(msg->buffer, static_matrix, 18);
+	else
+		memcpy(msg->buffer, data->static_matrix, 18);
 
 	iRet = ssp_spi_async(data, msg);
 
@@ -493,6 +498,18 @@ static struct device_attribute *mag_attrs[] = {
 	&dev_attr_hw_offset,
 	NULL,
 };
+
+int initialize_magnetic_sensor(struct ssp_data *data)
+{
+	int ret;
+
+	ret = set_static_matrix(data);
+	if (ret < 0)
+		pr_err("[SSP]: %s - set_magnetic_static_matrix failed %d\n",
+			__func__, ret);
+
+	return ret;
+}
 
 void initialize_magnetic_factorytest(struct ssp_data *data)
 {

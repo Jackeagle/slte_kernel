@@ -562,10 +562,10 @@ static int fimc_is_scp_video_s_ctrl(struct file *file, void *priv,
 					ctrl->value);
 			ret = -EINVAL;
 		} else {
-			device->setfile &= ~FIMC_IS_SCP_CRANGE_MASK;
+			device->color_range &= ~FIMC_IS_SCP_CRANGE_MASK;
 
 			if (ctrl->value)
-				device->setfile	|=
+				device->color_range	|=
 					(FIMC_IS_CRANGE_LIMITED << FIMC_IS_SCP_CRANGE_SHIFT);
 		}
 		break;

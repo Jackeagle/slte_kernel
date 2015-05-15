@@ -671,8 +671,12 @@ void gsc_hw_set_in_image_rgb(struct gsc_ctx *ctx)
 		cfg |= GSC_IN_RGB565;
 	else if (frame->fmt->pixelformat == V4L2_PIX_FMT_BGR32)
 		cfg |= GSC_IN_XRGB8888;
-	else if (frame->fmt->pixelformat == V4L2_PIX_FMT_RGB32)
-		cfg |= GSC_IN_XRGB8888 | GSC_IN_RB_SWAP;
+	else if (frame->fmt->pixelformat == V4L2_PIX_FMT_RGB32) {
+		if (gsc_cap_opened(dev))
+			cfg |= GSC_IN_XRGB8888;
+		else
+			cfg |= GSC_IN_XRGB8888 | GSC_IN_RB_SWAP;
+	}
 
 	writel(cfg, dev->regs + GSC_IN_CON);
 }
@@ -953,13 +957,20 @@ void gsc_hw_set_sfr_update(struct gsc_ctx *ctx)
 	struct gsc_dev *dev = ctx->gsc_dev;
 	u32 cfg;
 	ktime_t start = ktime_get();
+	bool frame_done = false;
 
 	do {
 		cfg = readl(dev->regs + GSC_ENABLE);
-		if (!(cfg & GSC_ENABLE_SFR_UPDATE))
+		if (!(cfg & GSC_ENABLE_SFR_UPDATE)) {
+			frame_done = true;
 			break;
+		}
 		udelay(1);
 	} while(ktime_us_delta(ktime_get(), start) < 20000);
+
+	if (!frame_done)
+		gsc_warn("SFR_UPDATE bit is not clear(%d)",
+				readl(dev->regs + GSC_ENABLE));
 
 	cfg |= GSC_ENABLE_SFR_UPDATE;
 	writel(cfg, dev->regs + GSC_ENABLE);

@@ -23,7 +23,14 @@ enum{
 	NCP6335B_VOUT_1P000 = 0xC0,
 };
 
+struct ncp6335b_vout {
+	int sel;	/* selector, unique value for vout entry and indepedant to dcdc vendor */
+	int val;	/* dcdc-specific value for vout register */
+	char vout[7];	/* voltage level string */
+};
+
 int ncp6335b_get_vout_val(int sel);
+const char *ncp6335b_get_vout_str(int sel);
 int ncp6335b_set_voltage(struct i2c_client *client, int vout);
 int ncp6335b_read_voltage(struct i2c_client *client);
 

@@ -38,8 +38,13 @@
 #ifdef CONFIG_SEC_FACTORY
 #undef ENABLE_SENSORS_FPRINT_SECURE
 #else
+#ifdef CONFIG_SENSORS_VFS7XXX
 #undef ENABLE_SENSORS_FPRINT_SECURE
 #undef FEATURE_SPI_WAKELOCK
+#else
+#define ENABLE_SENSORS_FPRINT_SECURE
+#define FEATURE_SPI_WAKELOCK
+#endif /* CONFIG_SENSORS_VFS7XXX */
 #endif /* CONFIG_SEC_FACTORY */
 
 /* IOCTL commands definitions */
@@ -126,7 +131,13 @@
 #define VFSSPI_IOCTL_SET_SPI_CONFIGURATION _IO(VFSSPI_IOCTL_MAGIC,    16)
 /* To reset SPI configurations */
 #define VFSSPI_IOCTL_RESET_SPI_CONFIGURATION _IO(VFSSPI_IOCTL_MAGIC,  17)
+/* To switch core */
+#define VFSSPI_IOCTL_CPU_SPEEDUP     _IOW(VFSSPI_IOCTL_MAGIC,	\
+						19, unsigned int)
 #endif
+/* get sensor orienation from the SPI driver*/
+#define VFSSPI_IOCTL_GET_SENSOR_ORIENT	\
+	_IOR(VFSSPI_IOCTL_MAGIC, 18, unsigned int)
 
 #ifndef ENABLE_SENSORS_FPRINT_SECURE
 /*

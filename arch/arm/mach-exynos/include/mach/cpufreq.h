@@ -49,6 +49,7 @@ struct exynos_dvfs_info {
 	unsigned int	boot_cpu_max_qos;
 	unsigned int	boot_cpu_min_qos_timeout;
 	unsigned int	boot_cpu_max_qos_timeout;
+	unsigned int	resume_freq;
 	int		boot_freq_idx;
 	int		*bus_table;
 	bool		blocked;
@@ -63,6 +64,7 @@ struct exynos_dvfs_info {
 	bool (*need_apll_change)(unsigned int, unsigned int);
 	bool (*is_alive)(void);
 	void (*set_int_skew)(int);
+	int (*check_smpl)(void);
 };
 
 struct cpufreq_clkdiv {
@@ -134,6 +136,15 @@ static inline int exynos_cpufreq_init_register_notifier(struct notifier_block *n
 }
 
 static inline int exynos_cpufreq_init_unregister_notifier(struct notifier_block *nb)
+{
+	return 0;
+}
+#endif
+
+#if defined(CONFIG_ARM_EXYNOS5433_CPUFREQ)
+extern int exynos_cpufreq_smpl_warn_notify_call_chain(void);
+#else
+static inline int exynos_cpufreq_smpl_warn_notify_call_chain(void)
 {
 	return 0;
 }

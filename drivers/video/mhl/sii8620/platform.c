@@ -144,7 +144,11 @@ int	tmds_link_speed = 0;
 
 bool continue_to_ecbus = 1;
 #ifdef FORCE_OCBUS_FOR_ECTS
+#ifdef CONFIG_MHL3_DVI_WR
+int force_ocbus_for_ects;
+#else
 bool force_ocbus_for_ects;
+#endif
 #endif
 int gpio_index = 138;
 
@@ -163,7 +167,11 @@ module_param(wait_for_user_intr, bool, S_IRUGO);
 module_param(tmds_link_speed, int, S_IRUGO);
 module_param(continue_to_ecbus, bool, S_IRUGO);
 #ifdef	FORCE_OCBUS_FOR_ECTS
+#ifdef CONFIG_MHL3_DVI_WR
+module_param(force_ocbus_for_ects, int, S_IRUGO);
+#else
 module_param(force_ocbus_for_ects, bool, S_IRUGO);
+#endif
 #endif
 
 module_param_named(debug_msgs, debug_level, int, S_IRUGO);
@@ -1084,25 +1092,40 @@ static void sii8620_charger_mhl_cb(bool otg_enable, int charger)
 	struct power_supply *psy;
 	pdata->charging_type = POWER_SUPPLY_TYPE_MISC;
 
-	pr_info("sii8620:%s:%d, otg_en:%d, charger:%d\n", __func__,
+	if (sii8620->mhl_muic_type == MHL_SMART_DOCK) {
+		pr_info("sii8620 : SMART_DOCK connected, mhl_cb do nothing\n");
+		return;
+	}
+
+	pr_info("sii8620 : %s:%d, otg_en:%d, charger:%d\n", __func__,
 		__LINE__, otg_enable, charger);
 	if (charger == 0x00) {
-		pr_info("sii8620: USB charger\n");
+		pr_info("sii8620 : USB charger\n");
 		pdata->charging_type = POWER_SUPPLY_TYPE_MHL_USB;
 	} else if (charger == 0x01) {
-		pr_info("sii8620: TA charger 900mA\n");
+		pr_info("sii8620 : TA charger 900mA\n");
 		pdata->charging_type = POWER_SUPPLY_TYPE_MHL_900;
 	} else if (charger == 0x02) {
-		pr_info("sii8620: TA charger 1500mA\n");
+		pr_info("sii8620 : TA charger 1500mA\n");
 		pdata->charging_type = POWER_SUPPLY_TYPE_MHL_1500;
 	} else if (charger == 0x03) {
-		pr_info("sii8620: TA charger 100mA\n");
+		pr_info("sii8620 : TA charger 100mA\n");
 		pdata->charging_type = POWER_SUPPLY_TYPE_MHL_USB_100;
 	} else if (charger == 0x04) {
-		pr_info("sii8620: TA charger 2000mA\n");
+		pr_info("sii8620 : TA charger 2000mA\n");
 		pdata->charging_type = POWER_SUPPLY_TYPE_MHL_2000;
 	} else
 		pdata->charging_type = POWER_SUPPLY_TYPE_BATTERY;
+
+	if (sii8620->mhl_muic_type == MHL_MM_DOCK) {
+		if (otg_enable == true || charger == 0x00) {
+			MHL_TX_DBG_ERR("otg_enable = %d  charger = 0x%2x\n", otg_enable, charger);
+			return;
+		} else if (pdata->charging_type != POWER_SUPPLY_TYPE_BATTERY) {
+			pdata->charging_type = POWER_SUPPLY_TYPE_MDOCK_TA;
+			MHL_TX_DBG_ERR("POWER_SUPPLY_TYPE_MDOCK_TA\n");
+		}
+	}
 
 	for (i = 0; i < 10; i++) {
 		psy = power_supply_get_by_name("battery");
@@ -1110,7 +1133,7 @@ static void sii8620_charger_mhl_cb(bool otg_enable, int charger)
 			break;
 	}
 	if (i == 10) {
-		pr_err("%s: fail to get battery ps\n", __func__);
+		pr_err("sii8620 : %s: fail to get battery ps\n", __func__);
 		return;
 	}
 
@@ -1139,6 +1162,9 @@ static void sii8620_charger_mhl_cb(bool otg_enable, int charger)
 	if (ret)
 		pr_err("sii8620 : %s fail to set power_suppy ONLINE property(%d)\n",
 			__func__, ret);
+
+	if (pdata->charging_type == POWER_SUPPLY_TYPE_OTG)
+		msleep(50);
 
 	return;
 }
@@ -1196,6 +1222,11 @@ static void sii8620_link_monitor(u8 cmd_value)
 		pr_err("%s() exynos_smc fail ret = %d\n", __func__, ret);
 	else
 		pr_info("%s() monitor_cmd = %d\n", __func__, pdata->monitor_cmd);
+
+	if (cmd_value == 0x03) {
+		sii8620_link_monitor(0x04);
+		sii8620_link_monitor(0x01);
+	}
 }
 #endif
 
@@ -1206,7 +1237,7 @@ static void of_sii8620_hw_onoff(bool onoff)
 	struct sii8620_platform_data *pdata = sii8620->pdata;
 	struct regulator *regulator1_8, *regulator1_0;
 	int ret = 0;
-	pr_info("sii8620:%s:%d\n",__func__,__LINE__);
+	pr_info("sii8620 : %s:%d\n",__func__,__LINE__);
 
 	regulator1_8 = regulator_get(NULL, MHL_LDO1_8);
 	if (IS_ERR(regulator1_8)) {
@@ -1234,12 +1265,12 @@ static void of_sii8620_hw_onoff(bool onoff)
 		 * in the absence of external pull-up     */
 		ret = regulator_enable(regulator1_8);
 		if (ret < 0) {
-			pr_err("%s : regulator 1.8 is not enable", __func__);
+			pr_err("sii8620 : %s : regulator 1.8 is not enable", __func__);
 			goto err_ext1;
 		}
 		ret = regulator_enable(regulator1_0);
 		if (ret < 0) {
-			pr_err("%s : regulator 1.0 is not enable", __func__);
+			pr_err("sii8620 : %s : regulator 1.0 is not enable", __func__);
 			goto err_ext1;
 		}
 		usleep_range(10000, 20000);
@@ -1249,7 +1280,7 @@ static void of_sii8620_hw_onoff(bool onoff)
 		regulator_disable(regulator1_8);
 		regulator_disable(regulator1_0);
 
-		pdata->hw_reset();
+		gpio_set_value_cansleep(pdata->gpio_mhl_reset, 0);
 	}
 
 	regulator_put(regulator1_0);
@@ -1272,7 +1303,7 @@ static void of_sii8620_hw_reset(void)
 	struct device *parent_dev = &device_addresses[0].client->dev;
 	struct mhl_dev_context *sii8620 = dev_get_drvdata(parent_dev);
 	struct sii8620_platform_data *pdata = sii8620->pdata;
-	pr_info("sii8620:%s:%d: HW-Reset\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: HW-Reset\n", __func__, __LINE__);
 
 	usleep_range(10000, 20000);
 	gpio_set_value_cansleep(pdata->gpio_mhl_reset, 1);
@@ -1309,48 +1340,57 @@ static int of_sii8620_parse_dt(struct sii8620_platform_data *pdata, struct i2c_c
 	pdata->gpio_mhl_irq = of_get_named_gpio_flags(np,
 		"sii8620,gpio_mhl_irq", 0, NULL);
 	if(pdata->gpio_mhl_irq > 0)
-		pr_info("sii8620:%s:%d: gpio_mhl_irq = %d\n",  __func__, __LINE__,
+		pr_info("sii8620 : %s:%d: gpio_mhl_irq = %d\n",  __func__, __LINE__,
 				pdata->gpio_mhl_irq);
 
 	pdata->gpio_mhl_reset = of_get_named_gpio_flags(np,
 		"sii8620,gpio_mhl_reset", 0, NULL);
 	if(pdata->gpio_mhl_reset > 0)
-		pr_info("sii8620:%s:%d: gpio_mhl_reset = %d\n", __func__,
+		pr_info("sii8620 : %s:%d: gpio_mhl_reset = %d\n", __func__,
 					__LINE__, pdata->gpio_mhl_reset);
 
 	pdata->gpio_mhl_scl = of_get_named_gpio_flags(np,
 		"sii8620,gpio_mhl_scl", 0, NULL);
 	if(pdata->gpio_mhl_scl > 0)
-		pr_info("sii8620:%s:%d: gpio_mhl_scl = %d\n", __func__,
+		pr_info("sii8620 : %s:%d: gpio_mhl_scl = %d\n", __func__,
 					__LINE__, pdata->gpio_mhl_scl);
 
 	pdata->gpio_mhl_sda = of_get_named_gpio_flags(np,
 		"sii8620,gpio_mhl_sda", 0, NULL);
 	if(pdata->gpio_mhl_sda > 0)
-		pr_info("sii8620:%s:%d: gpio_mhl_sda = %d\n", __func__,
+		pr_info("sii8620 : %s:%d: gpio_mhl_sda = %d\n", __func__,
 					__LINE__, pdata->gpio_mhl_sda);
 
 	/* swing_level */
 	if (!of_property_read_u32(np, "sii8620,swing_level_v2",
 				&pdata->swing_level_v2))
-		pr_info("sii8620:%s:%d: swing_level_v2 = 0x%X\n", __func__, __LINE__,
+		pr_info("sii8620 : %s:%d: swing_level_v2 = 0x%X\n", __func__, __LINE__,
 				pdata->swing_level_v2);
 
 	if (!of_property_read_u32(np, "sii8620,swing_level_v3",
 				&pdata->swing_level_v3))
-		pr_info("sii8620:%s:%d: swing_level_v3 = 0x%X\n", __func__, __LINE__,
+		pr_info("sii8620 : %s:%d: swing_level_v3 = 0x%X\n", __func__, __LINE__,
 				pdata->swing_level_v3);
+
+	/* [pre-emphasis] reference current */
+	ret = of_property_read_u32(np, "sii8620,ref_current", &pdata->ref_current);
+	if (ret) {
+		/* set default it as TRE's 0x03 */
+		pdata->ref_current = 0x03;
+	}
+	pr_info("sii8620 : %s:%d: ref_current = 0x%X\n", __func__, __LINE__,
+			pdata->ref_current);
 
 	/* xtal_mhl */
 	ret = of_property_read_string(np, "clock-names", &temp_string);
 	if (ret) {
-		pr_err("%s: cannot get clock name(%d)", __func__, ret);
+		pr_err("sii8620 : %s: cannot get clock name(%d)", __func__, ret);
 		return ret;
 	}
 
 	pdata->mhl_clk = clk_get(&client->dev, temp_string);
 	if (IS_ERR(pdata->mhl_clk)) {
-		pr_err("%s: cannot get clock(%d)", __func__, ret);
+		pr_err("sii8620 : %s: cannot get clock(%d)", __func__, ret);
 		return ret;
 	}
 
@@ -1359,7 +1399,7 @@ static int of_sii8620_parse_dt(struct sii8620_platform_data *pdata, struct i2c_c
 	if (np_charger != NULL) {
 		if (!of_property_read_string(np_charger, "battery,charger_name",
 					(char const **)&pdata->charger_name))
-			pr_info("sii8620:%s:%d: charger_name = %s\n", __func__, __LINE__,
+			pr_info("sii8620 : %s:%d: charger_name = %s\n", __func__, __LINE__,
 					pdata->charger_name);
 	}
 
@@ -1387,7 +1427,7 @@ static void of_sii8620_gpio_init(struct sii8620_platform_data *pdata)
 static BLOCKING_NOTIFIER_HEAD(acc_mhl_notifier);
 void of_sii8620_muic_mhl_notify(int event)
 {
-	pr_info("%s Attached: %d\n", __func__, event);
+	pr_info("sii8620 : %s Attached: %d\n", __func__, event);
 	blocking_notifier_call_chain(&acc_mhl_notifier, event, NULL);
 }
 #endif /* CONFIG_MHL3_SEC_FEATURE */
@@ -1468,7 +1508,7 @@ static int si_8620_mhl_tx_spi_probe(struct spi_device *spi)
 	int ret;
 	static struct sii8620_platform_data *pdata = NULL;
 
-	pr_info("sii8620:%s:%d: start\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: start\n", __func__, __LINE__);
 	pdata = kzalloc(sizeof(struct sii8620_platform_data), GFP_KERNEL);
 	if (!pdata) {
 		dev_err(&spi->dev, "failed to allocate driver data\n");
@@ -1481,7 +1521,7 @@ static int si_8620_mhl_tx_spi_probe(struct spi_device *spi)
 		return -1;
 	}
 
-	pr_info("%s(), spi = %p\n", __func__, spi);
+	pr_info("sii8620 : %s(), spi = %p\n", __func__, spi);
 	spi->bits_per_word = 8;
 	spi_dev = spi;
 
@@ -1515,7 +1555,7 @@ static int si_8620_mhl_tx_spi_probe(struct spi_device *spi)
 #endif
 	ret = of_sii8620_parse_dt(pdata, &spi_dev->dev);
 	if (ret) {
-		pr_err("sii8620:%s:%d: Failed to parse DT\n",  __func__, __LINE__);
+		pr_err("sii8620 : %s:%d: Failed to parse DT\n",  __func__, __LINE__);
 		goto failed;
 	}
 
@@ -1525,10 +1565,10 @@ static int si_8620_mhl_tx_spi_probe(struct spi_device *spi)
 	drv_info.irq = gpio_to_irq(pdata->gpio_mhl_irq);
 	ret = mhl_tx_init(&drv_info, &spi_dev->dev, pdata);
 	if (ret) {
-		pr_err("sii8620:%s:%d: mhl_tx_init failed, error code %d\n", __func__, __LINE__, ret);
+		pr_err("sii8620 : %s:%d: mhl_tx_init failed, error code %d\n", __func__, __LINE__, ret);
 	}
 
-	pr_info("sii8620:%s:%d: Probe Successful!\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: Probe Successful!\n", __func__, __LINE__);
 	return ret;
 
 failed:
@@ -1567,7 +1607,7 @@ static int __devinit of_sii8620_probe_dt(struct i2c_client *client,
 {
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	static struct sii8620_platform_data *pdata = NULL;
-	u32 client_id = -1;
+	int client_id = -1;
 
 	if(!client->dev.of_node) {
 		dev_err(&client->dev, "sii8620: Client node not-found\n");
@@ -1581,11 +1621,13 @@ static int __devinit of_sii8620_probe_dt(struct i2c_client *client,
 	if (!i2c_check_functionality(adapter, I2C_FUNC_SMBUS_I2C_BLOCK))
 		return -EIO;
 
-	if (of_property_read_u32(client->dev.of_node, "sii8620,client_id", &client_id))
+	if (of_property_read_u32(client->dev.of_node, "sii8620,client_id", &client_id)) {
 		dev_err(&client->dev, "Wrong Client_id# %d", client_id);
+		return -EINVAL;
+	}
 
 	device_addresses[client_id].client = client;
-	pr_info("sii8620:%s:%d: client_id:%d adapter:%x\n",  __func__, __LINE__, 
+	pr_info("sii8620 : %s:%d: client_id:%d adapter:%x\n",  __func__, __LINE__,
 			client_id,(unsigned int)client->adapter);
 
 	if (0 == client_id) {
@@ -1715,7 +1757,7 @@ static int __init si_8620_init(void)
 {
 	int ret;
 
-	pr_info("sii8620:%s:%d: Starting SiI8620 Driver\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: Starting SiI8620 Driver\n", __func__, __LINE__);
 
 	sema_init(&platform_lock, 1);
 
@@ -1763,7 +1805,7 @@ static void __exit si_8620_exit(void)
 {
 	int idx;
 
-	pr_info("sii8620:%s:%d: called\n", __func__, __LINE__);
+	pr_info("sii8620 : %s:%d: called\n", __func__, __LINE__);
 
 	si_8620_power_control(false);
 

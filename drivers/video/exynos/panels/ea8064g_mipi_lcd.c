@@ -384,7 +384,7 @@ read_err:
 	return ret;
 }
 
-#if defined(CONFIG_LCD_ALPM)
+#if defined(CONFIG_LCD_ALPM) || defined(CONFIG_DECON_MDNIE_LITE)
 static int ea8064g_write_set(struct lcd_info *lcd, struct lcd_seq_info *seq, u32 num)
 {
 	int ret = 0, i;

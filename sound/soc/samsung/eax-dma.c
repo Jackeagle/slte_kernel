@@ -69,6 +69,7 @@ struct runtime_data {
 };
 
 struct mixer_info {
+	spinlock_t		lock;
 	struct task_struct	*thread_id;
 	struct snd_soc_dai	*cpu_dai;
 	short			mix_buf[MIXBUF_BYTE >> 1];
@@ -147,6 +148,7 @@ int eax_dma_dai_register(struct snd_soc_dai *dai)
 	di.params_done = false;
 	di.prepare_done = false;
 
+	spin_lock_init(&mi.lock);
 	mi.cpu_dai = dai;
 	mi.running = false;
 	mi.thread_id = (struct task_struct *)
@@ -362,8 +364,6 @@ static int eax_dma_hw_params(struct snd_pcm_substream *substream,
 		params_period_bytes(params), params_periods(params),
 		(unsigned int)runtime->dma_area);
 
-	eax_adma_hw_params();
-
 	return 0;
 }
 
@@ -388,6 +388,7 @@ static int eax_dma_prepare(struct snd_pcm_substream *substream)
 	prtd->dma_pos = prtd->dma_start;
 	prtd->dma_mono = (short *)prtd->dma_buf;
 
+	eax_adma_hw_params();
 	eax_adma_prepare();
 
 	return ret;
@@ -601,7 +602,7 @@ static inline bool eax_mixer_any_buf_running(void)
 	struct buf_info *bi;
 
 	list_for_each_entry(bi, &buf_list, node) {
-		if (bi->prtd->running)
+		if (bi->prtd && bi->prtd->running)
 			return true;
 	}
 
@@ -619,13 +620,15 @@ static void eax_mixer_prepare(void)
 	if (mi.buf_fill)
 		return;
 
+	spin_lock(&mi.lock);
 	mix_buf = mi.mix_buf;
+
 	for (n = 0; n < MIXBUF_SIZE; n++) {
 		mix_l = 0;
 		mix_r = 0;
 
 		list_for_each_entry(bi, &buf_list, node) {
-			if (bi->prtd->running) {
+			if (bi->prtd && bi->prtd->running) {
 				eax_dma_xfer(bi->prtd, &pcm_l, &pcm_r);
 				mix_l += pcm_l;
 				mix_r += pcm_r;
@@ -637,14 +640,19 @@ static void eax_mixer_prepare(void)
 	}
 
 	mi.buf_fill = true;
+	spin_unlock(&mi.lock);
 }
 
 static void eax_mixer_write(void)
 {
 	int ret;
 
-	if (!eax_mixer_any_buf_running())
+	spin_lock(&mi.lock);
+	if (!eax_mixer_any_buf_running()) {
+		spin_unlock(&mi.lock);
 		return;
+	}
+	spin_unlock(&mi.lock);
 
 	if (!di.running && di.buf_fill[DMA_START_THRESHOLD])
 		eax_adma_trigger(true);
@@ -655,7 +663,7 @@ static void eax_mixer_write(void)
 
 		di.buf_done = false;
 		ret = wait_event_interruptible_timeout(mixer_buf_wq,
-						di.buf_done, HZ / 2);
+						di.buf_done, HZ / 50);
 		if (!ret)
 			return;
 	}
@@ -687,6 +695,7 @@ static int eax_mixer_kthread(void *arg)
 static int eax_mixer_add(struct runtime_data *prtd)
 {
 	struct buf_info *bi;
+	unsigned long flags;
 
 	bi = kzalloc(sizeof(struct buf_info), GFP_KERNEL);
 	if (!bi) {
@@ -696,7 +705,10 @@ static int eax_mixer_add(struct runtime_data *prtd)
 
 	bi->prtd = prtd;
 
+	spin_lock_irqsave(&mi.lock, flags);
 	list_add(&bi->node, &buf_list);
+	spin_unlock_irqrestore(&mi.lock, flags);
+
 	pr_debug("%s: prtd %p added\n", __func__, prtd);
 
 	return 0;
@@ -705,8 +717,10 @@ static int eax_mixer_add(struct runtime_data *prtd)
 static int eax_mixer_remove(struct runtime_data *prtd)
 {
 	struct buf_info *bi;
+	unsigned long flags;
 	bool node_found = false;
 
+	spin_lock_irqsave(&mi.lock, flags);
 	list_for_each_entry(bi, &buf_list, node) {
 		if (bi->prtd == prtd) {
 			node_found = true;
@@ -715,11 +729,15 @@ static int eax_mixer_remove(struct runtime_data *prtd)
 	}
 
 	if (!node_found) {
+		spin_unlock_irqrestore(&mi.lock, flags);
 		pr_err("%s: prtd %p not found\n", __func__, prtd);
 		return -EINVAL;
 	}
 
 	list_del(&bi->node);
+	spin_unlock_irqrestore(&mi.lock, flags);
+
+	kfree(bi);
 	pr_debug("%s: prtd %p removed\n", __func__, prtd);
 
 	return 0;

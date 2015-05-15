@@ -439,10 +439,11 @@ static int exynos_wkup_irq_set_wake(struct irq_data *irqd, unsigned int on)
 	 * eint_ext_val is for extended eint,
 	 * if it is eint_ext, it is added 32 shifts on based.
 	 */
-	unsigned int eint_ext_val = bank->eint_ext_offset ? 32 : 0;
+	u32 shift = bank->eint_ext_offset ? bank->eint_num_base : 2 * bank->eint_offset;
+
 	u64 bit;
 
-	bit = (u64)(1ULL << (2 * bank->eint_offset + irqd->hwirq + eint_ext_val));
+	bit = (u64)(1ULL << (shift + irqd->hwirq));
 
 	pr_info("wake %s for irq %d\n", on ? "enabled" : "disabled", irqd->irq);
 
@@ -1413,12 +1414,12 @@ static struct samsung_pin_bank exynos5433_pin_banks0[] = {
 	/* GPF1~5 group is special group for extended EINT(32~63),
 	 * so it needs to care. xxxx group is dummy for align insted of GPF0.
 	 * Because GPF0 is not Alive block */
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x000, "xxxx", 0x00, 0x1000, EINT_FLTCON_PRESET01,  0x0,  0x4),
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x020, "gpf1", 0x04, 0x1000, EINT_FLTCON_PRESET01,  0x8,  0xc),
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 4, 0x040, "gpf2", 0x08, 0x1000, EINT_FLTCON_PRESET0,  0x10,  0x0),
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 4, 0x060, "gpf3", 0x0c, 0x1000, EINT_FLTCON_PRESET0,  0x14,  0x0),
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x080, "gpf4", 0x10, 0x1000, EINT_FLTCON_PRESET01, 0x18, 0x1c),
-	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x0a0, "gpf5", 0x14, 0x1000, EINT_FLTCON_PRESET01, 0x20, 0x24),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x000, "xxxx", 0x00, 0x1000, EINT_FLTCON_PRESET01,  0x0,  0x4, 0),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x020, "gpf1", 0x04, 0x1000, EINT_FLTCON_PRESET01,  0x8,  0xc, 32),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 4, 0x040, "gpf2", 0x08, 0x1000, EINT_FLTCON_PRESET0,  0x10,  0x0, 40),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 4, 0x060, "gpf3", 0x0c, 0x1000, EINT_FLTCON_PRESET0,  0x14,  0x0, 44),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x080, "gpf4", 0x10, 0x1000, EINT_FLTCON_PRESET01, 0x18, 0x1c, 48),
+	EXYNOS_PIN_BANK_EINTW_EXT(bank_type_2, 8, 0x0a0, "gpf5", 0x14, 0x1000, EINT_FLTCON_PRESET01, 0x20, 0x24, 56),
 };
 
 /* pin banks of exynos5433 pin-controller 1 (AUD) */
@@ -1429,11 +1430,7 @@ static struct samsung_pin_bank exynos5433_pin_banks1[] = {
 
 /* pin banks of exynos5433 pin-controller 2 (CPIF) */
 static struct samsung_pin_bank exynos5433_pin_banks2[] = {
-#ifdef CONFIG_SOC_EXYNOS5433_REV_0
-	EXYNOS_PIN_BANK_EINTG(bank_type_2, 3, 0x000, "gpv6", 0x00),
-#else
 	EXYNOS_PIN_BANK_EINTG(bank_type_2, 2, 0x000, "gpv6", 0x00),
-#endif
 };
 
 /* pin banks of exynos5433 pin-controller 3 (eSE) */
@@ -1676,6 +1673,11 @@ u32 exynos_eint_to_pin_num(int eint)
 #elif defined(CONFIG_SOC_EXYNOS5433)
 u32 exynos_eint_to_pin_num(int eint)
 {
-	return exynos5433_pin_ctrl[0].base + eint;
+	u32 offset;
+
+	/* Note that xxxx group is dummy for align insted of GPF0. */
+	eint < 32 ? (offset = 0) : (offset = 8);
+
+	return exynos5433_pin_ctrl[0].base + eint + offset;
 }
 #endif

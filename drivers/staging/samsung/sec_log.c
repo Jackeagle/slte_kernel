@@ -6,6 +6,7 @@
 #include <linux/module.h>
 #include <linux/uaccess.h>
 #include <linux/proc_fs.h>
+#include <linux/memblock.h>
 
 #include <linux/sec_debug.h>
 #include <plat/map-base.h>
@@ -111,11 +112,6 @@ static int __init sec_log_setup(char *str)
 	    || kstrtoul(str + 1, 0, &base))
 		goto out;
 
-	if (reserve_bootmem(base - 8, size + 8, BOOTMEM_EXCLUSIVE)) {
-		pr_err("%s: failed reserving size %d + 8 " \
-		       "at base 0x%lx - 8\n", __func__, size, base);
-		goto out;
-	}
 #ifdef CONFIG_SEC_LOG_NONCACHED
 	log_buf_iodesc[0].pfn = __phys_to_pfn((unsigned long)base - 0x100000);
 	log_buf_iodesc[0].length = (unsigned long)(size + 0x100000);
@@ -146,12 +142,31 @@ static int __init sec_log_setup(char *str)
 		sec_log_size);
 
 	sec_getlog_supply_kloginfo(phys_to_virt(base));
+out:
+	return 0;
+}
+__setup("sec_log=", sec_log_setup);
+
+static int __init sec_log_early_setup(char *str)
+{
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+	    || kstrtoul(str + 1, 0, &base))
+		goto out;
+
+	if (memblock_reserve(base - 8, size + 8)) {
+		pr_err("%s: failed reserving size %d + 8 " \
+		       "at base 0x%lx - 8\n", __func__, size, base);
+	}
 
 out:
 	return 0;
 }
 
-__setup("sec_log=", sec_log_setup);
+early_param("sec_log", sec_log_early_setup);
 
 static ssize_t sec_log_read_all(struct file *file, char __user *buf,
 				size_t len, loff_t *offset)
@@ -204,18 +219,16 @@ static int __init sec_etb_setup(char *str)
 	    || kstrtoul(str + 1, 0, &base))
 		goto out;
 
-	if (reserve_bootmem(base, size, BOOTMEM_EXCLUSIVE)) {
+	if (memblock_reserve(base, size)) {
 		pr_err("%s: failed reserving size %d " \
 		       "at base 0x%lx\n", __func__, size, base);
-		goto out;
 	}
 
-	return 1;
 out:
 	return 0;
 }
 
-__setup("sec_etb=", sec_etb_setup);
+early_param("sec_etb", sec_etb_setup);
 #endif
 
 #ifdef CONFIG_SEC_AVC_LOG
@@ -224,16 +237,12 @@ static int __init sec_avc_log_setup(char *str)
 	unsigned size = memparse(str, &str);
 	unsigned long base = 0;
 	unsigned *sec_avc_log_mag;
+
 	/* If we encounter any problem parsing str ... */
 	if (!size || size != roundup_pow_of_two(size) || *str != '@'
 		|| kstrtoul(str + 1, 0, &base))
 			goto out;
 
-	if (reserve_bootmem(base - 8 , size + 8, BOOTMEM_EXCLUSIVE)) {
-			pr_err("%s: failed reserving size %d " \
-						"at base 0x%lx\n", __func__, size, base);
-			goto out;
-	}
 	/* TODO: remap noncached area.
 	avc_log_buf_iodesc[0].pfn = __phys_to_pfn((unsigned long)base);
 	avc_log_buf_iodesc[0].length = (unsigned long)(size);
@@ -257,11 +266,32 @@ static int __init sec_avc_log_setup(char *str)
 		*sec_avc_log_ptr = 0;
 		*sec_avc_log_mag = LOG_MAGIC;
 	}
-	return 1;
+
 out:
 	return 0;
 }
 __setup("sec_avc_log=", sec_avc_log_setup);
+
+static int __init sec_avc_log_early_setup(char *str)
+{
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+		|| kstrtoul(str + 1, 0, &base))
+			goto out;
+
+	if (memblock_reserve(base - 8, size + 8)) {
+		pr_err("%s: failed reserving size %d " \
+					"at base 0x%lx\n", __func__, size, base);
+		goto out;
+	}
+
+out:
+	return 0;
+}
+early_param("sec_avc_log", sec_avc_log_early_setup);
 
 #define BUF_SIZE 512
 void sec_debug_avc_log(char *fmt, ...)
@@ -384,16 +414,11 @@ static int __init sec_tsp_log_setup(char *str)
 	unsigned size = memparse(str, &str);
 	unsigned long base = 0;
 	unsigned *sec_tsp_log_mag;
+
 	/* If we encounter any problem parsing str ... */
 	if (!size || size != roundup_pow_of_two(size) || *str != '@'
 		|| kstrtoul(str + 1, 0, &base))
 			goto out;
-
-	if (reserve_bootmem(base - 8 , size + 8, BOOTMEM_EXCLUSIVE)) {
-			pr_err("%s: failed reserving size %d " \
-						"at base 0x%lx\n", __func__, size, base);
-			goto out;
-	}
 
 	sec_tsp_log_mag = phys_to_virt(base) - 8;
 	sec_tsp_log_ptr = phys_to_virt(base) - 4;
@@ -410,11 +435,30 @@ static int __init sec_tsp_log_setup(char *str)
 		*sec_tsp_log_ptr = 0;
 		*sec_tsp_log_mag = LOG_MAGIC;
 	}
-	return 1;
 out:
 	return 0;
 }
 __setup("sec_tsp_log=", sec_tsp_log_setup);
+
+static int __init sec_tsp_log_early_setup(char *str)
+{
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+		|| kstrtoul(str + 1, 0, &base))
+			goto out;
+
+	if (memblock_reserve(base - 8 , size + 8)) {
+			pr_err("%s: failed reserving size %d " \
+						"at base 0x%lx\n", __func__, size, base);
+			goto out;
+	}
+out:
+	return 0;
+}
+early_param("sec_tsp_log", sec_tsp_log_early_setup);
 
 static int sec_tsp_log_timestamp(unsigned int idx)
 {
@@ -629,7 +673,8 @@ late_initcall(sec_log_last_kmsg_late_init);
 
 #ifdef CONFIG_SEC_DEBUG_TIMA_LOG
 #ifdef   CONFIG_TIMA_RKP
-#ifdef CONFIG_SOC_EXYNOS5430
+#if defined(CONFIG_SOC_EXYNOS5430) || defined(CONFIG_SOC_EXYNOS5433)
+
 #define   TIMA_DEBUG_LOG_START  0x30300000
 #define   TIMA_DEBUG_LOG_SIZE   1<<20
 
@@ -665,37 +710,37 @@ late_initcall(sec_log_last_kmsg_late_init);
 #endif
 
 static int  tima_setup_rkp_mem(void){
-	if(reserve_bootmem(TIMA_DEBUG_LOG_START, TIMA_DEBUG_LOG_SIZE, BOOTMEM_EXCLUSIVE)){
+	if(memblock_reserve(TIMA_DEBUG_LOG_START, TIMA_DEBUG_LOG_SIZE)){
 		pr_err("%s: RKP failed reserving size %d " \
 			   "at base 0x%x\n", __func__, TIMA_DEBUG_LOG_SIZE, TIMA_DEBUG_LOG_START);
 		goto out;
 	}
 	pr_info("RKP :%s, base:%x, size:%x \n", __func__,TIMA_DEBUG_LOG_START, TIMA_DEBUG_LOG_SIZE);
 
- 		   
-	if(reserve_bootmem(TIMA_SEC_TO_PGT, TIMA_SEC_TO_PGT_SIZE, BOOTMEM_EXCLUSIVE)){
+
+	if(memblock_reserve(TIMA_SEC_TO_PGT, TIMA_SEC_TO_PGT_SIZE)){
 		pr_err("%s: RKP failed reserving size %d " \
 			   "at base 0x%x\n", __func__, TIMA_SEC_TO_PGT_SIZE, TIMA_SEC_TO_PGT);
 		goto out;
 	}
 	pr_info("RKP :%s, base:%x, size:%x \n", __func__,TIMA_SEC_TO_PGT, TIMA_SEC_TO_PGT_SIZE);
- 
 
-	if(reserve_bootmem(TIMA_SEC_LOG, TIMA_SEC_LOG_SIZE, BOOTMEM_EXCLUSIVE)){
+
+	if(memblock_reserve(TIMA_SEC_LOG, TIMA_SEC_LOG_SIZE)){
 		pr_err("%s: RKP failed reserving size %d " \
 			   "at base 0x%x\n", __func__, TIMA_SEC_LOG_SIZE, TIMA_SEC_LOG);
 		goto out;
 	}
 	pr_info("RKP :%s, base:%x, size:%x \n", __func__,TIMA_SEC_LOG, TIMA_SEC_LOG_SIZE);
 
-	if(reserve_bootmem(TIMA_PHYS_MAP,  TIMA_PHYS_MAP_SIZE, BOOTMEM_EXCLUSIVE)){
+	if(memblock_reserve(TIMA_PHYS_MAP,  TIMA_PHYS_MAP_SIZE)){
 		pr_err("%s: RKP failed reserving size %d "					\
 			   "at base 0x%x\n", __func__, TIMA_PHYS_MAP_SIZE, TIMA_PHYS_MAP);
 		goto out;
 	}
 	pr_info("RKP :%s, base:%x, size:%x \n", __func__,TIMA_PHYS_MAP, TIMA_PHYS_MAP_SIZE);
 
-	if(reserve_bootmem(TIMA_DASHBOARD_START,  TIMA_DASHBOARD_SIZE, BOOTMEM_EXCLUSIVE)){
+	if(memblock_reserve(TIMA_DASHBOARD_START,  TIMA_DASHBOARD_SIZE)){
 		pr_err("%s: RKP failed reserving size %d "					\
 			   "at base 0x%x\n", __func__, TIMA_DASHBOARD_SIZE, TIMA_DASHBOARD_START);
 		goto out;
@@ -713,7 +758,8 @@ static int tima_setup_rkp_mem(void){
 	return 1;
 }
 #endif
-static int __init sec_tima_log_setup(char *str)
+
+static int __init sec_tima_log_eary_setup(char *str)
 {
 	unsigned size = memparse(str, &str);
 	unsigned long base = 0;
@@ -722,21 +768,22 @@ static int __init sec_tima_log_setup(char *str)
 		|| kstrtoul(str + 1, 0, &base))
 			goto out;
 
-	if (reserve_bootmem(base , size, BOOTMEM_EXCLUSIVE)) {
+	if (memblock_reserve(base , size)) {
 			pr_err("%s: failed reserving size %d " \
 						"at base 0x%lx\n", __func__, size, base);
 			goto out;
 	}
+
 	pr_info("tima :%s, base:%lx, size:%x \n", __func__,base, size);
 
+	if (!tima_setup_rkp_mem()) {
+		goto out;
+	}
 
-	if( !tima_setup_rkp_mem())  goto out; 
-
-	return 1;
 out:
 	return 0;
 }
-__setup("sec_tima_log=", sec_tima_log_setup);
+early_param("sec_tima_log", sec_tima_log_eary_setup);
 #endif
 
 #ifdef CONFIG_SEC_DEBUG_PMU_LOG
@@ -759,11 +806,6 @@ static int __init sec_pmu_log_setup(char *str)
 		|| kstrtoul(str + 1, 0, &base)) {
 			goto out;
 	}
-	if (reserve_bootmem(base - 8, size + 8, BOOTMEM_EXCLUSIVE)) {
-			pr_err("%s: failed reserving size %d " \
-						"at base 0x%lx\n", __func__, size, base);
-			goto out;
-	}
 
 	sec_pmu_log_mag = phys_to_virt(base) - 8;
 	sec_pmu_log_ptr = phys_to_virt(base) - 4;
@@ -780,15 +822,37 @@ static int __init sec_pmu_log_setup(char *str)
 		*sec_pmu_log_ptr = 0;
 		*sec_pmu_log_mag = LOG_MAGIC;
 	}
-	return 1;
+
 out:
 	return 0;
 }
 __setup("sec_pmu_log=", sec_pmu_log_setup);
 
-void exynos5_pmu_debug_save(void)
+static int __init sec_pmu_log_early_setup(char *str)
 {
-	unsigned int i = 0;
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+		|| kstrtoul(str + 1, 0, &base)) {
+			goto out;
+	}
+
+	if (memblock_reserve(base - 8, size + 8)) {
+			pr_err("%s: failed reserving size %d " \
+						"at base 0x%lx\n", __func__, size, base);
+			goto out;
+	}
+out:
+	return 0;
+}
+early_param("sec_pmu_log", sec_pmu_log_early_setup);
+
+#ifdef CONFIG_ARCH_EXYNOS5
+void exynos_pmu_debug_save(void)
+{
+	int i;
 
 	/*	PMU  */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x2000, 0x8);	/* EGL0 */
@@ -805,7 +869,9 @@ void exynos5_pmu_debug_save(void)
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x2620, 0x4);	/* KFC L2 */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x4060, 0x4);	/* G3D */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x4180, 0x4);	/* MFC0 */
+#ifdef CONFIG_SOC_EXYNOS5430
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x41A0, 0x4);	/* MFC1 */
+#endif
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x41C0, 0x4);	/* HEVC */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x4000, 0x4);	/* GSCL */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x40C0, 0x4);	/* AUD */
@@ -822,8 +888,17 @@ void exynos5_pmu_debug_save(void)
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0710, 0x8);	/* MIPI */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0720, 0x0);	/* LLI */
 	PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0724, 0x0);	/* UFS */
+#ifdef CONFIG_SOC_EXYNOS5433
+    PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0708, 0x0);   /* USBHOST20 */
+    PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0728, 0x0);   /* USBHOST30 */
+    PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x072C, 0x0);   /* MIPI_DPHY_M4S0 */
+    PM_DEBUG_SAVE(EXYNOS_PMUREG, 0x0730, 0x0);   /* PCIE */
+#endif
 }
-EXPORT_SYMBOL_GPL(exynos5_pmu_debug_save);
+#else
+void exynos_pmu_debug_save(void){}
+#endif
+EXPORT_SYMBOL_GPL(exynos_pmu_debug_save);
 #endif
 
 #ifdef CONFIG_SEC_DEBUG_CMU_LOG
@@ -844,12 +919,6 @@ static int __init sec_cmu_log_setup(char *str)
 		|| kstrtoul(str + 1, 0, &base))
 			goto out;
 
-	if (reserve_bootmem(base - 8, size + 8, BOOTMEM_EXCLUSIVE)) {
-			pr_err("%s: failed reserving size %d " \
-						"at base 0x%lx\n", __func__, size, base);
-			goto out;
-	}
-
 	sec_cmu_log_mag = phys_to_virt(base) - 8;
 	sec_cmu_log_ptr = phys_to_virt(base) - 4;
 	sec_cmu_log_buf = phys_to_virt(base);
@@ -865,17 +934,41 @@ static int __init sec_cmu_log_setup(char *str)
 		*sec_cmu_log_ptr = 0;
 		*sec_cmu_log_mag = LOG_MAGIC;
 	}
-	return 1;
+
 out:
 	return 0;
 }
 __setup("sec_cmu_log=", sec_cmu_log_setup);
 
-void exynos5_cmu_debug_save(void)
+static int __init sec_cmu_log_early_setup(char *str)
+{
+	unsigned size = memparse(str, &str);
+	unsigned long base = 0;
+
+	/* If we encounter any problem parsing str ... */
+	if (!size || size != roundup_pow_of_two(size) || *str != '@'
+		|| kstrtoul(str + 1, 0, &base))
+			goto out;
+
+	if (memblock_reserve(base - 8, size + 8)) {
+			pr_err("%s: failed reserving size %d " \
+						"at base 0x%lx\n", __func__, size, base);
+			goto out;
+	}
+
+out:
+	return 0;
+}
+early_param("sec_cmu_log", sec_cmu_log_early_setup);
+
+#ifdef CONFIG_ARCH_EXYNOS5
+void exynos_cmu_debug_save(void)
 {
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x4064, 0x0);	/* G3D */
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x4184, 0x4);	/* MFC0 */
+#ifdef CONFIG_SOC_EXYNOS5430
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x41A4, 0x8);	/* MFC1 */
+#endif
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x41C4, 0xC);	/* HEVC */
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x4004, 0x10);	/* GSCL */
 	CMU_DEBUG_SAVE(EXYNOS_PMUREG, 0x40C4, 0x14);	/* AUD */
@@ -954,5 +1047,8 @@ void exynos5_cmu_debug_save(void)
 		CMU_DEBUG_SAVE(EXYNOS_CLKREG_IMEM, 0x0B04, 0x9C);
 	}
 }
-EXPORT_SYMBOL_GPL(exynos5_cmu_debug_save);
+#else
+void exynos_cmu_debug_save(void) {}
+#endif
+EXPORT_SYMBOL_GPL(exynos_cmu_debug_save);
 #endif

@@ -90,6 +90,9 @@
 #define SCRATCH_PAD_SIZE		64
 
 #ifdef CONFIG_MHL3_SEC_FEATURE
+#define	MHL_DETTACHED	0
+#define	MHL_ATTACHED	1
+
 #define MHL_CON_UNHANDLED		0
 #define MHL_CON_HANDLED			1
 #define MHL_CON_RETRY			2
@@ -191,13 +194,20 @@ enum tdm_vc_assignments {
 	(('M' << 24) | ('H' << 16) | ('L' << 8) | ' ')
 
 struct mhl_dev_context {
+#ifdef CONFIG_MHL3_DVI_WR
+	bool mhl3_to_mhl1_2;
+	union MHLDevCap_u old_dev_cap_cache;
+	union MHLXDevCap_u old_xdev_cap_cache;
+#endif
 #ifdef CONFIG_MHL3_SEC_FEATURE
 	struct sii8620_platform_data *pdata;
 	struct notifier_block                   mhl_nb;
 #if defined(CONFIG_MUIC_NOTIFIER)
 	struct delayed_work		notifier_register_work;
 #endif
-	enum mhl_attached_type		muic_state;
+	unsigned long			muic_state;
+	unsigned long			detection_state;
+	enum mhl_attached_type		mhl_muic_type;
 	struct switch_dev mhl_event_switch;
 	struct wake_lock	mhl_wake_lock;
 #endif /* CONFIG_MHL3_SEC_FEATURE */
